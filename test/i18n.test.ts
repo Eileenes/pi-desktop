@@ -16,8 +16,6 @@ describe("renderer translations", () => {
 			"sourceControl",
 			"settings",
 			"recentProjects",
-			"welcomeTitle",
-			"welcomeBody",
 			"openPreview",
 			"selectModel",
 			"addImage",

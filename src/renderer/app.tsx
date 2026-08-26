@@ -1143,8 +1143,6 @@ export function App() {
 	const promptHistoryIndexRef = useRef(-1);
 	const draftBeforeHistoryRef = useRef("");
 	const previousPhaseRef = useRef<DesktopSessionPhase | undefined>(undefined);
-	const projectMenuRef = useRef<HTMLDivElement>(null);
-	const sessionMenuRef = useRef<HTMLDivElement>(null);
 	const apiKeyProviderIds = snapshot.apiKeyProviders.map((provider) => provider.id).join("\u0000");
 	const authenticationPrompt = snapshot.pendingAuthenticationPrompts[0];
 	const session = snapshot.session;
@@ -1277,8 +1275,14 @@ export function App() {
 	useEffect(() => {
 		if (!projectMenuOpen && !sessionMenuOpen) return;
 		const close = (event: MouseEvent) => {
-			if (!projectMenuRef.current?.contains(event.target as Node)) setProjectMenuOpen(false);
-			if (!sessionMenuRef.current?.contains(event.target as Node)) setSessionMenuOpen(false);
+			const target = event.target;
+			if (!(target instanceof Element)) {
+				setProjectMenuOpen(false);
+				setSessionMenuOpen(false);
+				return;
+			}
+			if (!target.closest(".project-menu-root")) setProjectMenuOpen(false);
+			if (!target.closest(".session-row-wrap.is-current")) setSessionMenuOpen(false);
 		};
 		document.addEventListener("mousedown", close);
 		return () => document.removeEventListener("mousedown", close);
@@ -1939,7 +1943,6 @@ export function App() {
 												<div
 													className={`session-row-wrap ${isCurrent ? "is-current" : ""}`}
 													key={item.path}
-													ref={isCurrent ? sessionMenuRef : undefined}
 												>
 													<button
 														className="session-row"
@@ -2022,18 +2025,87 @@ export function App() {
 						);
 					})
 				) : (
-					<button className="session-row is-current" type="button" onClick={() => promptRef.current?.focus()}>
-						<span className="session-row-icon">
-							<Icon name="chat" size={14} />
-						</span>
-						<span>{session?.name ?? "新会话"}</span>
-					</button>
+					<div className="sidebar-projects-header project-menu-root">
+						<span>{t("projects")}</span>
+						<div className="sidebar-projects-actions">
+							<button
+								className="icon-button compact"
+								type="button"
+								aria-label="项目操作"
+								aria-expanded={projectMenuOpen}
+								onClick={() => setProjectMenuOpen((open) => !open)}
+							>
+								<Icon name="more" size={14} />
+							</button>
+							<button
+								className="icon-button compact"
+								type="button"
+								aria-label="打开项目"
+								disabled={!canChooseWorkspace}
+								onClick={() => void handleChooseWorkspace()}
+							>
+								<Icon name="plus" size={14} />
+							</button>
+						</div>
+						{projectMenuOpen ? renderProjectMenu() : null}
+					</div>
 				)}
 			</section>
 		);
 	}
 
+	const effectiveSidebarView = snapshot.workspacePath ? sidebarView : "chats";
 	const macOSClassName = navigator.userAgent.includes("Macintosh") ? "is-macos" : "";
+
+	function renderProjectMenu() {
+		return (
+			<div className="project-menu" role="menu">
+				<button
+					className="project-menu-item"
+					type="button"
+					disabled={!canChooseWorkspace}
+					onClick={() => {
+						setProjectMenuOpen(false);
+						void handleChooseWorkspace();
+					}}
+				>
+					<Icon name="folder" size={14} />
+					<span>{t("chooseFolder")}</span>
+				</button>
+				{recentWorkspaces.length > 0 ? (
+					<>
+						<div className="project-menu-label">{t("recentProjects")}</div>
+						{recentWorkspaces.map((path) => (
+							<button
+								className="project-menu-item"
+								key={path}
+								type="button"
+								title={path}
+								disabled={session?.phase === "running"}
+								onClick={() => {
+									setProjectMenuOpen(false);
+									void handleSwitchWorkspacePath(path);
+								}}
+							>
+								<Icon name="folder" size={14} />
+								<span>{formatWorkspace(path)}</span>
+							</button>
+						))}
+					</>
+				) : null}
+				{snapshot.workspacePath ? (
+					<WorktreeSection
+						key={snapshot.workspacePath}
+						workspacePath={snapshot.workspacePath}
+						onSwitch={(path) => {
+							setProjectMenuOpen(false);
+							void handleSwitchWorkspacePath(path);
+						}}
+					/>
+				) : null}
+			</div>
+		);
+	}
 
 	return (
 		<main
@@ -2094,91 +2166,49 @@ export function App() {
 						<Icon name="plus" size={16} />
 						<span>{t("newChat")}</span>
 					</button>
-					<div className="project-switcher-wrap" ref={projectMenuRef}>
-						<button
-							className="project-switcher"
-							disabled={!canChooseWorkspace}
-							type="button"
-							aria-expanded={projectMenuOpen}
-							onClick={() => setProjectMenuOpen((open) => !open)}
-						>
-							<Icon name="folder" size={15} />
-							<span className="project-switcher-name">
-								{openingWorkspace ? "正在打开项目…" : formatWorkspace(snapshot.workspacePath)}
-							</span>
-							<span className="switcher-chevron">
-								<Icon name="chevron" size={14} />
-							</span>
-						</button>
-						{projectMenuOpen ? (
-							<div className="project-menu" role="menu">
-								<button
-									className="project-menu-item"
-									type="button"
-									disabled={!canChooseWorkspace}
-									onClick={() => {
-										setProjectMenuOpen(false);
-										void handleChooseWorkspace();
-									}}
-								>
-									<Icon name="folder" size={14} />
-									<span>{t("chooseFolder")}</span>
-								</button>
-								{recentWorkspaces.length > 0 ? (
-									<>
-										<div className="project-menu-label">{t("recentProjects")}</div>
-										{recentWorkspaces.map((path) => (
-											<button
-												className="project-menu-item"
-												key={path}
-												type="button"
-												title={path}
-												disabled={session?.phase === "running"}
-												onClick={() => {
-													setProjectMenuOpen(false);
-													void handleSwitchWorkspacePath(path);
-												}}
-											>
-												<Icon name="folder" size={14} />
-												<span>{formatWorkspace(path)}</span>
-											</button>
-										))}
-									</>
-								) : null}
-								{snapshot.workspacePath ? (
-									<WorktreeSection
-										key={snapshot.workspacePath}
-										workspacePath={snapshot.workspacePath}
-										onSwitch={(path) => {
-											setProjectMenuOpen(false);
-											void handleSwitchWorkspacePath(path);
-										}}
-									/>
-								) : null}
-							</div>
-						) : null}
-					</div>
-					<div className="sidebar-segments" role="tablist" aria-label="侧栏视图">
-						<button
-							type="button"
-							role="tab"
-							aria-selected={sidebarView === "chats"}
-							className={sidebarView === "chats" ? "is-active" : ""}
-							onClick={() => setSidebarView("chats")}
-						>
-							{t("chats")}
-						</button>
-						<button
-							type="button"
-							role="tab"
-							aria-selected={sidebarView === "files"}
-							className={sidebarView === "files" ? "is-active" : ""}
-							onClick={() => setSidebarView("files")}
-						>
-							{t("files")}
-						</button>
-					</div>
-					{sidebarView === "chats" ? (
+					{snapshot.workspacePath ? (
+						<div className="project-switcher-wrap project-menu-root">
+							<button
+								className="project-switcher"
+								disabled={!canChooseWorkspace}
+								type="button"
+								aria-expanded={projectMenuOpen}
+								onClick={() => setProjectMenuOpen((open) => !open)}
+							>
+								<Icon name="folder" size={15} />
+								<span className="project-switcher-name">
+									{openingWorkspace ? "正在打开项目…" : formatWorkspace(snapshot.workspacePath)}
+								</span>
+								<span className="switcher-chevron">
+									<Icon name="chevron" size={14} />
+								</span>
+							</button>
+							{projectMenuOpen ? renderProjectMenu() : null}
+						</div>
+					) : null}
+					{snapshot.workspacePath ? (
+						<div className="sidebar-segments" role="tablist" aria-label="侧栏视图">
+							<button
+								type="button"
+								role="tab"
+								aria-selected={sidebarView === "chats"}
+								className={sidebarView === "chats" ? "is-active" : ""}
+								onClick={() => setSidebarView("chats")}
+							>
+								{t("chats")}
+							</button>
+							<button
+								type="button"
+								role="tab"
+								aria-selected={sidebarView === "files"}
+								className={sidebarView === "files" ? "is-active" : ""}
+								onClick={() => setSidebarView("files")}
+							>
+								{t("files")}
+							</button>
+						</div>
+					) : null}
+					{effectiveSidebarView === "chats" ? (
 						<div className="sidebar-search-wrap">
 							<Icon name="search" size={13} />
 							<input
@@ -2196,7 +2226,7 @@ export function App() {
 					) : null}
 				</header>
 				<div className="sidebar-content">
-					{sidebarView === "chats" ? (
+					{effectiveSidebarView === "chats" ? (
 						renderSidebar()
 					) : (
 						<Explorer
@@ -2264,7 +2294,10 @@ export function App() {
 					}}
 				/>
 			) : null}
-			<section className="chat-workspace" aria-label="智能体对话">
+			<section
+				className={`chat-workspace ${!session?.messages.length ? "is-session-empty" : ""}`}
+				aria-label="智能体对话"
+			>
 				<header className="top-bar">
 					{!sidebarOpen ? (
 						<button
@@ -2409,94 +2442,67 @@ export function App() {
 							</section>
 						) : null}
 						<div className="transcript">
-							{session?.messages.length ? (
-								transcriptItems.map((item) => {
-									if (item.type === "process") {
+							{session?.messages.length
+								? transcriptItems.map((item) => {
+										if (item.type === "process") {
+											return (
+												<div
+													className="process-details"
+													key={`process:${item.messages[0]?.id ?? item.blocks.map((block) => block.type).join(":")}`}
+												>
+													<details>
+														<summary className="process-details-trigger">
+															{t("processDetails")} · {item.messageCount}
+															{item.toolCallCount > 0 ? ` · ${item.toolCallCount}` : ""}
+														</summary>
+														<div className="process-details-content">
+															{item.blocks.map((block, blockIndex) => (
+																<TranscriptBlock key={`${block.type}:${blockIndex}`} block={block} />
+															))}
+															{item.messages.map((message) => {
+																const call = message.toolCallId
+																	? item.blocks.find(
+																			(block) =>
+																				block.type === "toolCall" &&
+																				block.id === message.toolCallId,
+																		)
+																	: undefined;
+																return (
+																	<CollapsibleTranscriptEntry
+																		key={message.id}
+																		message={message}
+																		toolCall={
+																			call?.type === "toolCall"
+																				? { name: call.name, input: call.input }
+																				: undefined
+																		}
+																	/>
+																);
+															})}
+														</div>
+													</details>
+												</div>
+											);
+										}
+										const turnIndex = conversationTurns.findIndex(
+											(turn) => turn.messageId === item.message.id,
+										);
 										return (
 											<div
-												className="process-details"
-												key={`process:${item.messages[0]?.id ?? item.blocks.map((block) => block.type).join(":")}`}
+												data-conversation-turn={turnIndex >= 0 ? turnIndex : undefined}
+												data-turn-id={item.message.id}
+												key={item.message.id}
 											>
-												<details>
-													<summary className="process-details-trigger">
-														{t("processDetails")} · {item.messageCount}
-														{item.toolCallCount > 0 ? ` · ${item.toolCallCount}` : ""}
-													</summary>
-													<div className="process-details-content">
-														{item.blocks.map((block, blockIndex) => (
-															<TranscriptBlock key={`${block.type}:${blockIndex}`} block={block} />
-														))}
-														{item.messages.map((message) => {
-															const call = message.toolCallId
-																? item.blocks.find(
-																		(block) =>
-																			block.type === "toolCall" && block.id === message.toolCallId,
-																	)
-																: undefined;
-															return (
-																<CollapsibleTranscriptEntry
-																	key={message.id}
-																	message={message}
-																	toolCall={
-																		call?.type === "toolCall"
-																			? { name: call.name, input: call.input }
-																			: undefined
-																	}
-																/>
-															);
-														})}
-													</div>
-												</details>
+												<TranscriptMessage
+													message={item.message}
+													modelLabel={session.model?.id}
+													onEdit={handleEditMessage}
+													onFork={(entryId) => void handleForkFromMessage(entryId)}
+												/>
 											</div>
 										);
-									}
-									const turnIndex = conversationTurns.findIndex((turn) => turn.messageId === item.message.id);
-									return (
-										<div
-											data-conversation-turn={turnIndex >= 0 ? turnIndex : undefined}
-											data-turn-id={item.message.id}
-											key={item.message.id}
-										>
-											<TranscriptMessage
-												message={item.message}
-												modelLabel={session.model?.id}
-												onEdit={handleEditMessage}
-												onFork={(entryId) => void handleForkFromMessage(entryId)}
-											/>
-										</div>
-									);
-								})
-							) : snapshot.workspacePath ? (
-								<div className="chat-empty-state">
-									<span className="empty-index">01</span>
-									<h2>{t("welcomeTitle")}</h2>
-									<p>{t("welcomeBody")}</p>
-									<div className="empty-suggestions">
-										<button type="button" onClick={() => setDraft("解释这个项目的结构和关键入口")}>
-											解释项目结构
-										</button>
-										<button type="button" onClick={() => setDraft("检查当前改动并找出潜在问题")}>
-											审查当前改动
-										</button>
-										<button type="button" onClick={() => setDraft("帮我实现一个新功能：")}>
-											实现新功能
-										</button>
-									</div>
-								</div>
-							) : (
-								<div className="workspace-get-started">
-									<Icon name="chevron" size={44} />
-									<div>
-										<strong>开始使用</strong>
-										<p>
-											<span>1.</span> 选择项目
-										</p>
-										<p>
-											<span>2.</span> 添加模型
-										</p>
-									</div>
-								</div>
-							)}
+									})
+								: null}
 							{session?.pendingMessages.map((message, index) => (
 								<div className="queued-message" key={`${message.behavior}:${index}:${message.text}`}>
 									<span>{message.behavior === "steer" ? "引导" : "跟进"}</span>
@@ -2730,15 +2736,27 @@ export function App() {
 						<div className="composer-footer">
 							<div className="composer-footer-left">
 								<div className="composer-control-group">
-									<button
-										aria-label={t("addImage")}
-										className="composer-icon-button"
-										disabled={!session || choosingImages || session.phase === "running"}
-										type="button"
-										onClick={() => void handleChooseImages()}
-									>
-										<Icon name="image" size={16} />
-									</button>
+									{snapshot.workspacePath ? (
+										<button
+											aria-label={t("addImage")}
+											className="composer-icon-button"
+											disabled={!session || choosingImages || session.phase === "running"}
+											type="button"
+											onClick={() => void handleChooseImages()}
+										>
+											<Icon name="image" size={16} />
+										</button>
+									) : (
+										<button
+											className="composer-control-button"
+											type="button"
+											disabled={!canChooseWorkspace}
+											onClick={() => void handleChooseWorkspace()}
+										>
+											<Icon name="folder" size={15} />
+											<span>{formatWorkspace(undefined)}</span>
+										</button>
+									)}
 									<button
 										className="composer-control-button"
 										type="button"

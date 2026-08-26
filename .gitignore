@@ -1,21 +1,11 @@
 node_modules/
 dist/
-.artifacts/
 *.log
 .DS_Store
 *.tsbuildinfo
-# packages/*/node_modules/
-packages/*/dist/
-packages/*/dist-chrome/
-packages/*/dist-firefox/
-packages/ai/src/providers/data/
-packages/ai/src/providers/.model-generation-*/
-*.cpuprofile
-
-# Environment
+coverage/
+.artifacts/
 .env
-
-# Editor files
 .vscode/
 .zed/
 .idea/
@@ -23,22 +13,9 @@ packages/ai/src/providers/.model-generation-*/
 *.swp
 *.swo
 *~
-
-# Package specific
 .npm/
-coverage/
-.nyc_output/
 .pi_config/
-tui-debug.log
-compaction-results/
-.opencode/
-syntax.jsonl
-out.jsonl
-pi-*.html
-out.html
-packages/coding-agent/binaries/
-todo.md
-plans/
-.pi/hf-sessions/
-.pi/hf-sessions-backup/
-collect.sh
+
+# Electron packaging
+release/
+out/

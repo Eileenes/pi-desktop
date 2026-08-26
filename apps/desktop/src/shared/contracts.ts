@@ -480,9 +480,45 @@ export function isDesktopModelTestInput(value: unknown): value is DesktopModelTe
 	if (typeof value.model !== "object" || value.model === null || Array.isArray(value.model)) return false;
 	const provider = value.provider as Record<string, unknown>;
 	const model = value.model as Record<string, unknown>;
-	return (
-		typeof provider.id === "string" && provider.id.length > 0 && typeof model.id === "string" && model.id.length > 0
-	);
+	const providerKeys = ["id", "name", "baseUrl", "apiKey", "api"];
+	const modelKeys = ["id", "name", "api", "reasoning", "input", "contextWindow", "maxTokens", "cost"];
+	if (!Object.keys(provider).every((key) => providerKeys.includes(key))) return false;
+	if (!Object.keys(model).every((key) => modelKeys.includes(key))) return false;
+	if (typeof provider.id !== "string" || provider.id.length === 0 || provider.id.length > 200) return false;
+	if (provider.name !== undefined && (typeof provider.name !== "string" || provider.name.length > 500)) return false;
+	if (provider.baseUrl !== undefined && (typeof provider.baseUrl !== "string" || provider.baseUrl.length > 2000))
+		return false;
+	if (provider.apiKey !== undefined && (typeof provider.apiKey !== "string" || provider.apiKey.length > 2000))
+		return false;
+	if (provider.api !== undefined && (typeof provider.api !== "string" || provider.api.length > 200)) return false;
+	if (provider.models !== undefined && (!Array.isArray(provider.models) || provider.models.length > 500)) return false;
+	if (typeof model.id !== "string" || model.id.length === 0 || model.id.length > 500) return false;
+	if (model.name !== undefined && (typeof model.name !== "string" || model.name.length > 500)) return false;
+	if (model.api !== undefined && (typeof model.api !== "string" || model.api.length > 200)) return false;
+	if (model.reasoning !== undefined && typeof model.reasoning !== "boolean") return false;
+	if (
+		model.input !== undefined &&
+		(!Array.isArray(model.input) ||
+			model.input.length > 10 ||
+			!model.input.every((item) => typeof item === "string" && item.length <= 50))
+	)
+		return false;
+	if (
+		model.contextWindow !== undefined &&
+		(typeof model.contextWindow !== "number" || !Number.isFinite(model.contextWindow) || model.contextWindow <= 0)
+	)
+		return false;
+	if (
+		model.maxTokens !== undefined &&
+		(typeof model.maxTokens !== "number" || !Number.isFinite(model.maxTokens) || model.maxTokens <= 0)
+	)
+		return false;
+	if (model.cost !== undefined) {
+		if (!isExactRecord(model.cost, ["input", "output", "cacheRead", "cacheWrite"])) return false;
+		if (!Object.values(model.cost).every((item) => typeof item === "number" && Number.isFinite(item) && item >= 0))
+			return false;
+	}
+	return true;
 }
 
 export function isDesktopAuthenticationPromptResponseInput(

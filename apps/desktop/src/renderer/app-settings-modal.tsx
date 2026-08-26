@@ -25,6 +25,7 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 	const [updateError, setUpdateError] = useState<string>();
 	const [checkingUpdate, setCheckingUpdate] = useState(true);
 	const [cssBusy, setCssBusy] = useState(false);
+	const [cssError, setCssError] = useState<string>();
 
 	useEffect(() => {
 		let active = true;
@@ -119,12 +120,18 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 							disabled={cssBusy}
 							onClick={() => {
 								setCssBusy(true);
-								void openCustomCss().finally(() => setCssBusy(false));
+								setCssError(undefined);
+								void openCustomCss()
+									.catch((error: unknown) =>
+										setCssError(error instanceof Error ? error.message : String(error)),
+									)
+									.finally(() => setCssBusy(false));
 							}}
 						>
 							{cssBusy ? "正在打开…" : "打开 custom.css"}
 						</button>
 					</div>
+					{cssError ? <p className="sidebar-error">{cssError}</p> : null}
 				</section>
 				<section className="app-settings-card">
 					<strong>桌面应用</strong>

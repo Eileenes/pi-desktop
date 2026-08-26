@@ -36,6 +36,7 @@ import {
 	isDesktopToolApprovalDecisionInput,
 	isDesktopWorkspaceFileInput,
 } from "../shared/contracts.ts";
+import { isNewerVersion } from "../shared/version.ts";
 import { DesktopAgentHost, type DesktopPromptImage } from "./desktop-agent-host.ts";
 
 const currentDirectory = fileURLToPath(new URL(".", import.meta.url));
@@ -442,7 +443,7 @@ function registerIpc(): void {
 			currentVersion: app.getVersion(),
 			...(latestVersion ? { latestVersion } : {}),
 			releaseUrl: release.html_url ?? "https://github.com/earendil-works/pi/releases",
-			updateAvailable: Boolean(latestVersion && latestVersion !== app.getVersion()),
+			updateAvailable: Boolean(latestVersion && isNewerVersion(latestVersion, app.getVersion())),
 			checkedAt: Date.now(),
 		};
 	});

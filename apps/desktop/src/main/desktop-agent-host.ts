@@ -567,7 +567,12 @@ export class DesktopAgentHost {
 					return this.authenticationPromptQueue.request(this.toDesktopAuthenticationPrompt(prompt), prompt.signal);
 				},
 				notify: (event) => {
-					if (event.type === "auth_url") void shell.openExternal(event.url);
+					if (event.type === "auth_url") {
+						void shell.openExternal(event.url).catch((error: unknown) => {
+							this.error = error instanceof Error ? error.message : "无法打开 OAuth 登录页面。";
+							this.publish();
+						});
+					}
 					this.authenticationNotice =
 						event.type === "auth_url"
 							? (event.instructions ?? "请在浏览器窗口中完成模型服务商登录。")
@@ -714,7 +719,7 @@ export class DesktopAgentHost {
 				JSON.stringify({ providers: { [provider.id]: { ...provider, id: undefined, models: [{ ...model }] } } }),
 			);
 			const runtime = await ModelRuntime.create({
-				authPath: join(tempDir, "auth.json"),
+				authPath: join(this.agentDir, "auth.json"),
 				modelsPath,
 				allowModelNetwork: true,
 			});

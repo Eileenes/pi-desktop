@@ -16,7 +16,7 @@ describe("SecurityAuditLog", () => {
 		const path = join(directory, "audit.jsonl");
 		const log = new SecurityAuditLog(path);
 		log.write("credential.configure", "succeeded", { providerId: "anthropic", authType: "oauth" });
-		await new Promise((resolve) => setTimeout(resolve, 20));
+		await log.flush();
 		const record = JSON.parse((await readFile(path, "utf8")).trim()) as Record<string, unknown>;
 		expect(record.event).toBe("credential.configure");
 		expect(record.outcome).toBe("succeeded");

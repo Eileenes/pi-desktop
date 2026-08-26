@@ -76,9 +76,13 @@ describe("isDesktopProviderSetupInput", () => {
 });
 
 describe("isDesktopModelTestInput", () => {
-	it("requires a provider and model id", () => {
-		expect(isDesktopModelTestInput({ provider: { id: "custom" }, model: { id: "model" } })).toBe(true);
+	it("requires a bounded provider and valid model configuration", () => {
+		expect(isDesktopModelTestInput({ provider: { id: "custom" }, model: { id: "model", maxTokens: 16 } })).toBe(true);
 		expect(isDesktopModelTestInput({ provider: { id: "custom" }, model: { id: "" } })).toBe(false);
+		expect(
+			isDesktopModelTestInput({ provider: { id: "custom", secret: "unexpected" }, model: { id: "model" } }),
+		).toBe(false);
+		expect(isDesktopModelTestInput({ provider: { id: "custom" }, model: { id: "model", maxTokens: 0 } })).toBe(false);
 		expect(isDesktopModelTestInput({ provider: { id: "custom" }, model: { id: "model" }, extra: true })).toBe(false);
 	});
 });

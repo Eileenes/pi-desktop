@@ -58,6 +58,7 @@ export async function startDesktopStore(): Promise<void> {
 	startPromise = (async () => {
 		try {
 			startupError = undefined;
+			await window.piDesktop.setCloseQuits(localStorage.getItem("pi-desktop-close-quits") === "on");
 			const initial = await window.piDesktop.bootstrap();
 			publish(initial);
 			window.piDesktop.onSnapshot(publish);
@@ -217,7 +218,8 @@ export async function logoutProvider(providerId: string): Promise<DesktopSnapsho
 }
 
 export function testModel(provider: DesktopProviderConfig, model: DesktopProviderModelConfig) {
-	return window.piDesktop.testModel({ provider, model });
+	const { models: _models, ...providerWithoutModels } = provider;
+	return window.piDesktop.testModel({ provider: providerWithoutModels, model });
 }
 
 export function openCustomCss(): Promise<string> {

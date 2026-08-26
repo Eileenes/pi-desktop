@@ -30,10 +30,15 @@ export class SecurityAuditLog {
 			...(details ? { details } : {}),
 		};
 		this.queue = this.queue
+			.catch(() => {})
 			.then(async () => {
 				await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
 				await appendFile(this.path, `${JSON.stringify(record)}\n`, { encoding: "utf8", mode: 0o600 });
-			})
-			.catch(() => {});
+			});
+		this.queue.catch((error: unknown) => console.error("Failed to write desktop security audit log", error));
+	}
+
+	flush(): Promise<void> {
+		return this.queue;
 	}
 }

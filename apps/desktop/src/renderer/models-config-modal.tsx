@@ -52,6 +52,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	const [selectedDiscovered, setSelectedDiscovered] = useState<string[]>([]);
 	const [confirmDiscard, setConfirmDiscard] = useState(false);
 	const [providerPickerOpen, setProviderPickerOpen] = useState(false);
+	const [authProvider, setAuthProvider] = useState<DesktopApiKeyProvider>();
 	const [modelTest, setModelTest] = useState<{ phase: "idle" | "loading" | "success" | "error"; message?: string }>({
 		phase: "idle",
 	});
@@ -186,18 +187,30 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 		setSelectedDiscovered([]);
 	}
 
+	function requestProviderSetup(provider: DesktopApiKeyProvider): void {
+		if (provider.supportsApiKey && provider.supportsOAuth) {
+			setAuthProvider(provider);
+			return;
+		}
+		onStartProviderSetup(provider.id, provider.supportsOAuth ? "oauth" : "api_key");
+	}
+
 	async function handleModelTest(): Promise<void> {
 		if (!selectedProvider || !selectedModel) return;
 		setModelTest({ phase: "loading" });
-		const result = await testModel(selectedProvider, selectedModel);
-		setModelTest(
-			result.ok
-				? {
-						phase: "success",
-						message: `连接成功 · ${result.latencyMs ?? 0}ms${result.responseText ? ` · ${result.responseText}` : ""}`,
-					}
-				: { phase: "error", message: result.error ?? "连接失败" },
-		);
+		try {
+			const result = await testModel(selectedProvider, selectedModel);
+			setModelTest(
+				result.ok
+					? {
+							phase: "success",
+							message: `连接成功 · ${result.latencyMs ?? 0}ms${result.responseText ? ` · ${result.responseText}` : ""}`,
+						}
+					: { phase: "error", message: result.error ?? "连接失败" },
+			);
+		} catch (error) {
+			setModelTest({ phase: "error", message: error instanceof Error ? error.message : String(error) });
+		}
 	}
 
 	async function handleSave(): Promise<void> {
@@ -226,7 +239,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								onClick={() => {
 									onChangeProvider(provider.id);
 									if (provider.configured) setSelection({ type: "managed", providerId: provider.id });
-									else onStartProviderSetup(provider.id, provider.supportsOAuth ? "oauth" : "api_key");
+									else requestProviderSetup(provider);
 								}}
 							>
 								<span className="models-provider-mark">{provider.name.slice(0, 1).toUpperCase()}</span>
@@ -290,7 +303,12 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							<button
 								className="danger-button"
 								type="button"
-								onClick={() => void logoutProvider(managedProvider.id)}
+								onClick={() => {
+									setSaveError(undefined);
+									void logoutProvider(managedProvider.id).catch((error: unknown) =>
+										setSaveError(error instanceof Error ? error.message : String(error)),
+									);
+								}}
 							>
 								断开连接
 							</button>
@@ -632,7 +650,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									onClick={() => {
 										onChangeProvider(provider.id);
 										setProviderPickerOpen(false);
-										onStartProviderSetup(provider.id, provider.supportsOAuth ? "oauth" : "api_key");
+										requestProviderSetup(provider);
 									}}
 								>
 									<span>
@@ -642,6 +660,41 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									<b>{provider.name.slice(0, 1).toUpperCase()}</b>
 								</button>
 							))}
+						</div>
+					</div>
+				</div>
+			) : null}
+			{authProvider ? (
+				<div className="models-nested-backdrop">
+					<div className="models-discard-dialog" role="dialog" aria-modal="true" aria-label="选择认证方式">
+						<strong>连接 {authProvider.name}</strong>
+						<p>选择用于该服务商的认证方式。</p>
+						<div>
+							<button className="outline-button" type="button" onClick={() => setAuthProvider(undefined)}>
+								取消
+							</button>
+							<button
+								className="outline-button"
+								type="button"
+								onClick={() => {
+									const provider = authProvider;
+									setAuthProvider(undefined);
+									onStartProviderSetup(provider.id, "api_key");
+								}}
+							>
+								API Key
+							</button>
+							<button
+								className="accent-button"
+								type="button"
+								onClick={() => {
+									const provider = authProvider;
+									setAuthProvider(undefined);
+									onStartProviderSetup(provider.id, "oauth");
+								}}
+							>
+								{authProvider.oauthName ?? "OAuth"}
+							</button>
 						</div>
 					</div>
 				</div>

@@ -16,6 +16,7 @@ import {
 } from "electron";
 import type { Response as FetchResponse } from "undici-types";
 import {
+	type DesktopImageAttachment,
 	type DesktopSnapshot,
 	isDesktopAddWorktreeInput,
 	isDesktopAuthenticationPromptResponseInput,
@@ -32,6 +33,7 @@ import {
 	isDesktopPromptInput,
 	isDesktopProviderLogoutInput,
 	isDesktopProviderSetupInput,
+	isDesktopRemoveWorktreeInput,
 	isDesktopSaveModelsConfigInput,
 	isDesktopToggleSkillInput,
 	isDesktopToolApprovalDecisionInput,
@@ -190,6 +192,32 @@ function createTray(): void {
 	tray.on("click", () => showMainWindow());
 }
 
+async function prepareImageAttachments(filePaths: string[]): Promise<DesktopImageAttachment[]> {
+	if (filePaths.length > MAX_IMAGE_ATTACHMENTS) {
+		throw new Error(`一次最多选择 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
+	}
+	const selected: PendingImageAttachment[] = [];
+	for (const filePath of filePaths) {
+		const content = await readFile(filePath);
+		if (content.length === 0 || content.length > MAX_IMAGE_BYTES) {
+			throw new Error("每张图片必须大于 0 字节且不超过 10 MB。");
+		}
+		const mimeType = getImageMimeType(content);
+		if (!mimeType) throw new Error("仅支持 PNG、JPEG、GIF 和 WebP 图片。");
+		const id = randomUUID();
+		selected.push({
+			id,
+			name: filePath.split(/[\\/]/u).at(-1) ?? "图片",
+			mimeType,
+			size: content.length,
+			image: { data: content.toString("base64"), mimeType },
+		});
+	}
+	pendingImageAttachments.clear();
+	for (const attachment of selected) pendingImageAttachments.set(attachment.id, attachment);
+	return selected.map(({ id, name, mimeType, size }) => ({ id, name, mimeType, size }));
+}
+
 function registerIpc(): void {
 	ipcMain.handle("pi-desktop:bootstrap", async (event) => {
 		assertMainWindowSender(event);
@@ -212,31 +240,18 @@ function registerIpc(): void {
 			filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "gif", "webp"] }],
 		});
 		if (result.canceled) return [];
-		if (result.filePaths.length > MAX_IMAGE_ATTACHMENTS) {
-			throw new Error(`一次最多选择 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
+		return prepareImageAttachments(result.filePaths);
+	});
+	ipcMain.handle("pi-desktop:attach-dropped-images", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (
+			!Array.isArray(value) ||
+			value.length > MAX_IMAGE_ATTACHMENTS ||
+			!value.every((path) => typeof path === "string" && path.length > 0 && path.length <= 4000)
+		) {
+			throw new Error("无效的拖放图片请求。");
 		}
-
-		const selected: PendingImageAttachment[] = [];
-		for (const filePath of result.filePaths) {
-			const content = await readFile(filePath);
-			if (content.length === 0 || content.length > MAX_IMAGE_BYTES) {
-				throw new Error("每张图片必须大于 0 字节且不超过 10 MB。");
-			}
-			const mimeType = getImageMimeType(content);
-			if (!mimeType) throw new Error("仅支持 PNG、JPEG、GIF 和 WebP 图片。");
-			const id = randomUUID();
-			selected.push({
-				id,
-				name: filePath.split(/[\\/]/u).at(-1) ?? "图片",
-				mimeType,
-				size: content.length,
-				image: { data: content.toString("base64"), mimeType },
-			});
-		}
-
-		pendingImageAttachments.clear();
-		for (const attachment of selected) pendingImageAttachments.set(attachment.id, attachment);
-		return selected.map(({ id, name, mimeType, size }) => ({ id, name, mimeType, size }));
+		return prepareImageAttachments(value);
 	});
 	ipcMain.handle("pi-desktop:prompt", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
@@ -393,6 +408,23 @@ function registerIpc(): void {
 			throw new Error("无效的 worktree 请求。");
 		}
 		return getHost().addGitWorktree(value.branch);
+	});
+	ipcMain.handle("pi-desktop:remove-git-worktree", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (!isDesktopRemoveWorktreeInput(value)) {
+			throw new Error("无效的 worktree 删除请求。");
+		}
+		const confirmed = await dialog.showMessageBox({
+			type: "warning",
+			buttons: ["取消", "移除"],
+			defaultId: 0,
+			cancelId: 0,
+			title: "移除 Worktree",
+			message: `确定移除 ${value.path}？`,
+			detail: "Git 将拒绝删除包含未提交修改的 Worktree。",
+		});
+		if (confirmed.response !== 1) return;
+		return getHost().removeGitWorktree(value.path);
 	});
 	ipcMain.handle("pi-desktop:open-workspace-path", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);

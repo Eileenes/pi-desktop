@@ -1,5 +1,5 @@
 // Electron loads sandboxed preload scripts as CommonJS; the .cts extension emits .cjs.
-import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron";
+import { contextBridge, type IpcRendererEvent, ipcRenderer, webUtils } from "electron";
 import type {
 	DesktopApi,
 	DesktopAuthenticationPromptResponseInput,
@@ -18,6 +18,7 @@ import type {
 	DesktopPluginSourceInput,
 	DesktopPromptInput,
 	DesktopProviderConfig,
+	DesktopRemoveWorktreeInput,
 	DesktopProviderLogoutInput,
 	DesktopProviderSetupInput,
 	DesktopSaveModelsConfigInput,
@@ -33,6 +34,8 @@ const desktopApi: DesktopApi = {
 	bootstrap: () => ipcRenderer.invoke("pi-desktop:bootstrap") as Promise<DesktopSnapshot>,
 	chooseWorkspace: () => ipcRenderer.invoke("pi-desktop:choose-workspace") as Promise<DesktopSnapshot>,
 	chooseImages: () => ipcRenderer.invoke("pi-desktop:choose-images") as Promise<DesktopImageAttachment[]>,
+	attachDroppedImages: (files: File[]) =>
+		ipcRenderer.invoke("pi-desktop:attach-dropped-images", files.map((file) => webUtils.getPathForFile(file))) as Promise<DesktopImageAttachment[]>,
 	prompt: (input: DesktopPromptInput) => ipcRenderer.invoke("pi-desktop:prompt", input) as Promise<DesktopSnapshot>,
 	abort: () => ipcRenderer.invoke("pi-desktop:abort") as Promise<DesktopSnapshot>,
 	openSession: (input: DesktopOpenSessionInput) =>
@@ -68,6 +71,8 @@ const desktopApi: DesktopApi = {
 	listGitWorktrees: () => ipcRenderer.invoke("pi-desktop:list-git-worktrees") as Promise<DesktopGitWorktree[]>,
 	addGitWorktree: (input: DesktopAddWorktreeInput) =>
 		ipcRenderer.invoke("pi-desktop:add-git-worktree", input) as Promise<DesktopGitWorktree>,
+	removeGitWorktree: (input: DesktopRemoveWorktreeInput) =>
+		ipcRenderer.invoke("pi-desktop:remove-git-worktree", input) as Promise<void>,
 	openWorkspacePath: (input: DesktopOpenWorkspacePathInput) =>
 		ipcRenderer.invoke("pi-desktop:open-workspace-path", input) as Promise<DesktopSnapshot>,
 	setCloseQuits: (closeQuits: boolean) =>

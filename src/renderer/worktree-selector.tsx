@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useState } from "react";
 import type { DesktopGitWorktree } from "../shared/contracts.ts";
-import { addGitWorktree, listGitWorktrees } from "./desktop-store.ts";
+import { addGitWorktree, listGitWorktrees, removeGitWorktree } from "./desktop-store.ts";
 
 interface WorktreeSelectorProps {
 	workspacePath: string;
@@ -35,6 +35,19 @@ export const WorktreeSelector = memo(function WorktreeSelector({ workspacePath, 
 
 	const currentBranch = worktrees.find((tree) => tree.path === workspacePath)?.branch ?? worktrees[0]?.branch;
 
+	async function handleRemove(path: string): Promise<void> {
+		setBusy(true);
+		setError(undefined);
+		try {
+			await removeGitWorktree(path);
+			await load();
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
+	}
+
 	async function handleAdd(): Promise<void> {
 		const branch = branchDraft.trim();
 		if (!branch) return;
@@ -63,18 +76,29 @@ export const WorktreeSelector = memo(function WorktreeSelector({ workspacePath, 
 				<div className="worktree-popover" role="menu" aria-label="Worktree">
 					<div className="worktree-list">
 						{worktrees.map((tree) => (
-							<button
-								key={tree.path}
-								className={tree.path === workspacePath ? "is-current" : ""}
-								type="button"
-								onClick={() => {
-									setOpen(false);
-									if (tree.path !== workspacePath) onSwitch(tree.path);
-								}}
-							>
-								<span>{tree.branch}</span>
-								<small>{tree.path}</small>
-							</button>
+							<div className={`worktree-row ${tree.path === workspacePath ? "is-current" : ""}`} key={tree.path}>
+								<button
+									className="worktree-row-main"
+									type="button"
+									onClick={() => {
+										setOpen(false);
+										if (tree.path !== workspacePath) onSwitch(tree.path);
+									}}
+								>
+									<span>{tree.branch}</span>
+									<small>{tree.path}</small>
+								</button>
+								{tree.path !== workspacePath ? (
+									<button
+										className="worktree-remove"
+										type="button"
+										aria-label={`移除 ${tree.branch}`}
+										onClick={() => void handleRemove(tree.path)}
+									>
+										×
+									</button>
+								) : null}
+							</div>
 						))}
 					</div>
 					<div className="worktree-add">

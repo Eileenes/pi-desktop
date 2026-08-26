@@ -161,7 +161,7 @@ textarea:focus-visible {
 
 .app-workbench {
 	display: grid;
-	grid-template-columns: 284px minmax(0, 1fr);
+	grid-template-columns: var(--sidebar-width, 260px) 5px minmax(0, 1fr);
 	height: 100vh;
 	min-height: 0;
 	overflow: hidden;
@@ -169,7 +169,26 @@ textarea:focus-visible {
 }
 
 .app-workbench.is-inspector-open {
-	grid-template-columns: 260px minmax(360px, 1fr) minmax(360px, 42vw);
+	grid-template-columns: var(--sidebar-width, 260px) 5px minmax(360px, 1fr) 5px var(--inspector-width, 440px);
+}
+
+.column-resizer {
+	position: relative;
+	z-index: 12;
+	cursor: col-resize;
+	background: var(--border-subtle);
+}
+
+.column-resizer::after {
+	position: absolute;
+	inset: 0 -3px;
+	content: "";
+}
+
+.column-resizer:hover,
+.column-resizer:focus-visible {
+	outline: 0;
+	background: var(--accent);
 }
 
 /* macOS: traffic lights float over the sidebar top; headers are drag regions */
@@ -404,6 +423,37 @@ textarea:focus-visible {
 	font-size: 9px;
 }
 
+.recent-workspaces {
+	display: grid;
+	gap: 2px;
+	margin: 2px 0 8px;
+}
+
+.recent-workspaces button {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	min-width: 0;
+	padding: 5px 9px;
+	border: 0;
+	border-radius: var(--radius-s);
+	color: var(--muted);
+	background: transparent;
+	font-size: 10.5px;
+	text-align: left;
+}
+
+.recent-workspaces button:hover:not(:disabled) {
+	color: var(--text-dim);
+	background: var(--hover);
+}
+
+.recent-workspaces button span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .worktree-selector {
 	position: relative;
 }
@@ -462,10 +512,31 @@ textarea:focus-visible {
 	text-align: left;
 }
 
-.worktree-list button:hover,
-.worktree-list button.is-current {
-	color: var(--text);
+.worktree-row {
+	position: relative;
+	display: flex;
+	align-items: stretch;
+}
+
+.worktree-row:hover,
+.worktree-row.is-current {
 	background: var(--hover);
+}
+
+.worktree-row-main {
+	display: grid;
+	flex: 1 1 auto;
+	gap: 1px;
+	padding: 6px 12px;
+	border: 0;
+	color: var(--text-dim);
+	background: transparent;
+	text-align: left;
+}
+
+.worktree-row-main:hover,
+.worktree-row.is-current .worktree-row-main {
+	color: var(--text);
 }
 
 .worktree-list button span {
@@ -480,6 +551,20 @@ textarea:focus-visible {
 	font-size: 9px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.worktree-remove {
+	align-self: center;
+	margin-right: 5px;
+	padding: 2px 5px;
+	border: 0;
+	color: var(--muted);
+	background: transparent;
+}
+
+.worktree-remove:hover,
+.worktree-remove:focus-visible {
+	color: var(--danger);
 }
 
 .worktree-add {
@@ -1979,6 +2064,17 @@ textarea:focus-visible {
 	word-break: break-word;
 }
 
+.tool-call-id {
+	margin-left: auto;
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 9px;
+}
+
+.entry-detail.is-diff code {
+	display: grid;
+}
+
 .entry-detail small {
 	display: block;
 	margin-top: 8px;
@@ -2074,8 +2170,24 @@ textarea:focus-visible {
 }
 
 .composer {
+	position: relative;
 	padding: 8px 36px 18px;
 	background: transparent;
+}
+
+.drop-image-overlay {
+	position: absolute;
+	inset: 0 24px 10px;
+	z-index: 20;
+	display: grid;
+	place-items: center;
+	border: 1px dashed var(--accent);
+	border-radius: var(--radius-m);
+	color: var(--text);
+	background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+	font-size: 12px;
+	font-weight: 600;
+	pointer-events: none;
 }
 
 .composer-inner {
@@ -2452,6 +2564,64 @@ textarea:focus-visible {
 .inspector-segmented button.is-active {
 	color: var(--text);
 	background: var(--surface-3);
+}
+
+.content-search {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0 12px 8px;
+	padding: 5px 8px;
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-s);
+	color: var(--muted);
+	background: var(--surface-recessed);
+}
+
+.content-search input {
+	min-width: 0;
+	width: 100%;
+	border: 0;
+	outline: 0;
+	color: var(--text);
+	background: transparent;
+	font-size: 11px;
+}
+
+.file-preview-source {
+	overflow: auto;
+	padding: 0 0 16px;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	line-height: 1.55;
+}
+
+.source-line {
+	display: grid;
+	grid-template-columns: 42px minmax(0, 1fr);
+	width: 100%;
+	padding: 0 12px 0 0;
+	border: 0;
+	color: var(--text-dim);
+	background: transparent;
+	text-align: left;
+}
+
+.source-line:hover,
+.source-line.is-match {
+	background: var(--hover);
+}
+
+.source-line-number {
+	padding-right: 10px;
+	color: var(--muted);
+	text-align: right;
+	user-select: none;
+}
+
+.source-line code {
+	min-width: 0;
+	white-space: pre;
 }
 
 .file-preview {
@@ -3199,6 +3369,29 @@ textarea:focus-visible {
 .resource-detail-heading > div { display: grid; gap: 4px; }
 .resource-detail-heading strong { font-size: 15px; }
 .resource-detail-heading code { color: var(--muted); font-size: 10px; }
+.resource-detail-actions {
+	display: flex;
+	gap: 8px;
+}
+
+.resource-package-install {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto auto;
+	gap: 8px;
+	padding: 10px 14px;
+	border-top: 1px solid var(--border-subtle);
+}
+
+.resource-package-install input,
+.resource-package-install select {
+	min-width: 0;
+	padding: 7px 9px;
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-s);
+	color: var(--text);
+	background: var(--surface-recessed);
+}
+
 .resource-detail-card { display: grid; gap: 7px; margin-bottom: 10px; padding: 12px 14px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--surface-1); }
 .resource-detail-card > span { color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
 .resource-detail-card p { margin: 0; color: var(--text-dim); font-size: 12px; line-height: 1.55; }

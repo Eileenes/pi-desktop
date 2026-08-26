@@ -1,6 +1,6 @@
 import { memo, useMemo, useState } from "react";
 import type { DesktopSkill } from "../shared/contracts.ts";
-import { toggleSkill } from "./desktop-store.ts";
+import { installPlugin, toggleSkill } from "./desktop-store.ts";
 import { Modal } from "./modal.tsx";
 
 interface SkillsConfigModalProps {
@@ -13,6 +13,9 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({ skills, onClo
 		() => skills.find((skill) => !skill.disableModelInvocation)?.filePath ?? skills[0]?.filePath,
 	);
 	const [togglingPath, setTogglingPath] = useState<string>();
+	const [packageSource, setPackageSource] = useState("");
+	const [packageScope, setPackageScope] = useState<"user" | "project">("user");
+	const [installing, setInstalling] = useState(false);
 	const [error, setError] = useState<string>();
 	const selected = useMemo(() => skills.find((skill) => skill.filePath === selectedPath), [selectedPath, skills]);
 
@@ -25,6 +28,21 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({ skills, onClo
 			setError(reason instanceof Error ? reason.message : String(reason));
 		} finally {
 			setTogglingPath(undefined);
+		}
+	}
+
+	async function handleInstall(): Promise<void> {
+		const source = packageSource.trim();
+		if (!source) return;
+		setInstalling(true);
+		setError(undefined);
+		try {
+			await installPlugin(source, packageScope === "project");
+			setPackageSource("");
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setInstalling(false);
 		}
 	}
 
@@ -80,6 +98,28 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({ skills, onClo
 						<div className="settings-empty-state">选择一个技能查看详情</div>
 					)}
 				</section>
+			</div>
+			<div className="resource-package-install">
+				<input
+					value={packageSource}
+					placeholder="安装包含技能的 npm、Git 或本地资源包"
+					onChange={(event) => setPackageSource(event.target.value)}
+				/>
+				<select
+					value={packageScope}
+					onChange={(event) => setPackageScope(event.target.value as "user" | "project")}
+				>
+					<option value="user">用户</option>
+					<option value="project">项目</option>
+				</select>
+				<button
+					className="accent-button"
+					type="button"
+					disabled={!packageSource.trim() || installing}
+					onClick={() => void handleInstall()}
+				>
+					{installing ? "安装中" : "安装资源包"}
+				</button>
 			</div>
 			<footer className="models-footer">
 				{error ? <p className="sidebar-error">{error}</p> : <span>{skills.length} 个技能</span>}

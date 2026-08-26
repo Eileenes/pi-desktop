@@ -18,6 +18,7 @@ export interface DesktopTranscriptMessage {
 	exitCode?: number;
 	cancelled?: boolean;
 	truncated?: boolean;
+	forkEntryId?: string;
 	timestamp?: number;
 }
 
@@ -223,6 +224,10 @@ export interface DesktopAddWorktreeInput {
 	branch: string;
 }
 
+export interface DesktopRemoveWorktreeInput {
+	path: string;
+}
+
 export interface DesktopOpenWorkspacePathInput {
 	path: string;
 }
@@ -296,6 +301,7 @@ export interface DesktopApi {
 	bootstrap(): Promise<DesktopSnapshot>;
 	chooseWorkspace(): Promise<DesktopSnapshot>;
 	chooseImages(): Promise<DesktopImageAttachment[]>;
+	attachDroppedImages(files: File[]): Promise<DesktopImageAttachment[]>;
 	prompt(input: DesktopPromptInput): Promise<DesktopSnapshot>;
 	abort(): Promise<DesktopSnapshot>;
 	openSession(input: DesktopOpenSessionInput): Promise<DesktopSnapshot>;
@@ -318,6 +324,7 @@ export interface DesktopApi {
 	getGitDiff(input: DesktopGitDiffInput): Promise<string>;
 	listGitWorktrees(): Promise<DesktopGitWorktree[]>;
 	addGitWorktree(input: DesktopAddWorktreeInput): Promise<DesktopGitWorktree>;
+	removeGitWorktree(input: DesktopRemoveWorktreeInput): Promise<void>;
 	openWorkspacePath(input: DesktopOpenWorkspacePathInput): Promise<DesktopSnapshot>;
 	setCloseQuits(closeQuits: boolean): Promise<void>;
 	quitApp(): Promise<void>;
@@ -406,6 +413,15 @@ export function isDesktopAddWorktreeInput(value: unknown): value is DesktopAddWo
 		value.branch.length > 0 &&
 		value.branch.length <= 200 &&
 		/^[A-Za-z0-9._/-]+$/u.test(value.branch)
+	);
+}
+
+export function isDesktopRemoveWorktreeInput(value: unknown): value is DesktopRemoveWorktreeInput {
+	return (
+		isExactRecord(value, ["path"]) &&
+		typeof value.path === "string" &&
+		value.path.length > 0 &&
+		value.path.length <= 2000
 	);
 }
 

@@ -38,6 +38,7 @@ import {
 	getGitDiff as gitGetDiff,
 	listGitChanges as gitListChanges,
 	listGitWorktrees as gitListWorktrees,
+	removeGitWorktree as gitRemoveWorktree,
 } from "./git-integration.ts";
 import {
 	discoverModels as discoverModelsFromUrl,
@@ -223,7 +224,19 @@ export class DesktopAgentHost {
 			],
 			...(model === undefined ? {} : { model: { provider: model.provider, id: model.id } }),
 			thinkingLevel: this.session.thinkingLevel,
-			messages: this.session.messages.map(toTranscriptMessage),
+			messages: (() => {
+				const forkPoints = this.session?.getUserMessagesForForking() ?? [];
+				let userIndex = 0;
+				return (
+					this.session?.messages.map((message, index) => {
+						const transcript = toTranscriptMessage(message, index);
+						if (transcript.role !== "user") return transcript;
+						const forkEntryId = forkPoints[userIndex]?.entryId;
+						userIndex += 1;
+						return forkEntryId ? { ...transcript, forkEntryId } : transcript;
+					}) ?? []
+				);
+			})(),
 		};
 		snapshot.sessionStats = this.toDesktopSessionStats();
 		snapshot.branchPoints = this.toDesktopBranchPoints();
@@ -947,6 +960,11 @@ export class DesktopAgentHost {
 	async addGitWorktree(branch: string): Promise<DesktopGitWorktree> {
 		const workspacePath = this.requireWorkspacePath();
 		return gitAddWorktree(workspacePath, branch);
+	}
+
+	async removeGitWorktree(path: string): Promise<void> {
+		const workspacePath = this.requireWorkspacePath();
+		await gitRemoveWorktree(workspacePath, path);
 	}
 
 	private requireWorkspacePath(): string {

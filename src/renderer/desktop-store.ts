@@ -87,6 +87,10 @@ export function chooseImages(): Promise<DesktopImageAttachment[]> {
 	return window.piDesktop.chooseImages();
 }
 
+export function attachDroppedImages(files: File[]): Promise<DesktopImageAttachment[]> {
+	return window.piDesktop.attachDroppedImages(files);
+}
+
 export async function submitPrompt(
 	text: string,
 	attachmentIds: string[],
@@ -197,6 +201,10 @@ export function listGitWorktrees(): Promise<DesktopGitWorktree[]> {
 
 export function addGitWorktree(branch: string): Promise<DesktopGitWorktree> {
 	return window.piDesktop.addGitWorktree({ branch });
+}
+
+export function removeGitWorktree(path: string): Promise<void> {
+	return window.piDesktop.removeGitWorktree({ path });
 }
 
 export function setCloseQuits(closeQuits: boolean): Promise<void> {

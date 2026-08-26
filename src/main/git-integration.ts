@@ -98,3 +98,11 @@ export async function addGitWorktree(cwd: string, branch: string): Promise<GitWo
 	await execFileAsync("git", ["worktree", "add", "-b", branch, targetPath], { cwd });
 	return { path: targetPath, branch };
 }
+
+export async function removeGitWorktree(cwd: string, path: string): Promise<void> {
+	const worktrees = await listGitWorktrees(cwd);
+	if (!worktrees.some((worktree) => worktree.path === path) || path === cwd) {
+		throw new Error("只能移除当前仓库中的非活动 Worktree。");
+	}
+	await execFileAsync("git", ["worktree", "remove", "--", path], { cwd });
+}

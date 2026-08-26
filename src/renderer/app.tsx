@@ -15,6 +15,7 @@ import type {
 import { AppSettingsModal } from "./app-settings-modal.tsx";
 import {
 	abortSession,
+	attachDroppedImages,
 	chooseImages,
 	chooseWorkspace,
 	decideToolApproval,
@@ -39,6 +40,7 @@ import {
 	submitPrompt,
 	subscribeDesktopSnapshot,
 } from "./desktop-store.ts";
+import { type AppLanguage, translate } from "./i18n.ts";
 import { MarkdownBody } from "./markdown.tsx";
 import { ModelsConfigModal } from "./models-config-modal.tsx";
 import { PluginsConfigModal } from "./plugins-config-modal.tsx";
@@ -448,7 +450,15 @@ const TranscriptBlock = memo(function TranscriptBlock({ block }: { block: Deskto
 	);
 });
 
-const TranscriptMessage = memo(function TranscriptMessage({ message }: { message: DesktopTranscriptMessage }) {
+const TranscriptMessage = memo(function TranscriptMessage({
+	message,
+	onEdit,
+	onFork,
+}: {
+	message: DesktopTranscriptMessage;
+	onEdit: (text: string) => void;
+	onFork: (entryId: string) => void;
+}) {
 	const [copied, setCopied] = useState(false);
 	const isAssistant = message.role === "assistant";
 
@@ -479,11 +489,29 @@ const TranscriptMessage = memo(function TranscriptMessage({ message }: { message
 				<button type="button" onClick={() => void copyMessage()} disabled={!message.text}>
 					{copied ? "已复制" : "复制"}
 				</button>
+				{!isAssistant && message.text ? (
+					<button type="button" onClick={() => onEdit(message.text)}>
+						编辑
+					</button>
+				) : null}
+				{!isAssistant && message.forkEntryId ? (
+					<button type="button" onClick={() => onFork(message.forkEntryId ?? "")}>
+						Fork
+					</button>
+				) : null}
 				{!isAssistant && message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
 			</div>
 		</article>
 	);
 });
+
+function transcriptDiffLineClass(line: string): string {
+	if (line.startsWith("+++") || line.startsWith("---")) return "diff-head";
+	if (line.startsWith("@@")) return "diff-hunk";
+	if (line.startsWith("+")) return "diff-add";
+	if (line.startsWith("-")) return "diff-del";
+	return "";
+}
 
 const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 	message,
@@ -491,6 +519,7 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 	message: DesktopTranscriptMessage;
 }) {
 	const [expanded, setExpanded] = useState(false);
+	const isDiff = message.role === "tool" && /(^|\n)@@ |(^|\n)diff --git |(^|\n)--- /u.test(message.text);
 	return (
 		<article className={`transcript-entry ${expanded ? "is-expanded" : ""}`}>
 			<button
@@ -509,11 +538,22 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 							? `${message.isError ? "工具失败" : "工具结果"}${message.toolName ? ` · ${message.toolName}` : ""}`
 							: "系统消息"}
 				</span>
+				{message.toolCallId ? <code className="tool-call-id">#{message.toolCallId.slice(-6)}</code> : null}
 				{message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
 			</button>
 			{expanded ? (
-				<pre className={`entry-detail ${message.isError ? "is-error" : ""}`}>
-					<code>{message.text || "…"}</code>
+				<pre className={`entry-detail ${message.isError ? "is-error" : ""} ${isDiff ? "is-diff" : ""}`}>
+					<code>
+						{isDiff
+							? message.text.split("\n").map((line, index) => (
+									// biome-ignore lint/suspicious/noArrayIndexKey: diff 行顺序固定
+									<span className={transcriptDiffLineClass(line)} key={index}>
+										{line || " "}
+										{"\n"}
+									</span>
+								))
+							: message.text || "…"}
+					</code>
 					{message.command ? (
 						<small>
 							{message.cancelled ? "已取消" : `退出码 ${message.exitCode ?? "未知"}`}
@@ -757,6 +797,7 @@ function Inspector({
 	onClose,
 	onOpenFile,
 	onRevealFile,
+	onQuoteLine,
 }: {
 	tabs: FileTab[];
 	activeTabPath: string | undefined;
@@ -765,8 +806,10 @@ function Inspector({
 	onClose: () => void;
 	onOpenFile: (path: string) => void;
 	onRevealFile: (path: string) => void;
+	onQuoteLine: (path: string, line: number) => void;
 }) {
 	const [mode, setMode] = useState<"preview" | "source">("source");
+	const [contentQuery, setContentQuery] = useState("");
 	const activeTab = tabs.find((tab) => tab.path === activeTabPath);
 	const preview = activeTab?.preview;
 	const isPreviewable = preview ? isMarkdownFile(preview.path) : false;
@@ -779,6 +822,15 @@ function Inspector({
 	}, [previewPath]);
 
 	const lineCount = preview ? preview.content.split(/\r\n|\r|\n/u).length : 0;
+	const sourceLines = useMemo(() => {
+		if (!preview) return [];
+		const query = contentQuery.trim().toLocaleLowerCase();
+		return preview.content.split(/\r\n|\r|\n/u).map((text, index) => ({
+			text,
+			line: index + 1,
+			match: query.length > 0 && text.toLocaleLowerCase().includes(query),
+		}));
+	}, [preview, contentQuery]);
 	const byteSize = preview ? new TextEncoder().encode(preview.content).length : 0;
 
 	return (
@@ -874,6 +926,17 @@ function Inspector({
 					</button>
 				</div>
 			</div>
+			{preview && !isImage && !isAudio && mode === "source" ? (
+				<label className="content-search">
+					<Icon name="search" size={13} />
+					<input
+						type="search"
+						value={contentQuery}
+						placeholder="搜索文件内容"
+						onChange={(event) => setContentQuery(event.target.value)}
+					/>
+				</label>
+			) : null}
 			{preview ? (
 				isImage ? (
 					<div className="file-image-preview">
@@ -889,9 +952,21 @@ function Inspector({
 						<MarkdownBody text={preview.content} />
 					</div>
 				) : (
-					<pre className="file-preview">
-						<HighlightedCode code={preview.content} language={getLanguageForPath(preview.path)} />
-					</pre>
+					<div className="file-preview-source">
+						{sourceLines.map((sourceLine) => (
+							<button
+								className={`source-line ${sourceLine.match ? "is-match" : ""}`}
+								key={sourceLine.line}
+								type="button"
+								onClick={() => onQuoteLine(preview.path, sourceLine.line)}
+							>
+								<span className="source-line-number">{sourceLine.line}</span>
+								<code>
+									<HighlightedCode code={sourceLine.text || " "} language={getLanguageForPath(preview.path)} />
+								</code>
+							</button>
+						))}
+					</div>
 				)
 			) : (
 				<div className="inspector-empty">
@@ -906,16 +981,39 @@ function Inspector({
 export function App() {
 	const snapshot = useSyncExternalStore(subscribeDesktopSnapshot, getDesktopSnapshot, getDesktopSnapshot);
 	const startupError = getDesktopStartupError();
-	const [theme, setTheme] = useState<"dark" | "light">(() => {
+	const [language, setLanguage] = useState<AppLanguage>(() =>
+		localStorage.getItem("pi-desktop-language") === "en" ? "en" : "zh-CN",
+	);
+	const t = (key: Parameters<typeof translate>[1]) => translate(language, key);
+	const [theme, setTheme] = useState<"dark" | "light" | "system">(() => {
 		const stored = localStorage.getItem("pi-desktop-theme");
-		return stored === "light" ? "light" : "dark";
+		return stored === "light" || stored === "dark" ? stored : "system";
 	});
-	const [notifyOnComplete, setNotifyOnComplete] = useState<boolean>(() => {
-		return localStorage.getItem("pi-desktop-notify-complete") !== "off";
-	});
+	const [sidebarWidth, setSidebarWidth] = useState(
+		() => Number(localStorage.getItem("pi-desktop-sidebar-width")) || 260,
+	);
+	const [inspectorWidth, setInspectorWidth] = useState(
+		() => Number(localStorage.getItem("pi-desktop-inspector-width")) || 440,
+	);
+	const [notifyOnComplete, setNotifyOnComplete] = useState<boolean>(
+		() => localStorage.getItem("pi-desktop-notify-complete") !== "off",
+	);
+	const [soundOnComplete, setSoundOnComplete] = useState<boolean>(
+		() => localStorage.getItem("pi-desktop-sound-complete") !== "off",
+	);
 	const [rightPanelView, setRightPanelView] = useState<RightPanelView>("files");
 	const [draft, setDraft] = useState("");
 	const [openingWorkspace, setOpeningWorkspace] = useState(false);
+	const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>(() => {
+		try {
+			const value: unknown = JSON.parse(localStorage.getItem("pi-desktop-recent-workspaces") ?? "[]");
+			return Array.isArray(value)
+				? value.filter((path): path is string => typeof path === "string").slice(0, 8)
+				: [];
+		} catch {
+			return [];
+		}
+	});
 	const [submitting, setSubmitting] = useState(false);
 	const [aborting, setAborting] = useState(false);
 	const [awayFromBottom, setAwayFromBottom] = useState(false);
@@ -924,6 +1022,7 @@ export function App() {
 	const [settingUpProvider, setSettingUpProvider] = useState(false);
 	const [settingModel, setSettingModel] = useState(false);
 	const [choosingImages, setChoosingImages] = useState(false);
+	const [draggingImages, setDraggingImages] = useState(false);
 	const [attachments, setAttachments] = useState<DesktopImageAttachment[]>([]);
 	const [selectedProviderId, setSelectedProviderId] = useState("");
 	const [authenticationResponse, setAuthenticationResponse] = useState("");
@@ -1031,23 +1130,42 @@ export function App() {
 		return () => window.removeEventListener("keydown", onKeyDown);
 	}, []);
 	useEffect(() => {
-		document.documentElement.dataset.theme = theme;
+		localStorage.setItem("pi-desktop-language", language);
+		document.documentElement.lang = language;
+	}, [language]);
+	useEffect(() => {
+		const media = window.matchMedia("(prefers-color-scheme: dark)");
+		const apply = () => {
+			document.documentElement.dataset.theme = theme === "system" ? (media.matches ? "dark" : "light") : theme;
+		};
+		apply();
 		localStorage.setItem("pi-desktop-theme", theme);
+		media.addEventListener("change", apply);
+		return () => media.removeEventListener("change", apply);
 	}, [theme]);
 	useEffect(() => {
+		if (!snapshot.workspacePath) return;
+		setRecentWorkspaces((current) => {
+			const next = [
+				snapshot.workspacePath as string,
+				...current.filter((path) => path !== snapshot.workspacePath),
+			].slice(0, 8);
+			localStorage.setItem("pi-desktop-recent-workspaces", JSON.stringify(next));
+			return next;
+		});
+	}, [snapshot.workspacePath]);
+	useEffect(() => {
 		localStorage.setItem("pi-desktop-notify-complete", notifyOnComplete ? "on" : "off");
-	}, [notifyOnComplete]);
+		localStorage.setItem("pi-desktop-sound-complete", soundOnComplete ? "on" : "off");
+	}, [notifyOnComplete, soundOnComplete]);
 	useEffect(() => {
 		const phase = session?.phase;
-		if (previousPhaseRef.current === "running" && phase === "idle" && notifyOnComplete) {
-			if (document.hasFocus()) {
-				playCompletionTone();
-			} else {
-				void notifyComplete();
-			}
+		if (previousPhaseRef.current === "running" && phase === "idle") {
+			if (soundOnComplete) playCompletionTone();
+			if (notifyOnComplete && !document.hasFocus()) void notifyComplete();
 		}
 		previousPhaseRef.current = phase;
-	}, [session?.phase, notifyOnComplete]);
+	}, [session?.phase, notifyOnComplete, soundOnComplete]);
 	useEffect(() => {
 		const scroll = chatScrollRef.current;
 		if (!scroll) return;
@@ -1321,6 +1439,20 @@ export function App() {
 		}
 	}
 
+	async function handleDroppedImages(files: File[]): Promise<void> {
+		if (!files.length) return;
+		setChoosingImages(true);
+		setActionError(undefined);
+		try {
+			setAttachments(await attachDroppedImages(files));
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setChoosingImages(false);
+			setDraggingImages(false);
+		}
+	}
+
 	async function handleChooseImages(): Promise<void> {
 		if (choosingImages || !session || session.phase === "running") return;
 		setChoosingImages(true);
@@ -1452,6 +1584,34 @@ export function App() {
 		}
 	}, []);
 
+	const handleEditMessage = useCallback((text: string): void => {
+		setDraft(text);
+		requestAnimationFrame(() => {
+			const prompt = promptRef.current;
+			if (!prompt) return;
+			prompt.focus();
+			prompt.setSelectionRange(text.length, text.length);
+			prompt.style.height = "0px";
+			prompt.style.height = `${Math.min(prompt.scrollHeight, 180)}px`;
+		});
+	}, []);
+
+	const handleForkFromMessage = useCallback(async (entryId: string): Promise<void> => {
+		setActionError(undefined);
+		try {
+			await navigateTree({ entryId });
+			await forkSession();
+			setBranchMenuOpen(false);
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : String(error));
+		}
+	}, []);
+
+	const handleQuoteLine = useCallback((path: string, line: number): void => {
+		setDraft((current) => `${current}${current ? "\n" : ""}@${path}:${line} `);
+		promptRef.current?.focus();
+	}, []);
+
 	const handleRevealFile = useCallback(async (path: string): Promise<void> => {
 		setActionError(undefined);
 		try {
@@ -1460,6 +1620,53 @@ export function App() {
 			setActionError(error instanceof Error ? error.message : String(error));
 		}
 	}, []);
+
+	function beginResize(side: "sidebar" | "inspector", startX: number): void {
+		const startWidth = side === "sidebar" ? sidebarWidth : inspectorWidth;
+		const resolveWidth = (clientX: number) =>
+			Math.round(
+				Math.max(
+					side === "sidebar" ? 220 : 300,
+					Math.min(
+						side === "sidebar" ? 420 : 760,
+						startWidth + (side === "sidebar" ? clientX - startX : startX - clientX),
+					),
+				),
+			);
+		const handleMove = (event: PointerEvent) =>
+			document.documentElement.style.setProperty(
+				side === "sidebar" ? "--sidebar-width" : "--inspector-width",
+				`${resolveWidth(event.clientX)}px`,
+			);
+		const handleUp = (event: PointerEvent) => {
+			const width = resolveWidth(event.clientX);
+			if (side === "sidebar") setSidebarWidth(width);
+			else setInspectorWidth(width);
+			localStorage.setItem(
+				side === "sidebar" ? "pi-desktop-sidebar-width" : "pi-desktop-inspector-width",
+				String(width),
+			);
+			window.removeEventListener("pointermove", handleMove);
+			window.removeEventListener("pointerup", handleUp);
+		};
+		window.addEventListener("pointermove", handleMove);
+		window.addEventListener("pointerup", handleUp);
+	}
+
+	function resizeByKeyboard(side: "sidebar" | "inspector", delta: number): void {
+		const current = side === "sidebar" ? sidebarWidth : inspectorWidth;
+		const width = Math.max(side === "sidebar" ? 220 : 300, Math.min(side === "sidebar" ? 420 : 760, current + delta));
+		document.documentElement.style.setProperty(
+			side === "sidebar" ? "--sidebar-width" : "--inspector-width",
+			`${width}px`,
+		);
+		if (side === "sidebar") setSidebarWidth(width);
+		else setInspectorWidth(width);
+		localStorage.setItem(
+			side === "sidebar" ? "pi-desktop-sidebar-width" : "pi-desktop-inspector-width",
+			String(width),
+		);
+	}
 
 	function renderSidebar() {
 		return (
@@ -1509,7 +1716,10 @@ export function App() {
 	const macOSClassName = navigator.userAgent.includes("Macintosh") ? "is-macos" : "";
 
 	return (
-		<main className={`app-workbench ${macOSClassName} ${inspectorOpen ? "is-inspector-open" : ""}`}>
+		<main
+			className={`app-workbench ${macOSClassName} ${inspectorOpen ? "is-inspector-open" : ""}`}
+			style={{ "--sidebar-width": `${sidebarWidth}px`, "--inspector-width": `${inspectorWidth}px` } as CSSProperties}
+		>
 			<aside className="sidebar" aria-label="项目导航">
 				<header className="sidebar-header">
 					<p className="section-kicker">Pi</p>
@@ -1525,7 +1735,7 @@ export function App() {
 						onClick={() => void handleNewSession()}
 					>
 						<Icon name="plus" size={16} />
-						<span>新对话</span>
+						<span>{t("newChat")}</span>
 					</button>
 					<button
 						className="project-switcher"
@@ -1540,6 +1750,25 @@ export function App() {
 						</span>
 						<Icon name="chevron" size={15} />
 					</button>
+					{recentWorkspaces.length > 1 ? (
+						<nav className="recent-workspaces" aria-label={t("recentProjects")}>
+							{recentWorkspaces
+								.filter((path) => path !== snapshot.workspacePath)
+								.slice(0, 4)
+								.map((path) => (
+									<button
+										type="button"
+										key={path}
+										title={path}
+										disabled={session?.phase === "running"}
+										onClick={() => void handleSwitchWorkspacePath(path)}
+									>
+										<Icon name="folder" size={12} />
+										<span>{formatWorkspace(path)}</span>
+									</button>
+								))}
+						</nav>
+					) : null}
 					{snapshot.workspacePath ? (
 						<WorktreeSelector
 							key={snapshot.workspacePath}
@@ -1548,7 +1777,7 @@ export function App() {
 						/>
 					) : null}
 					<div className="sidebar-section-title sidebar-project-label">
-						<span>会话</span>
+						<span>{t("sessions")}</span>
 						<small>{snapshot.sessions.length}</small>
 					</div>
 				</div>
@@ -1556,18 +1785,18 @@ export function App() {
 				<footer className="sidebar-footer">
 					<button className="footer-button" type="button" onClick={() => setConfigModal("models")}>
 						<Icon name="model" size={15} />
-						<span>模型</span>
+						<span>{t("models")}</span>
 					</button>
 					<button className="footer-button" type="button" onClick={() => setConfigModal("skills")}>
 						<Icon name="skill" size={15} />
-						<span>技能</span>
+						<span>{t("skills")}</span>
 					</button>
 					<button className="footer-button" type="button" onClick={() => setConfigModal("plugins")}>
 						<Icon name="plugin" size={15} />
-						<span>插件</span>
+						<span>{t("plugins")}</span>
 					</button>
 					<button
-						aria-label="源代码管理"
+						aria-label={t("sourceControl")}
 						aria-pressed={inspectorOpen && rightPanelView === "source-control"}
 						className={`footer-button is-icon ${inspectorOpen && rightPanelView === "source-control" ? "is-active" : ""}`}
 						type="button"
@@ -1579,7 +1808,7 @@ export function App() {
 						<Icon name="branch" size={15} />
 					</button>
 					<button
-						aria-label="设置"
+						aria-label={t("settings")}
 						className="footer-button is-icon is-settings"
 						type="button"
 						onClick={() => setConfigModal("settings")}
@@ -1588,6 +1817,20 @@ export function App() {
 					</button>
 				</footer>
 			</aside>
+			<hr
+				className="column-resizer sidebar-resizer"
+				aria-label="调整会话栏宽度"
+				aria-orientation="vertical"
+				aria-valuemin={220}
+				aria-valuemax={420}
+				aria-valuenow={sidebarWidth}
+				tabIndex={0}
+				onPointerDown={(event) => beginResize("sidebar", event.clientX)}
+				onKeyDown={(event) => {
+					if (event.key === "ArrowLeft" || event.key === "ArrowRight")
+						resizeByKeyboard("sidebar", event.key === "ArrowLeft" ? -16 : 16);
+				}}
+			/>
 			<section className="chat-workspace" aria-label="智能体对话">
 				<header className="top-bar">
 					<div className="chat-title">
@@ -1645,7 +1888,7 @@ export function App() {
 						<button
 							className="icon-button"
 							type="button"
-							aria-label="打开文件浏览"
+							aria-label={t("openFiles")}
 							onClick={() => {
 								setRightPanelView("files");
 								setInspectorOpen(true);
@@ -1656,7 +1899,7 @@ export function App() {
 						<button
 							className="icon-button"
 							type="button"
-							aria-label="打开预览面板"
+							aria-label={t("openPreview")}
 							onClick={() => setInspectorOpen((isOpen) => !isOpen)}
 						>
 							<Icon name="panel" size={16} />
@@ -1701,7 +1944,12 @@ export function App() {
 							{session?.messages.length ? (
 								session.messages.map((message) =>
 									message.role === "user" || message.role === "assistant" ? (
-										<TranscriptMessage key={message.id} message={message} />
+										<TranscriptMessage
+											key={message.id}
+											message={message}
+											onEdit={handleEditMessage}
+											onFork={(entryId) => void handleForkFromMessage(entryId)}
+										/>
 									) : (
 										<CollapsibleTranscriptEntry key={message.id} message={message} />
 									),
@@ -1709,8 +1957,8 @@ export function App() {
 							) : (
 								<div className="chat-empty-state">
 									<span className="empty-index">01</span>
-									<h2>今天想构建什么？</h2>
-									<p>描述任务、粘贴代码，或用 @ 提及项目文件。Pi 会在当前工作区中完成工作。</p>
+									<h2>{t("welcomeTitle")}</h2>
+									<p>{t("welcomeBody")}</p>
 									<div className="empty-suggestions">
 										<button type="button" onClick={() => setDraft("解释这个项目的结构和关键入口")}>
 											解释项目结构
@@ -1745,7 +1993,23 @@ export function App() {
 						{unseenMessages > 0 ? `${unseenMessages} 条新动态` : "回到底部"}
 					</button>
 				) : null}
-				<form className="composer" onSubmit={(event) => void handleSubmit(event)}>
+				<form
+					className={`composer ${draggingImages ? "is-dragging-images" : ""}`}
+					onSubmit={(event) => void handleSubmit(event)}
+					onDragEnter={(event) => {
+						if (Array.from(event.dataTransfer.items).some((item) => item.kind === "file"))
+							setDraggingImages(true);
+					}}
+					onDragOver={(event) => event.preventDefault()}
+					onDragLeave={(event) => {
+						if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingImages(false);
+					}}
+					onDrop={(event) => {
+						event.preventDefault();
+						void handleDroppedImages(Array.from(event.dataTransfer.files));
+					}}
+				>
+					{draggingImages ? <div className="drop-image-overlay">释放以附加图片</div> : null}
 					<div className="composer-inner">
 						{slashQuery ? (
 							<div className="slash-menu" role="listbox" aria-label="斜杠命令">
@@ -1865,7 +2129,7 @@ export function App() {
 						/>
 						<div className="composer-footer">
 							<select
-								aria-label="选择当前模型"
+								aria-label={t("selectModel")}
 								className="composer-model-select"
 								disabled={!canSetModel || settingModel}
 								value={selectedModelKey}
@@ -1882,7 +2146,7 @@ export function App() {
 								))}
 							</select>
 							<button
-								aria-label="添加图片"
+								aria-label={t("addImage")}
 								className="composer-icon-button"
 								disabled={!session || choosingImages || session.phase === "running"}
 								type="button"
@@ -1921,6 +2185,22 @@ export function App() {
 					</div>
 				</form>
 			</section>
+			{inspectorOpen ? (
+				<hr
+					className="column-resizer inspector-resizer"
+					aria-label="调整检查器宽度"
+					aria-orientation="vertical"
+					aria-valuemin={300}
+					aria-valuemax={760}
+					aria-valuenow={inspectorWidth}
+					tabIndex={0}
+					onPointerDown={(event) => beginResize("inspector", event.clientX)}
+					onKeyDown={(event) => {
+						if (event.key === "ArrowLeft" || event.key === "ArrowRight")
+							resizeByKeyboard("inspector", event.key === "ArrowLeft" ? 16 : -16);
+					}}
+				/>
+			) : null}
 			{inspectorOpen ? (
 				<aside className="right-panel" aria-label={rightPanelView === "files" ? "文件" : "源代码管理"}>
 					<header className="right-panel-header">
@@ -1975,6 +2255,7 @@ export function App() {
 								onClose={() => setInspectorOpen(false)}
 								onOpenFile={(path) => void handleOpenFileWithDefaultApp(path)}
 								onRevealFile={(path) => void handleRevealFile(path)}
+								onQuoteLine={handleQuoteLine}
 							/>
 						</div>
 					)}
@@ -2003,9 +2284,13 @@ export function App() {
 			{configModal === "settings" ? (
 				<AppSettingsModal
 					theme={theme}
+					language={language}
 					notifyOnComplete={notifyOnComplete}
+					soundOnComplete={soundOnComplete}
 					onChangeTheme={setTheme}
+					onChangeLanguage={setLanguage}
 					onToggleNotify={() => setNotifyOnComplete((current) => !current)}
+					onToggleSound={() => setSoundOnComplete((current) => !current)}
 					onClose={() => setConfigModal(undefined)}
 				/>
 			) : null}

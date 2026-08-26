@@ -63,6 +63,19 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({ plugins, on
 			setBusy(false);
 		}
 	}
+	async function handleUpdate(pkg: InstalledPackage): Promise<void> {
+		setBusy(true);
+		setError(undefined);
+		try {
+			await installPlugin(pkg.source, pkg.scope === "project");
+			await load();
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
+	}
+
 	async function handleRemove(pkg: InstalledPackage): Promise<void> {
 		setBusy(true);
 		setError(undefined);
@@ -146,14 +159,24 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({ plugins, on
 									<strong>{selected.source}</strong>
 									<code>{selected.scope === "user" ? "用户范围" : "项目范围"}</code>
 								</div>
-								<button
-									className="danger-button"
-									type="button"
-									disabled={busy}
-									onClick={() => void handleRemove(selected)}
-								>
-									移除
-								</button>
+								<div className="resource-detail-actions">
+									<button
+										className="outline-button"
+										type="button"
+										disabled={busy}
+										onClick={() => void handleUpdate(selected)}
+									>
+										更新 / 重载
+									</button>
+									<button
+										className="danger-button"
+										type="button"
+										disabled={busy}
+										onClick={() => void handleRemove(selected)}
+									>
+										移除
+									</button>
+								</div>
 							</div>
 							<div className="resource-detail-card">
 								<span>已加载资源</span>

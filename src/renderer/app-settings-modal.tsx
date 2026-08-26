@@ -1,21 +1,30 @@
 import { memo, useEffect, useState } from "react";
 import type { DesktopUpdateInfo } from "../shared/contracts.ts";
 import { checkForUpdates, openCustomCss, openExternalUrl, quitApp, setCloseQuits } from "./desktop-store.ts";
+import type { AppLanguage } from "./i18n.ts";
 import { Modal } from "./modal.tsx";
 
 interface AppSettingsModalProps {
-	theme: "dark" | "light";
+	theme: "dark" | "light" | "system";
+	language: AppLanguage;
 	notifyOnComplete: boolean;
-	onChangeTheme: (theme: "dark" | "light") => void;
+	soundOnComplete: boolean;
+	onChangeTheme: (theme: "dark" | "light" | "system") => void;
+	onChangeLanguage: (language: AppLanguage) => void;
 	onToggleNotify: () => void;
+	onToggleSound: () => void;
 	onClose: () => void;
 }
 
 export const AppSettingsModal = memo(function AppSettingsModal({
 	theme,
+	language,
 	notifyOnComplete,
+	soundOnComplete,
 	onChangeTheme,
+	onChangeLanguage,
 	onToggleNotify,
+	onToggleSound,
 	onClose,
 }: AppSettingsModalProps) {
 	const [closeQuits, setCloseQuitsState] = useState<boolean>(
@@ -83,8 +92,21 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 					<strong>语言</strong>
 					<p>选择应用界面使用的语言。</p>
 					<div className="choice-row">
-						<button type="button" className="choice-button is-active" aria-pressed="true">
+						<button
+							type="button"
+							className={`choice-button ${language === "zh-CN" ? "is-active" : ""}`}
+							aria-pressed={language === "zh-CN"}
+							onClick={() => onChangeLanguage("zh-CN")}
+						>
 							简体中文
+						</button>
+						<button
+							type="button"
+							className={`choice-button ${language === "en" ? "is-active" : ""}`}
+							aria-pressed={language === "en"}
+							onClick={() => onChangeLanguage("en")}
+						>
+							English
 						</button>
 					</div>
 				</section>
@@ -92,6 +114,14 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 					<strong>外观</strong>
 					<p>选择适合当前环境的显示主题。</p>
 					<div className="choice-row">
+						<button
+							type="button"
+							className={`choice-button ${theme === "system" ? "is-active" : ""}`}
+							aria-pressed={theme === "system"}
+							onClick={() => onChangeTheme("system")}
+						>
+							跟随系统
+						</button>
 						<button
 							type="button"
 							className={`choice-button ${theme === "light" ? "is-active" : ""}`}
@@ -143,6 +173,13 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 								<small>关闭窗口时退出应用；关闭后可通过桌面图标重新启动。</small>
 							</span>
 							<input type="checkbox" checked={closeQuits} onChange={handleToggleCloseQuits} />
+						</label>
+						<label className="toggle-row">
+							<span>
+								<strong>完成提示音</strong>
+								<small>任务完成时播放本地短提示音。</small>
+							</span>
+							<input type="checkbox" checked={soundOnComplete} onChange={onToggleSound} />
 						</label>
 						<label className="toggle-row">
 							<span>

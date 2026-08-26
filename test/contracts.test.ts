@@ -7,6 +7,7 @@ import {
 	isDesktopProjectTrustInput,
 	isDesktopPromptInput,
 	isDesktopProviderSetupInput,
+	isDesktopRemoveWorktreeInput,
 	isDesktopToolApprovalDecisionInput,
 	isDesktopWorkspaceFileInput,
 } from "../src/shared/contracts.ts";
@@ -114,6 +115,15 @@ describe("isDesktopAuthenticationPromptResponseInput", () => {
 		expect(isDesktopAuthenticationPromptResponseInput({ id: "auth-1", response: 42 })).toBe(false);
 		expect(isDesktopAuthenticationPromptResponseInput({ id: "auth-1", response: "x".repeat(10_001) })).toBe(false);
 		expect(isDesktopAuthenticationPromptResponseInput({ id: "auth-1", response: "value", extra: true })).toBe(false);
+	});
+});
+
+describe("isDesktopRemoveWorktreeInput", () => {
+	it("accepts only an exact bounded path payload", () => {
+		expect(isDesktopRemoveWorktreeInput({ path: "/tmp/project-worktrees/feature" })).toBe(true);
+		expect(isDesktopRemoveWorktreeInput({ path: "" })).toBe(false);
+		expect(isDesktopRemoveWorktreeInput({ path: "/tmp/tree", force: true })).toBe(false);
+		expect(isDesktopRemoveWorktreeInput({ path: "x".repeat(2001) })).toBe(false);
 	});
 });
 

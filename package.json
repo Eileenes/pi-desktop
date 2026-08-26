@@ -3,6 +3,7 @@
 	"private": true,
 	"type": "module",
 	"workspaces": [
+		"apps/*",
 		"packages/*",
 		"packages/session-backends/*",
 		"packages/coding-agent/examples/extensions/with-deps",
@@ -13,10 +14,11 @@
 	],
 	"scripts": {
 		"clean": "npm run clean --workspaces",
-		"build": "cd packages/tui && npm run build && cd ../telemetry && npm run build && cd ../ai && npm run build && cd ../agent && npm run build && cd ../session-backends/sqlite-node && npm run build && cd ../../protocol && npm run build && cd ../client && npm run build && cd ../server && npm run build && cd ../coding-agent && npm run build",
-		"build:offline": "cd packages/tui && npm run build && cd ../telemetry && npm run build && cd ../ai && npm run build:offline && cd ../agent && npm run build && cd ../session-backends/sqlite-node && npm run build && cd ../../protocol && npm run build && cd ../client && npm run build && cd ../server && npm run build && cd ../coding-agent && npm run build",
-		"check": "biome check --write --error-on-warnings . && npm run check:pinned-deps && npm run check:ts-imports && npm run check:shrinkwrap && npm run check:install-lock:coding-agent && tsgo --noEmit && npm run check:browser-smoke",
+		"build": "cd packages/tui && npm run build && cd ../telemetry && npm run build && cd ../ai && npm run build && cd ../agent && npm run build && cd ../session-backends/sqlite-node && npm run build && cd ../../protocol && npm run build && cd ../client && npm run build && cd ../server && npm run build && cd ../coding-agent && npm run build && cd ../../apps/desktop && npm run build",
+		"build:offline": "cd packages/tui && npm run build && cd ../telemetry && npm run build && cd ../ai && npm run build:offline && cd ../agent && npm run build && cd ../session-backends/sqlite-node && npm run build && cd ../../protocol && npm run build && cd ../client && npm run build && cd ../server && npm run build && cd ../coding-agent && npm run build && cd ../../apps/desktop && npm run build",
+		"check": "biome check --write --error-on-warnings . && npm run check:pinned-deps && npm run check:ts-imports && npm run check:shrinkwrap && npm run check:install-lock:coding-agent && tsgo --noEmit && npm run check:browser-smoke && npm run check:desktop",
 		"check:browser-smoke": "node scripts/check-browser-smoke.mjs",
+		"check:desktop": "npm run check --workspace=@earendil-works/pi-desktop",
 		"check:pinned-deps": "node scripts/check-pinned-deps.mjs",
 		"check:shrinkwrap": "node scripts/generate-coding-agent-shrinkwrap.mjs --check",
 		"check:install-lock:coding-agent": "node scripts/generate-coding-agent-install-lock.mjs --check",

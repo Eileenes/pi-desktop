@@ -205,6 +205,28 @@ export function discoverModels(baseUrl: string, apiKey?: string): Promise<Array<
 	return window.piDesktop.discoverModels({ baseUrl, ...(apiKey ? { apiKey } : {}) });
 }
 
+export async function toggleSkill(filePath: string, disable: boolean): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.toggleSkill({ filePath, disable });
+	publish(next);
+	return next;
+}
+
+export async function installPlugin(source: string, local: boolean): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.installPlugin({ source, local });
+	publish(next);
+	return next;
+}
+
+export async function removePlugin(source: string, local: boolean): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.removePlugin({ source, local });
+	publish(next);
+	return next;
+}
+
+export function getPluginPackages(): Promise<Array<{ source: string; scope: "user" | "project" }>> {
+	return window.piDesktop.getPluginPackages();
+}
+
 export async function openWorkspacePath(path: string): Promise<DesktopSnapshot> {
 	const next = await window.piDesktop.openWorkspacePath({ path });
 	publish(next);

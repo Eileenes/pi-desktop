@@ -238,8 +238,38 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									<p className="section-kicker">已配置模型</p>
 									<ul className="resource-list">
 										{editing.models.map((model) => (
-											<li key={model.id}>
+											<li key={model.id} className="model-cost-row">
 												<code>{model.id}</code>
+												<div className="model-cost-inputs">
+													{(["input", "output", "cacheRead", "cacheWrite"] as const).map((field) => (
+														<label key={field} className="model-cost-field">
+															<span>{field}</span>
+															<input
+																type="number"
+																min="0"
+																step="0.01"
+																value={model.cost?.[field] ?? 0}
+																onChange={(event) => {
+																	const value = Number.parseFloat(event.target.value);
+																	const cost = {
+																		...(model.cost ?? {
+																			input: 0,
+																			output: 0,
+																			cacheRead: 0,
+																			cacheWrite: 0,
+																		}),
+																		[field]: Number.isNaN(value) ? 0 : value,
+																	};
+																	updateEditing({
+																		models: editing.models?.map((item) =>
+																			item.id === model.id ? { ...item, cost } : item,
+																		),
+																	});
+																}}
+															/>
+														</label>
+													))}
+												</div>
 											</li>
 										))}
 									</ul>

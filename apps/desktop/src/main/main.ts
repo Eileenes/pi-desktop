@@ -25,10 +25,12 @@ import {
 	isDesktopOpenExternalUrlInput,
 	isDesktopOpenSessionInput,
 	isDesktopOpenWorkspacePathInput,
+	isDesktopPluginSourceInput,
 	isDesktopProjectTrustInput,
 	isDesktopPromptInput,
 	isDesktopProviderSetupInput,
 	isDesktopSaveModelsConfigInput,
+	isDesktopToggleSkillInput,
 	isDesktopToolApprovalDecisionInput,
 	isDesktopWorkspaceFileInput,
 } from "../shared/contracts.ts";
@@ -395,6 +397,31 @@ function registerIpc(): void {
 			throw new Error("无效的模型发现请求。");
 		}
 		return getHost().discoverModels(value.baseUrl, value.apiKey);
+	});
+	ipcMain.handle("pi-desktop:toggle-skill", async (event, value: unknown): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		if (!isDesktopToggleSkillInput(value)) {
+			throw new Error("无效的技能切换请求。");
+		}
+		return getHost().toggleSkill(value.filePath, value.disable);
+	});
+	ipcMain.handle("pi-desktop:install-plugin", async (event, value: unknown): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		if (!isDesktopPluginSourceInput(value)) {
+			throw new Error("无效的插件安装请求。");
+		}
+		return getHost().installPlugin(value.source, value.local);
+	});
+	ipcMain.handle("pi-desktop:remove-plugin", async (event, value: unknown): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		if (!isDesktopPluginSourceInput(value)) {
+			throw new Error("无效的插件移除请求。");
+		}
+		return getHost().removePlugin(value.source, value.local);
+	});
+	ipcMain.handle("pi-desktop:get-plugin-packages", async (event) => {
+		assertMainWindowSender(event);
+		return getHost().getPluginPackages();
 	});
 }
 

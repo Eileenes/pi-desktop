@@ -3,6 +3,7 @@ import { basename, join, resolve, sep } from "node:path";
 import {
 	type AgentSession,
 	createAgentSession,
+	DefaultPackageManager,
 	DefaultResourceLoader,
 	ModelRuntime,
 	SessionManager,
@@ -42,6 +43,7 @@ import {
 	readModelsConfig,
 	writeModelsConfig,
 } from "./models-config-store.ts";
+import { setSkillDisableModelInvocation } from "./skill-toggle.ts";
 import { ToolApprovalQueue } from "./tool-approval-queue.ts";
 import { TrustedWorkspaceBrowser } from "./trusted-workspace-browser.ts";
 import { getWorkspaceKey, WorkspaceTrustStore } from "./workspace-trust-store.ts";
@@ -115,6 +117,7 @@ export class DesktopAgentHost {
 	private session: AgentSession | undefined;
 	private modelRuntime: ModelRuntime | undefined;
 	private modelRuntimeInitialization: Promise<ModelRuntime> | undefined;
+	private settingsManager: SettingsManager | undefined;
 	private workspacePath: string | undefined;
 	private sessionDirectory: string | undefined;
 	private projectTrusted = false;
@@ -287,6 +290,7 @@ export class DesktopAgentHost {
 		const settingsManager = SettingsManager.create(options.cwd, this.agentDir, {
 			projectTrusted: options.projectTrusted,
 		});
+		this.settingsManager = settingsManager;
 		const resourceLoader = new DefaultResourceLoader({
 			cwd: options.cwd,
 			agentDir: this.agentDir,
@@ -558,6 +562,7 @@ export class DesktopAgentHost {
 					this.publish();
 				},
 			});
+			await modelRuntime.refresh({ allowNetwork: true, signal: controller.signal });
 			if (!workspacePath) return this.publish();
 			return await this.enqueueWorkspaceChange(() => this.openWorkspaceInternal(workspacePath));
 		} catch {
@@ -618,6 +623,7 @@ export class DesktopAgentHost {
 						models: provider.models.map((model) => ({
 							id: model.id,
 							...(model.name === undefined ? {} : { name: model.name }),
+							...(model.cost === undefined ? {} : { cost: model.cost }),
 						})),
 					}),
 		}));
@@ -643,6 +649,7 @@ export class DesktopAgentHost {
 									models: provider.models.map((model) => ({
 										id: model.id,
 										...(model.name === undefined ? {} : { name: model.name }),
+										...(model.cost === undefined ? {} : { cost: model.cost }),
 									})),
 								}),
 					},
@@ -656,6 +663,71 @@ export class DesktopAgentHost {
 
 	async discoverModels(baseUrl: string, apiKey?: string): Promise<Array<{ id: string }>> {
 		return discoverModelsFromUrl(baseUrl, apiKey);
+	}
+
+	async toggleSkill(filePath: string, disable: boolean): Promise<DesktopSnapshot> {
+		if (this.session?.isStreaming) {
+			throw new Error("请等待当前智能体任务完成后，再修改技能。");
+		}
+		await setSkillDisableModelInvocation(filePath, disable);
+		if (this.session) {
+			await this.session.resourceLoader.reload();
+		}
+		return this.publish();
+	}
+
+	async installPlugin(source: string, local: boolean): Promise<DesktopSnapshot> {
+		if (this.session?.isStreaming) {
+			throw new Error("请等待当前智能体任务完成后，再安装插件。");
+		}
+		const settingsManager = this.requireSettingsManager();
+		const packageManager = new DefaultPackageManager({
+			cwd: this.workspacePath ?? this.agentDir,
+			agentDir: this.agentDir,
+			settingsManager,
+		});
+		await packageManager.installAndPersist(source, { local });
+		return this.reloadSessionResources();
+	}
+
+	async removePlugin(source: string, local: boolean): Promise<DesktopSnapshot> {
+		if (this.session?.isStreaming) {
+			throw new Error("请等待当前智能体任务完成后，再移除插件。");
+		}
+		const settingsManager = this.requireSettingsManager();
+		const packageManager = new DefaultPackageManager({
+			cwd: this.workspacePath ?? this.agentDir,
+			agentDir: this.agentDir,
+			settingsManager,
+		});
+		await packageManager.removeAndPersist(source, { local });
+		return this.reloadSessionResources();
+	}
+
+	async getPluginPackages(): Promise<Array<{ source: string; scope: "user" | "project" }>> {
+		const settingsManager = this.requireSettingsManager();
+		const result: Array<{ source: string; scope: "user" | "project" }> = [];
+		for (const pkg of settingsManager.getPackages()) {
+			result.push({ source: typeof pkg === "string" ? pkg : pkg.source, scope: "user" });
+		}
+		for (const pkg of settingsManager.getProjectSettings().packages ?? []) {
+			result.push({ source: typeof pkg === "string" ? pkg : pkg.source, scope: "project" });
+		}
+		return result;
+	}
+
+	private async reloadSessionResources(): Promise<DesktopSnapshot> {
+		if (this.session) {
+			await this.session.resourceLoader.reload();
+		}
+		return this.publish();
+	}
+
+	private requireSettingsManager(): SettingsManager {
+		if (!this.settingsManager) {
+			throw new Error("本地智能体尚未就绪。");
+		}
+		return this.settingsManager;
 	}
 
 	private async rebuildAfterModelsConfigChange(): Promise<DesktopSnapshot> {
@@ -778,7 +850,8 @@ export class DesktopAgentHost {
 			this.modelRuntimeInitialization = ModelRuntime.create({
 				authPath: join(this.agentDir, "auth.json"),
 				modelsPath: join(this.agentDir, "models.json"),
-				allowModelNetwork: false,
+				allowModelNetwork: true,
+				modelRefreshTimeoutMs: 15_000,
 			})
 				.then((modelRuntime) => {
 					this.modelRuntime = modelRuntime;
@@ -844,7 +917,12 @@ export class DesktopAgentHost {
 		if (!this.session) return [];
 		return this.session.resourceLoader
 			.getSkills()
-			.skills.map((skill) => ({ name: skill.name, description: skill.description }))
+			.skills.map((skill) => ({
+				name: skill.name,
+				description: skill.description,
+				filePath: skill.filePath,
+				disableModelInvocation: skill.disableModelInvocation,
+			}))
 			.sort((left, right) => left.name.localeCompare(right.name));
 	}
 

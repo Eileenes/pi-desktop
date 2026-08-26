@@ -2311,6 +2311,118 @@ textarea:focus-visible {
 	accent-color: var(--accent-strong);
 }
 
+.skill-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 8px 0;
+	border-bottom: 1px solid var(--border-subtle);
+}
+
+.skill-row:last-child {
+	border-bottom: 0;
+}
+
+.skill-info {
+	display: grid;
+	gap: 3px;
+	min-width: 0;
+}
+
+.toggle-switch {
+	position: relative;
+	width: 36px;
+	height: 20px;
+	flex: 0 0 auto;
+	border: 0;
+	border-radius: 999px;
+	background: var(--surface-3);
+	transition: background 140ms ease;
+}
+
+.toggle-switch.is-on {
+	background: var(--accent-strong);
+}
+
+.toggle-switch:disabled {
+	opacity: 0.55;
+}
+
+.toggle-knob {
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	background: var(--text);
+	transition: transform 140ms ease;
+}
+
+.toggle-switch.is-on .toggle-knob {
+	transform: translateX(16px);
+}
+
+.plugin-install-form {
+	display: grid;
+	gap: 8px;
+}
+
+.plugin-install-form label {
+	color: var(--muted);
+	font-size: 10px;
+	font-weight: 550;
+}
+
+.plugin-install-form input,
+.plugin-install-form select {
+	width: 100%;
+	min-width: 0;
+	padding: 8px 10px;
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-s);
+	outline-color: var(--accent-strong);
+	color: var(--text-dim);
+	background: var(--surface-recessed);
+	font-size: 12px;
+}
+
+.model-cost-row {
+	padding: 6px 0;
+}
+
+.model-cost-inputs {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 6px;
+	margin-top: 6px;
+}
+
+.model-cost-field {
+	display: grid;
+	gap: 3px;
+}
+
+.model-cost-field span {
+	color: var(--muted);
+	font-size: 9px;
+	font-weight: 550;
+}
+
+.model-cost-field input {
+	width: 100%;
+	min-width: 0;
+	padding: 5px 7px;
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-s);
+	outline-color: var(--accent-strong);
+	color: var(--text-dim);
+	background: var(--surface-recessed);
+	font-family: var(--font-mono);
+	font-size: 10px;
+}
+
 @media (width <= 1120px) {
 	.app-workbench.is-inspector-open {
 		grid-template-columns: 248px minmax(360px, 1fr) minmax(260px, 300px);

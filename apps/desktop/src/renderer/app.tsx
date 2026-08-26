@@ -1673,7 +1673,10 @@ export function App() {
 					settingModel={settingModel}
 					onChangeProvider={setSelectedProviderId}
 					onChangeModel={(modelKey) => void handleChangeModel(modelKey)}
-					onStartProviderSetup={() => void beginProviderSetup(selectedProviderId)}
+					onStartProviderSetup={() => {
+						setConfigModal(undefined);
+						void beginProviderSetup(selectedProviderId);
+					}}
 					onClose={() => setConfigModal(undefined)}
 				/>
 			) : null}

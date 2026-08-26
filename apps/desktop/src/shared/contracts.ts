@@ -54,6 +54,8 @@ export interface DesktopModel {
 export interface DesktopSkill {
 	name: string;
 	description: string;
+	filePath: string;
+	disableModelInvocation: boolean;
 }
 
 export interface DesktopPlugin {
@@ -157,7 +159,11 @@ export interface DesktopProviderConfig {
 	baseUrl?: string;
 	apiKey?: string;
 	api?: string;
-	models?: Array<{ id: string; name?: string }>;
+	models?: Array<{
+		id: string;
+		name?: string;
+		cost?: { input: number; output: number; cacheRead: number; cacheWrite: number };
+	}>;
 }
 
 export interface DesktopSaveModelsConfigInput {
@@ -167,6 +173,16 @@ export interface DesktopSaveModelsConfigInput {
 export interface DesktopDiscoverModelsInput {
 	baseUrl: string;
 	apiKey?: string;
+}
+
+export interface DesktopToggleSkillInput {
+	filePath: string;
+	disable: boolean;
+}
+
+export interface DesktopPluginSourceInput {
+	source: string;
+	local: boolean;
 }
 
 export interface DesktopGitDiffInput {
@@ -249,6 +265,10 @@ export interface DesktopApi {
 	getModelsConfig(): Promise<DesktopProviderConfig[]>;
 	saveModelsConfig(input: DesktopSaveModelsConfigInput): Promise<DesktopSnapshot>;
 	discoverModels(input: DesktopDiscoverModelsInput): Promise<Array<{ id: string }>>;
+	toggleSkill(input: DesktopToggleSkillInput): Promise<DesktopSnapshot>;
+	installPlugin(input: DesktopPluginSourceInput): Promise<DesktopSnapshot>;
+	removePlugin(input: DesktopPluginSourceInput): Promise<DesktopSnapshot>;
+	getPluginPackages(): Promise<Array<{ source: string; scope: "user" | "project" }>>;
 	onSnapshot(listener: DesktopSnapshotListener): Unsubscribe;
 }
 
@@ -336,6 +356,26 @@ export function isDesktopDiscoverModelsInput(value: unknown): value is DesktopDi
 	if (typeof input.baseUrl !== "string" || input.baseUrl.length === 0 || input.baseUrl.length > 2000) return false;
 	if (input.apiKey !== undefined && (typeof input.apiKey !== "string" || input.apiKey.length > 2000)) return false;
 	return true;
+}
+
+export function isDesktopToggleSkillInput(value: unknown): value is DesktopToggleSkillInput {
+	return (
+		isExactRecord(value, ["filePath", "disable"]) &&
+		typeof value.filePath === "string" &&
+		value.filePath.length > 0 &&
+		value.filePath.length <= 2000 &&
+		typeof value.disable === "boolean"
+	);
+}
+
+export function isDesktopPluginSourceInput(value: unknown): value is DesktopPluginSourceInput {
+	return (
+		isExactRecord(value, ["source", "local"]) &&
+		typeof value.source === "string" &&
+		value.source.length > 0 &&
+		value.source.length <= 2000 &&
+		typeof value.local === "boolean"
+	);
 }
 
 export function isDesktopSaveModelsConfigInput(value: unknown): value is DesktopSaveModelsConfigInput {

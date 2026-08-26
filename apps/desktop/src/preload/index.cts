@@ -13,12 +13,14 @@ import type {
 	DesktopNavigateTreeInput,
 	DesktopOpenSessionInput,
 	DesktopOpenWorkspacePathInput,
+	DesktopPluginSourceInput,
 	DesktopPromptInput,
 	DesktopProviderConfig,
 	DesktopProviderSetupInput,
 	DesktopSaveModelsConfigInput,
 	DesktopSnapshot,
 	DesktopSnapshotListener,
+	DesktopToggleSkillInput,
 	DesktopWorkspaceFileInput,
 	Unsubscribe,
 } from "../shared/contracts.ts" with { "resolution-mode": "import" };
@@ -69,6 +71,14 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:save-models-config", input) as Promise<DesktopSnapshot>,
 	discoverModels: (input: DesktopDiscoverModelsInput) =>
 		ipcRenderer.invoke("pi-desktop:discover-models", input) as Promise<Array<{ id: string }>>,
+	toggleSkill: (input: DesktopToggleSkillInput) =>
+		ipcRenderer.invoke("pi-desktop:toggle-skill", input) as Promise<DesktopSnapshot>,
+	installPlugin: (input: DesktopPluginSourceInput) =>
+		ipcRenderer.invoke("pi-desktop:install-plugin", input) as Promise<DesktopSnapshot>,
+	removePlugin: (input: DesktopPluginSourceInput) =>
+		ipcRenderer.invoke("pi-desktop:remove-plugin", input) as Promise<DesktopSnapshot>,
+	getPluginPackages: () =>
+		ipcRenderer.invoke("pi-desktop:get-plugin-packages") as Promise<Array<{ source: string; scope: "user" | "project" }>>,
 	onSnapshot(listener: DesktopSnapshotListener): Unsubscribe {
 		const subscription = (_event: IpcRendererEvent, snapshot: DesktopSnapshot) => listener(snapshot);
 		ipcRenderer.on("pi-desktop:snapshot", subscription);

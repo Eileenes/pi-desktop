@@ -17,7 +17,10 @@ declare module "@earendil-works/pi-coding-agent" {
 			getExtensions(): {
 				extensions: Array<{ hidden?: boolean; path: string; commands: Map<string, unknown> }>;
 			};
-			getSkills(): { skills: Array<{ name: string; description: string }> };
+			getSkills(): {
+				skills: Array<{ name: string; description: string; filePath: string; disableModelInvocation: boolean }>;
+			};
+			reload(): Promise<void>;
 		};
 		prompt(
 			text: string,
@@ -95,6 +98,7 @@ declare module "@earendil-works/pi-coding-agent" {
 				): void;
 			},
 		): Promise<unknown>;
+		refresh(options?: { allowNetwork?: boolean; signal?: AbortSignal }): Promise<unknown>;
 	}
 
 	export const ModelRuntime: {
@@ -102,6 +106,7 @@ declare module "@earendil-works/pi-coding-agent" {
 			authPath: string;
 			modelsPath: string;
 			allowModelNetwork?: boolean;
+			modelRefreshTimeoutMs?: number;
 			refreshOnCreate?: boolean;
 		}): Promise<ModelRuntime>;
 	};
@@ -144,7 +149,21 @@ declare module "@earendil-works/pi-coding-agent" {
 		forkFrom(sourcePath: string, targetCwd: string, sessionDir?: string): SessionManager;
 	};
 
-	export interface SettingsManager {}
+	export interface SettingsManager {
+		getPackages(): Array<string | { source: string; autoload?: boolean }>;
+		getProjectSettings(): { packages?: Array<string | { source: string; autoload?: boolean }> };
+	}
+
+	export const DefaultPackageManager: {
+		new (options: {
+			cwd: string;
+			agentDir: string;
+			settingsManager: SettingsManager;
+		}): {
+			installAndPersist(source: string, options?: { local?: boolean }): Promise<void>;
+			removeAndPersist(source: string, options?: { local?: boolean }): Promise<boolean>;
+		};
+	};
 
 	export const SettingsManager: {
 		create(cwd: string, agentDir: string, options: { projectTrusted: boolean }): SettingsManager;

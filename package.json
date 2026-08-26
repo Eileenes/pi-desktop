@@ -2,6 +2,8 @@
 	"name": "pi-desktop",
 	"version": "0.84.3",
 	"private": true,
+	"description": "An independent Electron desktop client for Pi.",
+	"author": "Earendil Works",
 	"type": "module",
 	"main": "./dist/main/main/main.js",
 	"scripts": {
@@ -11,6 +13,10 @@
 		"build:renderer": "vite build",
 		"check": "biome check . && npm run build && node scripts/check-build-artifacts.mjs && tsgo --noEmit -p tsconfig.check.json && tsgo --noEmit -p tsconfig.renderer.json",
 		"start": "electron .",
+		"package": "npm run build && electron-builder",
+		"package:mac": "npm run build && electron-builder --mac",
+		"package:win": "npm run build && electron-builder --win",
+		"package:linux": "npm run build && electron-builder --linux",
 		"test": "vitest --run"
 	},
 	"dependencies": {
@@ -28,6 +34,7 @@
 		"@types/react-dom": "19.2.5",
 		"@vitejs/plugin-react": "6.1.0",
 		"electron": "44.0.0",
+		"electron-builder": "26.15.3",
 		"typescript": "5.9.3",
 		"undici-types": "8.10.0",
 		"vite": "8.2.2",
@@ -35,5 +42,39 @@
 	},
 	"engines": {
 		"node": ">=22.19.0"
+	},
+	"build": {
+		"appId": "com.earendil.pi.desktop",
+		"productName": "Pi Desktop",
+		"asar": true,
+		"files": [
+			"dist/**/*",
+			"package.json",
+			"node_modules/@earendil-works/pi-coding-agent/**/*",
+			"node_modules/@earendil-works/pi-coding-agent/node_modules/**/*"
+		],
+		"directories": {
+			"output": "release"
+		},
+		"mac": {
+			"target": [
+				"dmg",
+				"zip"
+			],
+			"category": "public.app-category.developer-tools"
+		},
+		"win": {
+			"target": [
+				"nsis",
+				"zip"
+			]
+		},
+		"linux": {
+			"target": [
+				"AppImage",
+				"deb"
+			],
+			"category": "Development"
+		}
 	}
 }

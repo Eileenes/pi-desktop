@@ -5,13 +5,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        **Before you start:** Read [CONTRIBUTING.md](https://github.com/earendil-works/pi/blob/main/CONTRIBUTING.md).
+        **Before you start:** Read [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
-        New issues from new contributors are auto-closed by default. Maintainers review auto-closed issues daily. Issues that do not meet the quality bar in [CONTRIBUTING.md](https://github.com/earendil-works/pi/blob/main/CONTRIBUTING.md) will not be reopened or receive a reply.
-
-        Keep this short. If it doesn't fit on one screen, it's too long. Write in your own voice.
-
-        **Important:** before reporting an issue in core, please validate first with `pi -ne` that this is not caused by an extension you loaded.
+        Include the desktop version, operating system, and the smallest reliable reproduction. Do not include credentials or private workspace contents.
 
   - type: textarea
     id: description
@@ -40,6 +36,6 @@ body:
     id: version
     attributes:
       label: Version
-      description: e.g. 0.49.0
+      description: e.g. 0.84.3
     validations:
       required: false

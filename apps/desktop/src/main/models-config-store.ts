@@ -5,7 +5,10 @@ export interface ModelsJsonModel {
 	id: string;
 	name?: string;
 	api?: string;
+	reasoning?: boolean;
+	input?: string[];
 	contextWindow?: number;
+	maxTokens?: number;
 	cost?: {
 		input: number;
 		output: number;

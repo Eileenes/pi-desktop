@@ -1665,17 +1665,13 @@ export function App() {
 			{configModal === "models" ? (
 				<ModelsConfigModal
 					providers={snapshot.apiKeyProviders}
-					models={snapshot.availableModels}
 					selectedProviderId={selectedProviderId}
-					selectedModelKey={selectedModelKey}
 					providerSetupInProgress={snapshot.providerSetupInProgress}
 					settingUpProvider={settingUpProvider}
-					settingModel={settingModel}
 					onChangeProvider={setSelectedProviderId}
-					onChangeModel={(modelKey) => void handleChangeModel(modelKey)}
-					onStartProviderSetup={() => {
+					onStartProviderSetup={(providerId) => {
 						setConfigModal(undefined);
-						void beginProviderSetup(selectedProviderId);
+						void beginProviderSetup(providerId);
 					}}
 					onClose={() => setConfigModal(undefined)}
 				/>

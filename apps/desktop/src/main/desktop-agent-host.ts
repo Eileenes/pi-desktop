@@ -623,6 +623,11 @@ export class DesktopAgentHost {
 						models: provider.models.map((model) => ({
 							id: model.id,
 							...(model.name === undefined ? {} : { name: model.name }),
+							...(model.api === undefined ? {} : { api: model.api }),
+							...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
+							...(model.input === undefined ? {} : { input: model.input }),
+							...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
+							...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
 							...(model.cost === undefined ? {} : { cost: model.cost }),
 						})),
 					}),
@@ -649,6 +654,11 @@ export class DesktopAgentHost {
 									models: provider.models.map((model) => ({
 										id: model.id,
 										...(model.name === undefined ? {} : { name: model.name }),
+										...(model.api === undefined ? {} : { api: model.api }),
+										...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
+										...(model.input === undefined ? {} : { input: model.input }),
+										...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
+										...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
 										...(model.cost === undefined ? {} : { cost: model.cost }),
 									})),
 								}),

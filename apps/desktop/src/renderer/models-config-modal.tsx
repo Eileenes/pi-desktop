@@ -1,140 +1,186 @@
-import { memo, useCallback, useEffect, useState } from "react";
-import type { DesktopApiKeyProvider, DesktopModel, DesktopProviderConfig } from "../shared/contracts.ts";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import type { DesktopApiKeyProvider, DesktopProviderConfig, DesktopProviderModelConfig } from "../shared/contracts.ts";
 import { discoverModels, getModelsConfig, saveModelsConfig } from "./desktop-store.ts";
 import { Modal } from "./modal.tsx";
 
 interface ModelsConfigModalProps {
 	providers: DesktopApiKeyProvider[];
-	models: DesktopModel[];
 	selectedProviderId: string;
-	selectedModelKey: string;
 	providerSetupInProgress: boolean;
 	settingUpProvider: boolean;
-	settingModel: boolean;
 	onChangeProvider: (providerId: string) => void;
-	onChangeModel: (modelKey: string) => void;
-	onStartProviderSetup: () => void;
+	onStartProviderSetup: (providerId: string) => void;
 	onClose: () => void;
 }
 
-function modelKeyOf(provider: string, id: string): string {
-	return `${provider}\u0000${id}`;
-}
+type Selection = { type: "provider"; providerId: string } | { type: "model"; providerId: string; modelIndex: number };
 
-const API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messages"];
+type DiscoveryState =
+	| { phase: "idle" }
+	| { phase: "loading" }
+	| { phase: "success"; models: string[] }
+	| { phase: "error"; message: string };
+
+const API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"];
+const COST_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
+
+function emptyCost(): NonNullable<DesktopProviderModelConfig["cost"]> {
+	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+}
 
 export const ModelsConfigModal = memo(function ModelsConfigModal({
 	providers,
-	models,
 	selectedProviderId,
-	selectedModelKey,
 	providerSetupInProgress,
 	settingUpProvider,
-	settingModel,
 	onChangeProvider,
-	onChangeModel,
 	onStartProviderSetup,
 	onClose,
 }: ModelsConfigModalProps) {
-	const [customProviders, setCustomProviders] = useState<DesktopProviderConfig[]>([]);
+	const [config, setConfig] = useState<DesktopProviderConfig[]>([]);
+	const [savedConfig, setSavedConfig] = useState<DesktopProviderConfig[]>([]);
+	const [selection, setSelection] = useState<Selection>();
 	const [loading, setLoading] = useState(true);
-	const [selectedCustomId, setSelectedCustomId] = useState<string>();
-	const [editing, setEditing] = useState<DesktopProviderConfig>({ id: "" });
-	const [discovery, setDiscovery] = useState<Array<{ id: string; selected: boolean }>>([]);
-	const [discovering, setDiscovering] = useState(false);
-	const [discoveryError, setDiscoveryError] = useState<string>();
 	const [saving, setSaving] = useState(false);
 	const [saveError, setSaveError] = useState<string>();
-
-	const load = useCallback(async () => {
-		setLoading(true);
-		try {
-			const config = await getModelsConfig();
-			setCustomProviders(config);
-			if (config.length > 0 && !selectedCustomId) {
-				setSelectedCustomId(config[0]?.id);
-				setEditing(config[0] ?? { id: "" });
-			}
-		} catch {
-			setCustomProviders([]);
-		} finally {
-			setLoading(false);
-		}
-	}, [selectedCustomId]);
+	const [secretVisible, setSecretVisible] = useState(false);
+	const [discovery, setDiscovery] = useState<DiscoveryState>({ phase: "idle" });
+	const [discoveryQuery, setDiscoveryQuery] = useState("");
+	const [selectedDiscovered, setSelectedDiscovered] = useState<string[]>([]);
+	const [confirmDiscard, setConfirmDiscard] = useState(false);
+	const [providerPickerOpen, setProviderPickerOpen] = useState(false);
+	const hasChanges = JSON.stringify(config) !== JSON.stringify(savedConfig);
+	const requestClose = useCallback(() => {
+		if (hasChanges) setConfirmDiscard(true);
+		else onClose();
+	}, [hasChanges, onClose]);
 
 	useEffect(() => {
-		void load();
-	}, [load]);
+		let cancelled = false;
+		void getModelsConfig()
+			.then((next) => {
+				if (cancelled) return;
+				setConfig(next);
+				setSavedConfig(next);
+				if (next[0]) setSelection({ type: "provider", providerId: next[0].id });
+			})
+			.catch((error) => {
+				if (!cancelled) setSaveError(error instanceof Error ? error.message : String(error));
+			})
+			.finally(() => {
+				if (!cancelled) setLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
-	function selectCustom(id: string): void {
-		setSelectedCustomId(id);
-		const provider = customProviders.find((item) => item.id === id);
-		setEditing(provider ?? { id });
-		setDiscovery([]);
-		setDiscoveryError(undefined);
+	const selectedProvider = selection ? config.find((provider) => provider.id === selection.providerId) : undefined;
+	const selectedModel = selection?.type === "model" ? selectedProvider?.models?.[selection.modelIndex] : undefined;
+
+	const resetDiscovery = useCallback(() => {
+		setDiscovery({ phase: "idle" });
+		setDiscoveryQuery("");
+		setSelectedDiscovered([]);
+	}, []);
+
+	function updateProvider(
+		providerId: string,
+		update: (provider: DesktopProviderConfig) => DesktopProviderConfig,
+	): void {
+		setConfig((current) => current.map((provider) => (provider.id === providerId ? update(provider) : provider)));
 	}
 
 	function addProvider(): void {
 		let id = "new-provider";
-		let index = 1;
-		while (customProviders.some((provider) => provider.id === id)) {
-			id = `new-provider-${index}`;
-			index += 1;
-		}
-		const provider: DesktopProviderConfig = { id, api: "openai-completions" };
-		setCustomProviders((current) => [...current, provider]);
-		setSelectedCustomId(id);
-		setEditing(provider);
+		let suffix = 2;
+		while (config.some((provider) => provider.id === id)) id = `new-provider-${suffix++}`;
+		setConfig((current) => [...current, { id, api: "openai-completions", models: [] }]);
+		setSelection({ type: "provider", providerId: id });
+		resetDiscovery();
 	}
 
-	function removeProvider(id: string): void {
-		setCustomProviders((current) => current.filter((provider) => provider.id !== id));
-		if (selectedCustomId === id) {
-			setSelectedCustomId(undefined);
-			setEditing({ id: "" });
-		}
-	}
-
-	function updateEditing(patch: Partial<DesktopProviderConfig>): void {
-		setEditing((current) => ({ ...current, ...patch }));
-		setCustomProviders((current) =>
-			current.map((provider) => (provider.id === editing.id ? { ...provider, ...patch } : provider)),
+	function renameProvider(nextId: string): void {
+		if (!selectedProvider || !nextId.trim() || config.some((provider) => provider.id === nextId.trim())) return;
+		const id = nextId.trim();
+		setConfig((current) =>
+			current.map((provider) => (provider.id === selectedProvider.id ? { ...provider, id } : provider)),
 		);
+		setSelection({ type: "provider", providerId: id });
+	}
+
+	function removeProvider(): void {
+		if (!selectedProvider || !window.confirm(`删除服务商“${selectedProvider.id}”及其全部模型？`)) return;
+		const remaining = config.filter((provider) => provider.id !== selectedProvider.id);
+		setConfig(remaining);
+		setSelection(remaining[0] ? { type: "provider", providerId: remaining[0].id } : undefined);
+	}
+
+	function addModel(): void {
+		if (!selectedProvider) return;
+		const nextIndex = selectedProvider.models?.length ?? 0;
+		updateProvider(selectedProvider.id, (provider) => ({
+			...provider,
+			models: [...(provider.models ?? []), { id: "new-model", cost: emptyCost() }],
+		}));
+		setSelection({ type: "model", providerId: selectedProvider.id, modelIndex: nextIndex });
+	}
+
+	function updateModel(update: (model: DesktopProviderModelConfig) => DesktopProviderModelConfig): void {
+		if (!selectedProvider || !selectedModel || selection?.type !== "model") return;
+		updateProvider(selectedProvider.id, (provider) => ({
+			...provider,
+			models: provider.models?.map((model, index) => (index === selection.modelIndex ? update(model) : model)),
+		}));
+	}
+
+	function removeModel(): void {
+		if (!selectedProvider || !selectedModel || selection?.type !== "model") return;
+		if (!window.confirm(`删除模型“${selectedModel.name ?? selectedModel.id}”？`)) return;
+		updateProvider(selectedProvider.id, (provider) => ({
+			...provider,
+			models: provider.models?.filter((_, index) => index !== selection.modelIndex),
+		}));
+		setSelection({ type: "provider", providerId: selectedProvider.id });
 	}
 
 	async function handleDiscover(): Promise<void> {
-		if (!editing.baseUrl?.trim()) return;
-		setDiscovering(true);
-		setDiscoveryError(undefined);
+		if (!selectedProvider?.baseUrl?.trim()) return;
+		setDiscovery({ phase: "loading" });
+		setSelectedDiscovered([]);
 		try {
-			const found = await discoverModels(editing.baseUrl.trim(), editing.apiKey);
-			setDiscovery(found.map((model) => ({ id: model.id, selected: false })));
+			const found = await discoverModels(selectedProvider.baseUrl.trim(), selectedProvider.apiKey);
+			setDiscovery({ phase: "success", models: found.map((model) => model.id) });
 		} catch (error) {
-			setDiscoveryError(error instanceof Error ? error.message : String(error));
-		} finally {
-			setDiscovering(false);
+			setDiscovery({ phase: "error", message: error instanceof Error ? error.message : String(error) });
 		}
 	}
 
-	function toggleDiscovered(id: string): void {
-		setDiscovery((current) =>
-			current.map((model) => (model.id === id ? { ...model, selected: !model.selected } : model)),
-		);
-	}
+	const shownDiscovered = useMemo(() => {
+		if (discovery.phase !== "success") return [];
+		const query = discoveryQuery.trim().toLocaleLowerCase();
+		return discovery.models.filter((id) => !query || id.toLocaleLowerCase().includes(query)).slice(0, 300);
+	}, [discovery, discoveryQuery]);
 
-	function addSelectedModels(): void {
-		const selected = discovery.filter((model) => model.selected).map((model) => ({ id: model.id }));
-		if (selected.length === 0) return;
-		updateEditing({ models: [...(editing.models ?? []), ...selected] });
-		setDiscovery([]);
+	function addDiscoveredModels(): void {
+		if (!selectedProvider || selectedDiscovered.length === 0) return;
+		const existing = new Set(selectedProvider.models?.map((model) => model.id));
+		updateProvider(selectedProvider.id, (provider) => ({
+			...provider,
+			models: [
+				...(provider.models ?? []),
+				...selectedDiscovered.filter((id) => !existing.has(id)).map((id) => ({ id, cost: emptyCost() })),
+			],
+		}));
+		setSelectedDiscovered([]);
 	}
 
 	async function handleSave(): Promise<void> {
 		setSaving(true);
 		setSaveError(undefined);
 		try {
-			await saveModelsConfig(customProviders);
-			onClose();
+			await saveModelsConfig(config);
+			setSavedConfig(config);
 		} catch (error) {
 			setSaveError(error instanceof Error ? error.message : String(error));
 		} finally {
@@ -143,208 +189,427 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	}
 
 	return (
-		<Modal title="模型" onClose={onClose}>
-			<div className="models-config">
-				<div className="models-config-sidebar">
-					<div className="models-provider-list">
-						{customProviders.map((provider) => (
+		<Modal title="模型" subtitle="~/.pi/agent/models.json" className="models-modal" onClose={requestClose}>
+			<div className="models-layout">
+				<aside className="models-tree">
+					<div className="models-tree-scroll">
+						{providers.map((provider) => (
 							<button
 								key={provider.id}
-								className={`models-provider-item ${selectedCustomId === provider.id ? "is-active" : ""}`}
+								className={`models-tree-item provider ${selectedProviderId === provider.id ? "is-connected" : ""}`}
 								type="button"
-								onClick={() => selectCustom(provider.id)}
+								onClick={() => {
+									onChangeProvider(provider.id);
+									onStartProviderSetup(provider.id);
+								}}
 							>
-								<span>{provider.name ?? provider.id}</span>
+								<span className="models-provider-mark">{provider.name.slice(0, 1).toUpperCase()}</span>
+								<span>{provider.name}</span>
+								{provider.configured ? <span className="models-connected-dot" title="已连接" /> : null}
 							</button>
 						))}
-						{!loading && customProviders.length === 0 ? <p className="modal-empty">暂无自定义服务商。</p> : null}
-					</div>
-					<button className="outline-button" type="button" onClick={addProvider}>
-						添加服务商
-					</button>
-				</div>
-				<div className="models-config-main">
-					{selectedCustomId ? (
-						<div className="settings-modal-sections">
-							<section className="settings-group">
-								<p className="section-kicker">服务商</p>
-								<div className="provider-form">
-									<label htmlFor="provider-name">名称</label>
-									<input
-										id="provider-name"
-										value={editing.name ?? ""}
-										placeholder="provider-name"
-										onChange={(event) => updateEditing({ name: event.target.value || undefined })}
-									/>
-									<label htmlFor="provider-base-url">Base URL</label>
-									<input
-										id="provider-base-url"
-										value={editing.baseUrl ?? ""}
-										placeholder="https://api.example.com/v1"
-										onChange={(event) => updateEditing({ baseUrl: event.target.value || undefined })}
-									/>
-									<label htmlFor="provider-api-key">API Key</label>
-									<input
-										id="provider-api-key"
-										value={editing.apiKey ?? ""}
-										placeholder="API key"
-										onChange={(event) => updateEditing({ apiKey: event.target.value || undefined })}
-									/>
-									<label htmlFor="provider-api">API 类型</label>
-									<select
-										id="provider-api"
-										value={editing.api ?? "openai-completions"}
-										onChange={(event) => updateEditing({ api: event.target.value })}
-									>
-										{API_OPTIONS.map((option) => (
-											<option key={option} value={option}>
-												{option}
-											</option>
-										))}
-									</select>
-								</div>
-							</section>
-							<section className="settings-group">
-								<p className="section-kicker">模型发现</p>
+						{providers.length && config.length ? <div className="models-tree-divider" /> : null}
+						{config.map((provider) => (
+							<div key={provider.id} className="models-tree-group">
 								<button
-									className="outline-button"
+									className={`models-tree-item provider ${selection?.type === "provider" && selection.providerId === provider.id ? "is-active" : ""}`}
 									type="button"
-									disabled={!editing.baseUrl?.trim() || discovering}
-									onClick={() => void handleDiscover()}
+									onClick={() => {
+										setSelection({ type: "provider", providerId: provider.id });
+										resetDiscovery();
+									}}
 								>
-									{discovering ? "正在发现…" : "从 Base URL 发现模型"}
+									<span className="models-provider-mark">
+										{(provider.name ?? provider.id).slice(0, 1).toUpperCase()}
+									</span>
+									<span>{provider.name ?? provider.id}</span>
 								</button>
-								{discoveryError ? <p className="sidebar-error">{discoveryError}</p> : null}
-								{discovery.length ? (
-									<div className="discovery-list">
-										{discovery.map((model) => (
-											<label key={model.id} className="discovery-row">
-												<input
-													type="checkbox"
-													checked={model.selected}
-													onChange={() => toggleDiscovered(model.id)}
-												/>
-												<span>{model.id}</span>
-											</label>
-										))}
-										<button className="accent-button" type="button" onClick={addSelectedModels}>
-											添加选中模型
-										</button>
-									</div>
-								) : null}
-							</section>
-							{editing.models?.length ? (
-								<section className="settings-group">
-									<p className="section-kicker">已配置模型</p>
-									<ul className="resource-list">
-										{editing.models.map((model) => (
-											<li key={model.id} className="model-cost-row">
-												<code>{model.id}</code>
-												<div className="model-cost-inputs">
-													{(["input", "output", "cacheRead", "cacheWrite"] as const).map((field) => (
-														<label key={field} className="model-cost-field">
-															<span>{field}</span>
-															<input
-																type="number"
-																min="0"
-																step="0.01"
-																value={model.cost?.[field] ?? 0}
-																onChange={(event) => {
-																	const value = Number.parseFloat(event.target.value);
-																	const cost = {
-																		...(model.cost ?? {
-																			input: 0,
-																			output: 0,
-																			cacheRead: 0,
-																			cacheWrite: 0,
-																		}),
-																		[field]: Number.isNaN(value) ? 0 : value,
-																	};
-																	updateEditing({
-																		models: editing.models?.map((item) =>
-																			item.id === model.id ? { ...item, cost } : item,
-																		),
-																	});
-																}}
-															/>
-														</label>
-													))}
-												</div>
-											</li>
-										))}
-									</ul>
-								</section>
-							) : null}
-							<div className="models-actions">
-								<button className="quiet-button" type="button" onClick={() => removeProvider(selectedCustomId)}>
+								{provider.models?.map((model, index) => (
+									<button
+										key={`${model.id}-${index}`}
+										className={`models-tree-item model ${selection?.type === "model" && selection.providerId === provider.id && selection.modelIndex === index ? "is-active" : ""}`}
+										type="button"
+										onClick={() =>
+											setSelection({ type: "model", providerId: provider.id, modelIndex: index })
+										}
+									>
+										<span>{model.name ?? model.id}</span>
+									</button>
+								))}
+							</div>
+						))}
+						{!loading && config.length === 0 ? <p className="modal-empty">尚未添加自定义服务商。</p> : null}
+					</div>
+					<button
+						className="outline-button models-add-provider"
+						type="button"
+						onClick={() => setProviderPickerOpen(true)}
+					>
+						＋ 添加服务商
+					</button>
+				</aside>
+
+				<section className="models-detail">
+					{selectedProvider && selection?.type === "provider" ? (
+						<div className="models-detail-form">
+							<div className="models-detail-heading">
+								<span>服务商</span>
+								<button className="danger-text-button" type="button" onClick={removeProvider}>
 									删除
 								</button>
-								<button
-									className="accent-button"
-									type="button"
-									disabled={saving}
-									onClick={() => void handleSave()}
-								>
-									{saving ? "保存中…" : "保存"}
-								</button>
 							</div>
-							{saveError ? <p className="sidebar-error">{saveError}</p> : null}
-						</div>
-					) : (
-						<p className="modal-empty">选择或添加一个服务商。</p>
-					)}
-				</div>
-			</div>
-			<div className="settings-modal-sections models-builtin">
-				<section className="settings-group">
-					<p className="section-kicker">模型访问</p>
-					{providers.length ? (
-						<div className="provider-form">
-							<label htmlFor="api-key-provider">服务商</label>
-							<select
-								id="api-key-provider"
-								value={selectedProviderId}
-								disabled={settingUpProvider || providerSetupInProgress}
-								onChange={(event) => onChangeProvider(event.target.value)}
-							>
-								{providers.map((provider) => (
-									<option key={provider.id} value={provider.id}>
-										{provider.name}
-										{provider.configured ? " · 已连接" : ""}
-									</option>
-								))}
-							</select>
-							<button
-								className="accent-button"
-								type="button"
-								disabled={!selectedProviderId || settingUpProvider || providerSetupInProgress}
-								onClick={onStartProviderSetup}
-							>
-								{settingUpProvider || providerSetupInProgress ? "正在配置" : "配置服务商"}
+							<label>
+								服务商名称
+								<input
+									defaultValue={selectedProvider.id}
+									key={selectedProvider.id}
+									onBlur={(event) => renameProvider(event.target.value)}
+								/>
+							</label>
+							<label>
+								显示名称
+								<input
+									value={selectedProvider.name ?? ""}
+									placeholder={selectedProvider.id}
+									onChange={(event) =>
+										updateProvider(selectedProvider.id, (provider) => ({
+											...provider,
+											name: event.target.value || undefined,
+										}))
+									}
+								/>
+							</label>
+							<label>
+								Base URL
+								<input
+									className="mono"
+									value={selectedProvider.baseUrl ?? ""}
+									placeholder="https://api.example.com/v1"
+									onChange={(event) => {
+										updateProvider(selectedProvider.id, (provider) => ({
+											...provider,
+											baseUrl: event.target.value || undefined,
+										}));
+										resetDiscovery();
+									}}
+								/>
+							</label>
+							<label>
+								API Key
+								<div className="secret-input">
+									<input
+										className="mono"
+										type={secretVisible ? "text" : "password"}
+										value={selectedProvider.apiKey ?? ""}
+										placeholder="环境变量名、!shell-command 或密钥"
+										onChange={(event) => {
+											updateProvider(selectedProvider.id, (provider) => ({
+												...provider,
+												apiKey: event.target.value || undefined,
+											}));
+											resetDiscovery();
+										}}
+									/>
+									<button type="button" onClick={() => setSecretVisible((visible) => !visible)}>
+										{secretVisible ? "隐藏" : "显示"}
+									</button>
+								</div>
+								<small>可填写环境变量名；以 ! 开头可执行 shell 命令。</small>
+							</label>
+							<label>
+								API
+								<select
+									value={selectedProvider.api ?? "openai-completions"}
+									onChange={(event) =>
+										updateProvider(selectedProvider.id, (provider) => ({
+											...provider,
+											api: event.target.value,
+										}))
+									}
+								>
+									{API_OPTIONS.map((option) => (
+										<option key={option}>{option}</option>
+									))}
+								</select>
+							</label>
+							<div className="models-discovery">
+								{discovery.phase !== "success" ? (
+									<button
+										className="outline-button"
+										type="button"
+										disabled={!selectedProvider.baseUrl?.trim() || discovery.phase === "loading"}
+										onClick={() => void handleDiscover()}
+									>
+										{discovery.phase === "loading" ? "正在获取模型…" : "从服务商获取模型"}
+									</button>
+								) : null}
+								{discovery.phase === "error" ? <p className="sidebar-error">{discovery.message}</p> : null}
+								{discovery.phase === "success" ? (
+									<>
+										<input
+											value={discoveryQuery}
+											placeholder={`筛选 ${discovery.models.length} 个模型`}
+											onChange={(event) => setDiscoveryQuery(event.target.value)}
+										/>
+										<div className="discovery-results">
+											{shownDiscovered.map((id) => {
+												const added = selectedProvider.models?.some((model) => model.id === id) ?? false;
+												return (
+													<label key={id}>
+														<input
+															type="checkbox"
+															disabled={added}
+															checked={added || selectedDiscovered.includes(id)}
+															onChange={() =>
+																setSelectedDiscovered((current) =>
+																	current.includes(id)
+																		? current.filter((item) => item !== id)
+																		: [...current, id],
+																)
+															}
+														/>
+														<code>{id}</code>
+														{added ? <span>已添加</span> : null}
+													</label>
+												);
+											})}
+										</div>
+										<div className="discovery-footer">
+											<span>已获取 {discovery.models.length} 个模型</span>
+											<button
+												className="accent-button"
+												type="button"
+												disabled={selectedDiscovered.length === 0}
+												onClick={addDiscoveredModels}
+											>
+												添加选中项{selectedDiscovered.length ? ` (${selectedDiscovered.length})` : ""}
+											</button>
+										</div>
+									</>
+								) : null}
+							</div>
+							<button className="outline-button" type="button" onClick={addModel}>
+								＋ 手动添加模型
 							</button>
 						</div>
+					) : selectedProvider && selectedModel ? (
+						<div className="models-detail-form">
+							<div className="models-detail-heading">
+								<span>模型</span>
+								<button className="danger-text-button" type="button" onClick={removeModel}>
+									移除
+								</button>
+							</div>
+							<div className="models-form-grid">
+								<label>
+									ID *
+									<input
+										className="mono"
+										value={selectedModel.id}
+										onChange={(event) => updateModel((model) => ({ ...model, id: event.target.value }))}
+									/>
+								</label>
+								<label>
+									名称
+									<input
+										value={selectedModel.name ?? ""}
+										placeholder="显示名称"
+										onChange={(event) =>
+											updateModel((model) => ({ ...model, name: event.target.value || undefined }))
+										}
+									/>
+								</label>
+							</div>
+							<label>
+								API 覆盖
+								<select
+									value={selectedModel.api ?? ""}
+									onChange={(event) =>
+										updateModel((model) => ({ ...model, api: event.target.value || undefined }))
+									}
+								>
+									<option value="">默认</option>
+									{API_OPTIONS.map((option) => (
+										<option key={option}>{option}</option>
+									))}
+								</select>
+							</label>
+							<div className="models-checks">
+								<label>
+									<input
+										type="checkbox"
+										checked={selectedModel.reasoning ?? false}
+										onChange={(event) =>
+											updateModel((model) => ({ ...model, reasoning: event.target.checked || undefined }))
+										}
+									/>
+									推理 / thinking
+								</label>
+								<label>
+									<input
+										type="checkbox"
+										checked={selectedModel.input?.includes("image") ?? false}
+										onChange={(event) =>
+											updateModel((model) => ({
+												...model,
+												input: event.target.checked ? ["text", "image"] : undefined,
+											}))
+										}
+									/>
+									图片输入
+								</label>
+							</div>
+							<div className="models-form-grid">
+								<label>
+									上下文窗口（tokens）
+									<input
+										type="number"
+										value={selectedModel.contextWindow ?? ""}
+										placeholder="128000"
+										onChange={(event) =>
+											updateModel((model) => ({
+												...model,
+												contextWindow: event.target.value ? Number(event.target.value) : undefined,
+											}))
+										}
+									/>
+								</label>
+								<label>
+									最大输出 tokens
+									<input
+										type="number"
+										value={selectedModel.maxTokens ?? ""}
+										placeholder="16384"
+										onChange={(event) =>
+											updateModel((model) => ({
+												...model,
+												maxTokens: event.target.value ? Number(event.target.value) : undefined,
+											}))
+										}
+									/>
+								</label>
+							</div>
+							<div>
+								<p className="models-field-title">费用（每百万 tokens）</p>
+								<div className="models-cost-grid">
+									{COST_FIELDS.map((field) => (
+										<label key={field}>
+											{field}
+											<input
+												type="number"
+												min="0"
+												step="0.01"
+												value={selectedModel.cost?.[field] ?? 0}
+												onChange={(event) =>
+													updateModel((model) => ({
+														...model,
+														cost: { ...(model.cost ?? emptyCost()), [field]: Number(event.target.value) },
+													}))
+												}
+											/>
+										</label>
+									))}
+								</div>
+							</div>
+						</div>
 					) : (
-						<p>正在加载可配置的模型服务商。</p>
+						<div className="models-empty-detail">
+							<strong>配置模型服务商</strong>
+							<p>添加服务商，然后配置连接信息和模型。</p>
+							<button className="accent-button" type="button" onClick={addProvider}>
+								添加服务商
+							</button>
+						</div>
 					)}
 				</section>
-				<section className="settings-group">
-					<p className="section-kicker">当前模型</p>
-					<select
-						aria-label="选择具体模型"
-						disabled={settingModel || models.length === 0}
-						value={selectedModelKey}
-						onChange={(event) => onChangeModel(event.target.value)}
-					>
-						<option value="">{models.length ? "选择具体模型" : "请先配置服务商"}</option>
-						{models.map((model) => (
-							<option key={modelKeyOf(model.provider, model.id)} value={modelKeyOf(model.provider, model.id)}>
-								{model.provider} / {model.name}
-							</option>
-						))}
-					</select>
-					<p>{settingModel ? "正在切换模型…" : `当前可选择 ${models.length} 个已认证模型。`}</p>
-				</section>
 			</div>
+
+			<footer className="models-footer">
+				{saveError ? (
+					<span className="sidebar-error">{saveError}</span>
+				) : (
+					<span>{hasChanges ? "有未保存的更改" : "配置已保存"}</span>
+				)}
+				<button className="outline-button" type="button" onClick={requestClose}>
+					取消
+				</button>
+				<button
+					className="accent-button"
+					type="button"
+					disabled={!hasChanges || saving}
+					onClick={() => void handleSave()}
+				>
+					{saving ? "保存中…" : "保存更改"}
+				</button>
+			</footer>
+			{providerPickerOpen ? (
+				// biome-ignore lint/a11y/noStaticElementInteractions: 点击遮罩关闭嵌套对话框
+				<div
+					className="models-nested-backdrop"
+					onMouseDown={(event) => {
+						if (event.target === event.currentTarget) setProviderPickerOpen(false);
+					}}
+				>
+					<div className="models-provider-picker" role="dialog" aria-modal="true" aria-label="添加服务商">
+						<div className="models-provider-picker-search">添加服务商</div>
+						<div className="models-provider-picker-grid">
+							<button
+								type="button"
+								onClick={() => {
+									addProvider();
+									setProviderPickerOpen(false);
+								}}
+							>
+								<span>
+									<strong>OpenAI / Anthropic compatible</strong>
+									<small>自定义端点</small>
+								</span>
+								<b>＋</b>
+							</button>
+							{providers.map((provider) => (
+								<button
+									key={provider.id}
+									type="button"
+									disabled={settingUpProvider || providerSetupInProgress}
+									onClick={() => {
+										onChangeProvider(provider.id);
+										setProviderPickerOpen(false);
+										onStartProviderSetup(provider.id);
+									}}
+								>
+									<span>
+										<strong>{provider.name}</strong>
+										<small>API Key / OAuth</small>
+									</span>
+									<b>{provider.name.slice(0, 1).toUpperCase()}</b>
+								</button>
+							))}
+						</div>
+					</div>
+				</div>
+			) : null}
+			{confirmDiscard ? (
+				// biome-ignore lint/a11y/noStaticElementInteractions: 点击遮罩关闭确认框
+				<div
+					className="models-nested-backdrop"
+					onMouseDown={(event) => {
+						if (event.target === event.currentTarget) setConfirmDiscard(false);
+					}}
+				>
+					<div className="models-discard-dialog" role="alertdialog" aria-modal="true">
+						<strong>放弃未保存的更改？</strong>
+						<p>关闭后，本次模型配置修改不会保存。</p>
+						<div>
+							<button className="outline-button" type="button" onClick={() => setConfirmDiscard(false)}>
+								继续编辑
+							</button>
+							<button className="danger-button" type="button" onClick={onClose}>
+								放弃更改
+							</button>
+						</div>
+					</div>
+				</div>
+			) : null}
 		</Modal>
 	);
 });

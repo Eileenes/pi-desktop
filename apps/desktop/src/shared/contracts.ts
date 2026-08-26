@@ -153,17 +153,24 @@ export interface DesktopGitWorktree {
 	branch: string;
 }
 
+export interface DesktopProviderModelConfig {
+	id: string;
+	name?: string;
+	api?: string;
+	reasoning?: boolean;
+	input?: string[];
+	contextWindow?: number;
+	maxTokens?: number;
+	cost?: { input: number; output: number; cacheRead: number; cacheWrite: number };
+}
+
 export interface DesktopProviderConfig {
 	id: string;
 	name?: string;
 	baseUrl?: string;
 	apiKey?: string;
 	api?: string;
-	models?: Array<{
-		id: string;
-		name?: string;
-		cost?: { input: number; output: number; cacheRead: number; cacheWrite: number };
-	}>;
+	models?: DesktopProviderModelConfig[];
 }
 
 export interface DesktopSaveModelsConfigInput {

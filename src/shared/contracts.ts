@@ -1,9 +1,23 @@
 export type DesktopSessionPhase = "idle" | "running" | "error" | "unavailable";
 
+export type DesktopTranscriptBlock =
+	| { type: "text"; text: string }
+	| { type: "thinking"; text: string }
+	| { type: "toolCall"; id: string; name: string; input: string }
+	| { type: "image"; label: string };
+
 export interface DesktopTranscriptMessage {
 	id: string;
 	role: "assistant" | "system" | "tool" | "user";
 	text: string;
+	blocks?: DesktopTranscriptBlock[];
+	toolName?: string;
+	toolCallId?: string;
+	isError?: boolean;
+	command?: string;
+	exitCode?: number;
+	cancelled?: boolean;
+	truncated?: boolean;
 	timestamp?: number;
 }
 
@@ -11,6 +25,10 @@ export interface DesktopSessionSnapshot {
 	id: string;
 	name?: string;
 	phase: DesktopSessionPhase;
+	pendingMessages: Array<{
+		behavior: "steer" | "followUp";
+		text: string;
+	}>;
 	model?: {
 		provider: string;
 		id: string;
@@ -212,6 +230,7 @@ export interface DesktopOpenWorkspacePathInput {
 export interface DesktopPromptInput {
 	text: string;
 	attachmentIds?: string[];
+	streamingBehavior?: "steer" | "followUp";
 }
 
 export interface DesktopOpenSessionInput {
@@ -278,6 +297,7 @@ export interface DesktopApi {
 	chooseWorkspace(): Promise<DesktopSnapshot>;
 	chooseImages(): Promise<DesktopImageAttachment[]>;
 	prompt(input: DesktopPromptInput): Promise<DesktopSnapshot>;
+	abort(): Promise<DesktopSnapshot>;
 	openSession(input: DesktopOpenSessionInput): Promise<DesktopSnapshot>;
 	newSession(): Promise<DesktopSnapshot>;
 	navigateTree(input: DesktopNavigateTreeInput): Promise<DesktopSnapshot>;
@@ -329,8 +349,14 @@ export function isDesktopPromptInput(value: unknown): value is DesktopPromptInpu
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
 	const input = value as Record<string, unknown>;
 	const keys = Object.keys(input);
-	if (!keys.every((key) => key === "text" || key === "attachmentIds")) return false;
+	if (!keys.every((key) => key === "text" || key === "attachmentIds" || key === "streamingBehavior")) return false;
 	if (typeof input.text !== "string") return false;
+	if (
+		input.streamingBehavior !== undefined &&
+		input.streamingBehavior !== "steer" &&
+		input.streamingBehavior !== "followUp"
+	)
+		return false;
 	if (input.attachmentIds === undefined) return true;
 	return (
 		Array.isArray(input.attachmentIds) &&

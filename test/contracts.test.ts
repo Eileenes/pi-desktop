@@ -15,6 +15,8 @@ describe("isDesktopPromptInput", () => {
 	it("accepts text with optional selected image ids", () => {
 		expect(isDesktopPromptInput({ text: "Inspect this project" })).toBe(true);
 		expect(isDesktopPromptInput({ text: "", attachmentIds: ["image-1"] })).toBe(true);
+		expect(isDesktopPromptInput({ text: "Use this constraint", streamingBehavior: "steer" })).toBe(true);
+		expect(isDesktopPromptInput({ text: "Then summarize", streamingBehavior: "followUp" })).toBe(true);
 	});
 
 	it("rejects extra or invalid fields", () => {
@@ -23,6 +25,7 @@ describe("isDesktopPromptInput", () => {
 		expect(isDesktopPromptInput({ text: "Inspect", attachmentIds: Array.from({ length: 6 }, () => "image") })).toBe(
 			false,
 		);
+		expect(isDesktopPromptInput({ text: "Inspect", streamingBehavior: "queue" })).toBe(false);
 		expect(isDesktopPromptInput({ text: 42 })).toBe(false);
 		expect(isDesktopPromptInput(null)).toBe(false);
 	});

@@ -46,8 +46,26 @@ export async function listGitChanges(cwd: string): Promise<GitChange[]> {
 		.filter((change): change is GitChange => change !== undefined);
 }
 
-export async function getGitDiff(cwd: string, path: string): Promise<string> {
-	const { stdout } = await execFileAsync("git", ["diff", "--", path], { cwd });
+export async function getGitDiff(cwd: string, path: string, untracked: boolean): Promise<string> {
+	if (untracked) {
+		try {
+			const { stdout } = await execFileAsync("git", ["diff", "--no-index", "--", "/dev/null", path], { cwd });
+			return stdout;
+		} catch (error) {
+			if (
+				typeof error === "object" &&
+				error !== null &&
+				"code" in error &&
+				error.code === 1 &&
+				"stdout" in error &&
+				typeof error.stdout === "string"
+			) {
+				return error.stdout;
+			}
+			throw error;
+		}
+	}
+	const { stdout } = await execFileAsync("git", ["diff", "HEAD", "--", path], { cwd });
 	return stdout;
 }
 

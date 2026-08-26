@@ -27,6 +27,7 @@ import type {
 	DesktopSessionStats,
 	DesktopSkill,
 	DesktopSnapshot,
+	DesktopTranscriptBlock,
 	DesktopTranscriptMessage,
 	DesktopWorkspaceEntry,
 	DesktopWorkspaceFilePreview,
@@ -67,29 +68,46 @@ function toMessageRole(value: unknown): DesktopTranscriptMessage["role"] {
 	return "system";
 }
 
-function contentToText(value: unknown): string {
-	if (typeof value === "string") return value;
-	if (!Array.isArray(value)) return "";
+function contentToBlocks(value: unknown): DesktopTranscriptBlock[] {
+	if (typeof value === "string") return [{ type: "text", text: value }];
+	if (!Array.isArray(value)) return [];
 
-	const parts: string[] = [];
+	const blocks: DesktopTranscriptBlock[] = [];
 	for (const item of value) {
 		if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
 		const block = item as Record<string, unknown>;
-		if (typeof block.text === "string") {
-			parts.push(block.text);
+		if (block.type === "text" && typeof block.text === "string") {
+			blocks.push({ type: "text", text: block.text });
 			continue;
 		}
-		if (typeof block.thinking === "string") {
-			parts.push(block.thinking);
+		if (block.type === "thinking" && typeof block.thinking === "string") {
+			blocks.push({ type: "thinking", text: block.thinking });
 			continue;
 		}
-		if (typeof block.toolName === "string") {
-			parts.push(`工具调用：${block.toolName}`);
+		if (block.type === "toolCall" && typeof block.id === "string" && typeof block.name === "string") {
+			blocks.push({
+				type: "toolCall",
+				id: block.id,
+				name: block.name,
+				input: JSON.stringify(block.arguments ?? {}, null, 2),
+			});
 			continue;
 		}
-		if (block.type === "image") parts.push("图片附件");
+		if (block.type === "image") blocks.push({ type: "image", label: "图片附件" });
 	}
-	return parts.join("\n");
+	return blocks;
+}
+
+function blocksToText(blocks: DesktopTranscriptBlock[]): string {
+	return blocks
+		.map((block) =>
+			block.type === "text" || block.type === "thinking"
+				? block.text
+				: block.type === "toolCall"
+					? `工具调用：${block.name}`
+					: block.label,
+		)
+		.join("\n");
 }
 
 function toTranscriptMessage(message: unknown, index: number): DesktopTranscriptMessage {
@@ -99,10 +117,22 @@ function toTranscriptMessage(message: unknown, index: number): DesktopTranscript
 
 	const value = message as Record<string, unknown>;
 	const timestamp = typeof value.timestamp === "number" ? value.timestamp : undefined;
+	const role = toMessageRole(value.role);
+	const blocks = contentToBlocks(value.content);
+	const text =
+		value.role === "bashExecution" && typeof value.output === "string" ? value.output : blocksToText(blocks);
 	return {
 		id: `${index}:${timestamp ?? ""}`,
-		role: toMessageRole(value.role),
-		text: contentToText(value.content),
+		role,
+		text,
+		...(blocks.length === 0 ? {} : { blocks }),
+		...(typeof value.toolName === "string" ? { toolName: value.toolName } : {}),
+		...(typeof value.toolCallId === "string" ? { toolCallId: value.toolCallId } : {}),
+		...(typeof value.isError === "boolean" ? { isError: value.isError } : {}),
+		...(typeof value.command === "string" ? { command: value.command } : {}),
+		...(typeof value.exitCode === "number" ? { exitCode: value.exitCode } : {}),
+		...(typeof value.cancelled === "boolean" ? { cancelled: value.cancelled } : {}),
+		...(typeof value.truncated === "boolean" ? { truncated: value.truncated } : {}),
 		...(timestamp === undefined ? {} : { timestamp }),
 	};
 }
@@ -187,6 +217,10 @@ export class DesktopAgentHost {
 			id: this.session.sessionId,
 			...(this.session.sessionName === undefined ? {} : { name: this.session.sessionName }),
 			phase: toPhase(this.session, this.error),
+			pendingMessages: [
+				...this.session.getSteeringMessages().map((text) => ({ behavior: "steer" as const, text })),
+				...this.session.getFollowUpMessages().map((text) => ({ behavior: "followUp" as const, text })),
+			],
 			...(model === undefined ? {} : { model: { provider: model.provider, id: model.id } }),
 			thinkingLevel: this.session.thinkingLevel,
 			messages: this.session.messages.map(toTranscriptMessage),
@@ -345,7 +379,11 @@ export class DesktopAgentHost {
 		await this.refreshSessions();
 	}
 
-	async prompt(text: string, images: DesktopPromptImage[] = []): Promise<DesktopSnapshot> {
+	async prompt(
+		text: string,
+		images: DesktopPromptImage[] = [],
+		streamingBehavior?: "steer" | "followUp",
+	): Promise<DesktopSnapshot> {
 		if (this.providerSetupInProgress) {
 			throw new Error("请先完成当前模型服务商配置，再发送消息。");
 		}
@@ -361,15 +399,28 @@ export class DesktopAgentHost {
 			}
 		}
 
+		if (this.session.isStreaming && streamingBehavior === undefined) {
+			throw new Error("智能体运行中，请选择立即引导或排队跟进。");
+		}
+
 		this.error = undefined;
 		try {
 			await this.session.prompt(text, {
 				images: images.map((image) => ({ ...image, type: "image" as const })),
 				source: "interactive",
+				...(streamingBehavior === undefined ? {} : { streamingBehavior }),
 			});
 		} catch (error) {
 			this.error = error instanceof Error ? error.message : String(error);
 		}
+		return this.publish();
+	}
+
+	async abort(): Promise<DesktopSnapshot> {
+		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
+		if (!this.session.isStreaming) return this.getSnapshot();
+		this.approvalQueue.cancelAll();
+		await this.session.abort();
 		return this.publish();
 	}
 
@@ -883,7 +934,9 @@ export class DesktopAgentHost {
 
 	async getGitDiff(path: string): Promise<string> {
 		const workspacePath = this.requireWorkspacePath();
-		return gitGetDiff(workspacePath, path);
+		const change = (await gitListChanges(workspacePath)).find((item) => item.path === path);
+		if (!change) throw new Error("只能读取当前工作区内已变更文件的差异。");
+		return gitGetDiff(workspacePath, path, change.status === "untracked");
 	}
 
 	async listGitWorktrees(): Promise<DesktopGitWorktree[]> {

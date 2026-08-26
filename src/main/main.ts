@@ -254,7 +254,11 @@ function registerIpc(): void {
 			if (!attachment) throw new Error("所选图片已失效，请重新选择。");
 			return attachment.image;
 		});
-		return getHost().prompt(text, images);
+		return getHost().prompt(text, images, value.streamingBehavior);
+	});
+	ipcMain.handle("pi-desktop:abort", async (event): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		return getHost().abort();
 	});
 	ipcMain.handle("pi-desktop:open-session", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);

@@ -2,22 +2,26 @@ import type { CSSProperties, FormEvent } from "react";
 import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type {
 	DesktopAuthenticationPrompt,
+	DesktopGitChange,
 	DesktopImageAttachment,
 	DesktopSessionInfo,
 	DesktopSessionPhase,
 	DesktopToolApproval,
+	DesktopTranscriptBlock,
 	DesktopTranscriptMessage,
 	DesktopWorkspaceEntry,
 	DesktopWorkspaceFilePreview,
 } from "../shared/contracts.ts";
 import { AppSettingsModal } from "./app-settings-modal.tsx";
 import {
+	abortSession,
 	chooseImages,
 	chooseWorkspace,
 	decideToolApproval,
 	forkSession,
 	getDesktopSnapshot,
 	getDesktopStartupError,
+	listGitChanges,
 	listWorkspaceFiles,
 	navigateTree,
 	newSession,
@@ -63,14 +67,10 @@ type IconName =
 	| "search"
 	| "skill"
 	| "sun";
-type WorkbenchView = "chats" | "files" | "source-control";
+type RightPanelView = "files" | "source-control";
 type ConfigModal = "models" | "plugins" | "settings" | "skills";
 
-const SIDEBAR_TITLES: Record<WorkbenchView, string> = {
-	chats: "Pi 桌面端",
-	files: "文件",
-	"source-control": "源代码管理",
-};
+const DRAFT_STORAGE_PREFIX = "pi-desktop-draft:";
 
 function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 	const shared = {
@@ -425,6 +425,66 @@ const ToolApprovalCard = memo(function ToolApprovalCard({ approval, resolving, o
 	);
 });
 
+const TranscriptBlock = memo(function TranscriptBlock({ block }: { block: DesktopTranscriptBlock }) {
+	const [expanded, setExpanded] = useState(false);
+	if (block.type === "text") return <MarkdownBody text={block.text} />;
+	if (block.type === "image") return <span className="message-image-label">{block.label}</span>;
+	const label = block.type === "thinking" ? "思考过程" : `工具 · ${block.name}`;
+	const detail = block.type === "thinking" ? block.text : block.input;
+	return (
+		<div className={`message-block message-block-${block.type}`}>
+			<button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
+				<span className="entry-chevron">
+					<Icon name="chevron" size={11} />
+				</span>
+				{label}
+			</button>
+			{expanded ? (
+				<pre>
+					<code>{detail}</code>
+				</pre>
+			) : null}
+		</div>
+	);
+});
+
+const TranscriptMessage = memo(function TranscriptMessage({ message }: { message: DesktopTranscriptMessage }) {
+	const [copied, setCopied] = useState(false);
+	const isAssistant = message.role === "assistant";
+
+	async function copyMessage(): Promise<void> {
+		await navigator.clipboard.writeText(message.text);
+		setCopied(true);
+		window.setTimeout(() => setCopied(false), 1500);
+	}
+
+	return (
+		<article className={`message message-${message.role}`}>
+			{isAssistant ? (
+				<div className="assistant-label">
+					<span>Pi</span>
+					{message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
+				</div>
+			) : null}
+			<div className="message-content">
+				{isAssistant && message.blocks?.length ? (
+					message.blocks.map((block, index) => <TranscriptBlock key={`${block.type}:${index}`} block={block} />)
+				) : isAssistant ? (
+					<MarkdownBody text={message.text || ""} />
+				) : (
+					<p>{message.text || "…"}</p>
+				)}
+			</div>
+			<div className="message-actions">
+				<button type="button" onClick={() => void copyMessage()} disabled={!message.text}>
+					{copied ? "已复制" : "复制"}
+				</button>
+				{!isAssistant && message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
+			</div>
+		</article>
+	);
+});
+
 const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 	message,
 }: {
@@ -442,12 +502,24 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 				<span className="entry-chevron">
 					<Icon name="chevron" size={11} />
 				</span>
-				<span>{message.role === "tool" ? "工具调用" : "系统消息"}</span>
+				<span>
+					{message.command
+						? `终端 · ${message.command}`
+						: message.role === "tool"
+							? `${message.isError ? "工具失败" : "工具结果"}${message.toolName ? ` · ${message.toolName}` : ""}`
+							: "系统消息"}
+				</span>
 				{message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
 			</button>
 			{expanded ? (
-				<pre className="entry-detail">
+				<pre className={`entry-detail ${message.isError ? "is-error" : ""}`}>
 					<code>{message.text || "…"}</code>
+					{message.command ? (
+						<small>
+							{message.cancelled ? "已取消" : `退出码 ${message.exitCode ?? "未知"}`}
+							{message.truncated ? " · 输出已截断" : ""}
+						</small>
+					) : null}
 				</pre>
 			) : null}
 		</article>
@@ -535,8 +607,39 @@ function Explorer({
 	onTrustProject,
 }: ExplorerProps) {
 	const [collapsedDirectories, setCollapsedDirectories] = useState<Set<string>>(new Set());
+	const [searchQuery, setSearchQuery] = useState("");
+	const [gitChanges, setGitChanges] = useState<DesktopGitChange[]>([]);
 
+	useEffect(() => {
+		if (!workspacePath || !isTrusted) {
+			setGitChanges([]);
+			return;
+		}
+		let cancelled = false;
+		void listGitChanges().then(
+			(changes) => {
+				if (!cancelled) setGitChanges(changes);
+			},
+			() => {
+				if (!cancelled) setGitChanges([]);
+			},
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, [workspacePath, isTrusted]);
+
+	const gitStatusByPath = useMemo(
+		() => new Map(gitChanges.map((change) => [change.path, change.status])),
+		[gitChanges],
+	);
+	const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
 	const visibleEntries = useMemo(() => {
+		if (normalizedSearch) {
+			return entries.filter(
+				(entry) => entry.type === "file" && entry.path.toLocaleLowerCase().includes(normalizedSearch),
+			);
+		}
 		if (collapsedDirectories.size === 0) return entries;
 		return entries.filter((entry) => {
 			const segments = entry.path.split("/");
@@ -545,7 +648,7 @@ function Explorer({
 			}
 			return true;
 		});
-	}, [entries, collapsedDirectories]);
+	}, [entries, collapsedDirectories, normalizedSearch]);
 
 	function toggleDirectory(path: string): void {
 		setCollapsedDirectories((current) => {
@@ -583,9 +686,18 @@ function Explorer({
 			<div className="sidebar-section-title">
 				<span>文件</span>
 				<button className="icon-button compact" type="button" aria-label="刷新文件" onClick={onRefresh}>
-					<Icon name="search" size={15} />
+					↻
 				</button>
 			</div>
+			<label className="file-search">
+				<Icon name="search" size={13} />
+				<input
+					type="search"
+					value={searchQuery}
+					placeholder="按路径搜索文件"
+					onChange={(event) => setSearchQuery(event.target.value)}
+				/>
+			</label>
 			{error ? <p className="sidebar-error">{error}</p> : null}
 			{isLoading ? <p className="sidebar-loading">正在读取项目文件…</p> : null}
 			<div className="file-list">
@@ -601,7 +713,12 @@ function Explorer({
 							<span className="tree-file-icon">
 								<Icon name={fileIconFor(entry.path)} size={13} />
 							</span>
-							<span>{entry.name}</span>
+							<span className="tree-entry-name">{normalizedSearch ? entry.path : entry.name}</span>
+							{gitStatusByPath.get(entry.path) ? (
+								<span className={`tree-git-status is-${gitStatusByPath.get(entry.path)}`}>
+									{gitStatusByPath.get(entry.path)?.slice(0, 1).toUpperCase()}
+								</span>
+							) : null}
 						</button>
 					) : (
 						<button
@@ -619,6 +736,9 @@ function Explorer({
 						</button>
 					),
 				)}
+				{normalizedSearch && visibleEntries.length === 0 ? (
+					<p className="sidebar-loading">没有匹配的文件。</p>
+				) : null}
 			</div>
 		</div>
 	);
@@ -793,10 +913,13 @@ export function App() {
 	const [notifyOnComplete, setNotifyOnComplete] = useState<boolean>(() => {
 		return localStorage.getItem("pi-desktop-notify-complete") !== "off";
 	});
-	const [activeView, setActiveView] = useState<WorkbenchView>("chats");
-	const [draft, setDraft] = useState(() => localStorage.getItem("pi-desktop-draft") ?? "");
+	const [rightPanelView, setRightPanelView] = useState<RightPanelView>("files");
+	const [draft, setDraft] = useState("");
 	const [openingWorkspace, setOpeningWorkspace] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
+	const [aborting, setAborting] = useState(false);
+	const [awayFromBottom, setAwayFromBottom] = useState(false);
+	const [unseenMessages, setUnseenMessages] = useState(0);
 	const [changingTrust, setChangingTrust] = useState(false);
 	const [settingUpProvider, setSettingUpProvider] = useState(false);
 	const [settingModel, setSettingModel] = useState(false);
@@ -818,13 +941,23 @@ export function App() {
 	const [configModal, setConfigModal] = useState<ConfigModal | undefined>();
 	const [branchMenuOpen, setBranchMenuOpen] = useState(false);
 	const fileRequestId = useRef(0);
+	const chatScrollRef = useRef<HTMLDivElement>(null);
+	const scrollFrameRef = useRef<number | undefined>(undefined);
+	const stickToBottomRef = useRef(true);
+	const previousMessageSignatureRef = useRef("");
+	const previousSessionIdRef = useRef<string | undefined>(undefined);
 	const promptRef = useRef<HTMLTextAreaElement>(null);
+	const composingRef = useRef(false);
 	const previousPhaseRef = useRef<DesktopSessionPhase | undefined>(undefined);
 	const apiKeyProviderIds = snapshot.apiKeyProviders.map((provider) => provider.id).join("\u0000");
 	const authenticationPrompt = snapshot.pendingAuthenticationPrompts[0];
 	const session = snapshot.session;
+	const draftKey = `${DRAFT_STORAGE_PREFIX}${session?.id ?? snapshot.workspacePath ?? "new"}`;
+	const lastMessage = session?.messages.at(-1);
+	const messageSignature = `${session?.id ?? ""}:${session?.messages.length ?? 0}:${lastMessage?.id ?? ""}:${lastMessage?.text.length ?? 0}`;
 	const canSubmit =
 		!submitting &&
+		!aborting &&
 		!openingWorkspace &&
 		!changingTrust &&
 		!settingUpProvider &&
@@ -876,8 +1009,16 @@ export function App() {
 		void startDesktopStore();
 	}, []);
 	useEffect(() => {
-		localStorage.setItem("pi-desktop-draft", draft);
-	}, [draft]);
+		setDraft(localStorage.getItem(draftKey) ?? "");
+		setAttachments([]);
+	}, [draftKey]);
+	useEffect(() => {
+		localStorage.setItem(draftKey, draft);
+	}, [draft, draftKey]);
+	function resizePrompt(textarea: HTMLTextAreaElement): void {
+		textarea.style.height = "auto";
+		textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
+	}
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (!(event.metaKey || event.ctrlKey)) return;
@@ -907,6 +1048,33 @@ export function App() {
 		}
 		previousPhaseRef.current = phase;
 	}, [session?.phase, notifyOnComplete]);
+	useEffect(() => {
+		const scroll = chatScrollRef.current;
+		if (!scroll) return;
+		if (previousSessionIdRef.current !== session?.id) {
+			previousSessionIdRef.current = session?.id;
+			previousMessageSignatureRef.current = messageSignature;
+			scroll.scrollTop = scroll.scrollHeight;
+			stickToBottomRef.current = true;
+			setAwayFromBottom(false);
+			setUnseenMessages(0);
+			return;
+		}
+		if (previousMessageSignatureRef.current && previousMessageSignatureRef.current !== messageSignature) {
+			if (stickToBottomRef.current) {
+				scroll.scrollTo({ top: scroll.scrollHeight, behavior: session?.phase === "running" ? "auto" : "smooth" });
+			} else {
+				setUnseenMessages((count) => count + 1);
+			}
+		}
+		previousMessageSignatureRef.current = messageSignature;
+	}, [messageSignature, session?.id, session?.phase]);
+	useEffect(
+		() => () => {
+			if (scrollFrameRef.current !== undefined) cancelAnimationFrame(scrollFrameRef.current);
+		},
+		[],
+	);
 	useEffect(() => {
 		const providerIds = apiKeyProviderIds ? apiKeyProviderIds.split("\u0000") : [];
 		if (!providerIds.includes(selectedProviderId)) setSelectedProviderId(providerIds[0] ?? "");
@@ -942,14 +1110,35 @@ export function App() {
 		setFileTabs([]);
 		setActiveTabPath(undefined);
 		setFileExplorerError(undefined);
-		setInspectorOpen(false);
-		if (activeView === "files" && snapshot.projectTrusted && snapshot.workspacePath) void refreshWorkspaceFiles();
-	}, [activeView, refreshWorkspaceFiles, snapshot.projectTrusted, snapshot.workspacePath]);
+		if (snapshot.projectTrusted && snapshot.workspacePath) void refreshWorkspaceFiles();
+	}, [refreshWorkspaceFiles, snapshot.projectTrusted, snapshot.workspacePath]);
 	useEffect(() => {
 		if (atQuery && snapshot.projectTrusted && snapshot.workspacePath && workspaceEntries.length === 0) {
 			void refreshWorkspaceFiles();
 		}
 	}, [atQuery, refreshWorkspaceFiles, snapshot.projectTrusted, snapshot.workspacePath, workspaceEntries.length]);
+
+	function handleChatScroll(): void {
+		if (scrollFrameRef.current !== undefined) return;
+		scrollFrameRef.current = requestAnimationFrame(() => {
+			scrollFrameRef.current = undefined;
+			const scroll = chatScrollRef.current;
+			if (!scroll) return;
+			const isAway = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 80;
+			stickToBottomRef.current = !isAway;
+			setAwayFromBottom((current) => (current === isAway ? current : isAway));
+			if (!isAway) setUnseenMessages(0);
+		});
+	}
+
+	function scrollToLatest(): void {
+		const scroll = chatScrollRef.current;
+		if (!scroll) return;
+		stickToBottomRef.current = true;
+		setAwayFromBottom(false);
+		setUnseenMessages(0);
+		scroll.scrollTo({ top: scroll.scrollHeight, behavior: "smooth" });
+	}
 
 	async function handleChooseWorkspace(): Promise<void> {
 		if (!canChooseWorkspace) return;
@@ -957,7 +1146,6 @@ export function App() {
 		setActionError(undefined);
 		try {
 			await chooseWorkspace();
-			setActiveView("chats");
 		} catch (error) {
 			setActionError(error instanceof Error ? error.message : String(error));
 		} finally {
@@ -982,7 +1170,6 @@ export function App() {
 		setActionError(undefined);
 		try {
 			await openWorkspacePath(path);
-			setActiveView("chats");
 		} catch (error) {
 			setActionError(error instanceof Error ? error.message : String(error));
 		}
@@ -1030,15 +1217,52 @@ export function App() {
 			await submitPrompt(
 				draft,
 				attachments.map((attachment) => attachment.id),
+				session?.phase === "running" ? "followUp" : undefined,
 			);
 			startTransition(() => {
 				setAttachments([]);
 				setDraft("");
+				localStorage.removeItem(draftKey);
 			});
 		} catch (error) {
 			setActionError(error instanceof Error ? error.message : String(error));
 		} finally {
 			setSubmitting(false);
+		}
+	}
+
+	async function handleSteer(): Promise<void> {
+		if (!canSubmit || session?.phase !== "running") return;
+		setSubmitting(true);
+		setActionError(undefined);
+		try {
+			await submitPrompt(
+				draft,
+				attachments.map((attachment) => attachment.id),
+				"steer",
+			);
+			startTransition(() => {
+				setAttachments([]);
+				setDraft("");
+				localStorage.removeItem(draftKey);
+			});
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setSubmitting(false);
+		}
+	}
+
+	async function handleAbort(): Promise<void> {
+		if (session?.phase !== "running" || aborting) return;
+		setAborting(true);
+		setActionError(undefined);
+		try {
+			await abortSession();
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setAborting(false);
 		}
 	}
 
@@ -1146,7 +1370,8 @@ export function App() {
 			return true;
 		}
 		if (command === "files") {
-			setActiveView("files");
+			setRightPanelView("files");
+			setInspectorOpen(true);
 			return true;
 		}
 		if (command === "settings" || command === "skills" || command === "plugins") {
@@ -1237,22 +1462,6 @@ export function App() {
 	}, []);
 
 	function renderSidebar() {
-		if (activeView === "files")
-			return (
-				<Explorer
-					entries={workspaceEntries}
-					error={fileExplorerError}
-					isLoading={loadingFiles || loadingFilePath !== undefined}
-					isTrusted={snapshot.projectTrusted}
-					selectedPath={activeTabPath}
-					workspacePath={snapshot.workspacePath}
-					onChooseWorkspace={() => void handleChooseWorkspace()}
-					onOpenFile={(entry) => void handleOpenFile(entry)}
-					onRefresh={() => void refreshWorkspaceFiles()}
-					onTrustProject={() => void handleProjectTrust()}
-				/>
-			);
-		if (activeView === "source-control") return <SourceControl />;
 		return (
 			<div className="sessions-panel">
 				<div className="session-list">
@@ -1303,7 +1512,7 @@ export function App() {
 		<main className={`app-workbench ${macOSClassName} ${inspectorOpen ? "is-inspector-open" : ""}`}>
 			<aside className="sidebar" aria-label="项目导航">
 				<header className="sidebar-header">
-					<p className="section-kicker">{SIDEBAR_TITLES[activeView]}</p>
+					<p className="section-kicker">Pi</p>
 					<span className={snapshot.projectTrusted ? "trust-badge is-trusted" : "trust-badge"}>
 						{snapshot.projectTrusted ? "已信任" : "受限"}
 					</span>
@@ -1338,23 +1547,9 @@ export function App() {
 							onSwitch={(path) => void handleSwitchWorkspacePath(path)}
 						/>
 					) : null}
-					<div className="view-segmented" role="tablist" aria-label="侧栏视图">
-						<button
-							aria-pressed={activeView === "chats"}
-							className={activeView === "chats" ? "is-active" : ""}
-							type="button"
-							onClick={() => setActiveView("chats")}
-						>
-							会话
-						</button>
-						<button
-							aria-pressed={activeView === "files"}
-							className={activeView === "files" ? "is-active" : ""}
-							type="button"
-							onClick={() => setActiveView("files")}
-						>
-							文件
-						</button>
+					<div className="sidebar-section-title sidebar-project-label">
+						<span>会话</span>
+						<small>{snapshot.sessions.length}</small>
 					</div>
 				</div>
 				<div className="sidebar-content">{renderSidebar()}</div>
@@ -1373,10 +1568,13 @@ export function App() {
 					</button>
 					<button
 						aria-label="源代码管理"
-						aria-pressed={activeView === "source-control"}
-						className={`footer-button is-icon ${activeView === "source-control" ? "is-active" : ""}`}
+						aria-pressed={inspectorOpen && rightPanelView === "source-control"}
+						className={`footer-button is-icon ${inspectorOpen && rightPanelView === "source-control" ? "is-active" : ""}`}
 						type="button"
-						onClick={() => setActiveView("source-control")}
+						onClick={() => {
+							setRightPanelView("source-control");
+							setInspectorOpen(true);
+						}}
 					>
 						<Icon name="branch" size={15} />
 					</button>
@@ -1448,7 +1646,10 @@ export function App() {
 							className="icon-button"
 							type="button"
 							aria-label="打开文件浏览"
-							onClick={() => setActiveView("files")}
+							onClick={() => {
+								setRightPanelView("files");
+								setInspectorOpen(true);
+							}}
 						>
 							<Icon name="files" size={16} />
 						</button>
@@ -1465,7 +1666,7 @@ export function App() {
 						) : null}
 					</div>
 				</header>
-				<div className="chat-scroll">
+				<div className="chat-scroll" ref={chatScrollRef} onScroll={handleChatScroll}>
 					<div className="chat-column">
 						{startupError ? (
 							<button className="retry-startup-button" type="button" onClick={() => void startDesktopStore()}>
@@ -1497,28 +1698,53 @@ export function App() {
 							</section>
 						) : null}
 						<div className="transcript">
-							{session?.messages.length
-								? session.messages.map((message) =>
-										message.role === "user" || message.role === "assistant" ? (
-											<article className={`message message-${message.role}`} key={message.id}>
-												<div className="message-meta">
-													<span>{message.role === "assistant" ? "Pi" : "你"}</span>
-													{message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
-												</div>
-												{message.role === "assistant" ? (
-													<MarkdownBody text={message.text || ""} />
-												) : (
-													<p>{message.text || "…"}</p>
-												)}
-											</article>
-										) : (
-											<CollapsibleTranscriptEntry key={message.id} message={message} />
-										),
-									)
-								: null}
+							{session?.messages.length ? (
+								session.messages.map((message) =>
+									message.role === "user" || message.role === "assistant" ? (
+										<TranscriptMessage key={message.id} message={message} />
+									) : (
+										<CollapsibleTranscriptEntry key={message.id} message={message} />
+									),
+								)
+							) : (
+								<div className="chat-empty-state">
+									<span className="empty-index">01</span>
+									<h2>今天想构建什么？</h2>
+									<p>描述任务、粘贴代码，或用 @ 提及项目文件。Pi 会在当前工作区中完成工作。</p>
+									<div className="empty-suggestions">
+										<button type="button" onClick={() => setDraft("解释这个项目的结构和关键入口")}>
+											解释项目结构
+										</button>
+										<button type="button" onClick={() => setDraft("检查当前改动并找出潜在问题")}>
+											审查当前改动
+										</button>
+										<button type="button" onClick={() => setDraft("帮我实现一个新功能：")}>
+											实现新功能
+										</button>
+									</div>
+								</div>
+							)}
+							{session?.pendingMessages.map((message, index) => (
+								<div className="queued-message" key={`${message.behavior}:${index}:${message.text}`}>
+									<span>{message.behavior === "steer" ? "引导" : "跟进"}</span>
+									<p>{message.text}</p>
+								</div>
+							))}
+							{session?.phase === "running" ? (
+								<output className="agent-running-status">
+									<span className="status-indicator is-running" />
+									Pi 正在处理…
+								</output>
+							) : null}
 						</div>
 					</div>
 				</div>
+				{awayFromBottom ? (
+					<button className="scroll-to-latest" type="button" onClick={scrollToLatest}>
+						<span>↓</span>
+						{unseenMessages > 0 ? `${unseenMessages} 条新动态` : "回到底部"}
+					</button>
+				) : null}
 				<form className="composer" onSubmit={(event) => void handleSubmit(event)}>
 					<div className="composer-inner">
 						{slashQuery ? (
@@ -1600,14 +1826,34 @@ export function App() {
 							ref={promptRef}
 							id="prompt"
 							value={draft}
-							onChange={(event) => setDraft(event.target.value)}
+							onChange={(event) => {
+								setDraft(event.target.value);
+								resizePrompt(event.currentTarget);
+							}}
+							onCompositionStart={() => {
+								composingRef.current = true;
+							}}
+							onCompositionEnd={() => {
+								composingRef.current = false;
+							}}
 							onKeyDown={(event) => {
-								if (event.key === "Enter" && !event.shiftKey) {
+								if (
+									event.key === "Enter" &&
+									!event.shiftKey &&
+									!composingRef.current &&
+									!event.nativeEvent.isComposing
+								) {
 									event.preventDefault();
 									event.currentTarget.form?.requestSubmit();
 								}
 							}}
-							placeholder={session ? "输入消息，或键入 / 调用命令…" : "正在准备本地智能体…"}
+							placeholder={
+								session?.phase === "running"
+									? "输入引导或排队跟进…"
+									: session
+										? "输入消息，或键入 / 调用命令…"
+										: "正在准备本地智能体…"
+							}
 							disabled={
 								!session ||
 								submitting ||
@@ -1644,23 +1890,95 @@ export function App() {
 							>
 								<Icon name="image" size={16} />
 							</button>
-							<button className="send-button" type="submit" disabled={!canSubmit}>
-								{submitting ? "正在发送" : "发送"}
-							</button>
+							{session?.phase === "running" ? (
+								<>
+									<button
+										className="composer-action-button"
+										type="button"
+										disabled={!canSubmit}
+										onClick={() => void handleSteer()}
+									>
+										引导
+									</button>
+									<button className="send-button" type="submit" disabled={!canSubmit}>
+										{submitting ? "排队中" : "跟进"}
+									</button>
+									<button
+										className="stop-button"
+										type="button"
+										disabled={aborting}
+										onClick={() => void handleAbort()}
+									>
+										{aborting ? "停止中" : "停止"}
+									</button>
+								</>
+							) : (
+								<button className="send-button" type="submit" disabled={!canSubmit}>
+									{submitting ? "正在发送" : "发送"}
+								</button>
+							)}
 						</div>
 					</div>
 				</form>
 			</section>
 			{inspectorOpen ? (
-				<Inspector
-					tabs={fileTabs}
-					activeTabPath={activeTabPath}
-					onSelectTab={setActiveTabPath}
-					onCloseTab={handleCloseTab}
-					onClose={() => setInspectorOpen(false)}
-					onOpenFile={(path) => void handleOpenFileWithDefaultApp(path)}
-					onRevealFile={(path) => void handleRevealFile(path)}
-				/>
+				<aside className="right-panel" aria-label={rightPanelView === "files" ? "文件" : "源代码管理"}>
+					<header className="right-panel-header">
+						<div className="right-panel-tabs" role="tablist" aria-label="右侧面板">
+							<button
+								className={rightPanelView === "files" ? "is-active" : ""}
+								type="button"
+								onClick={() => setRightPanelView("files")}
+							>
+								文件
+							</button>
+							<button
+								className={rightPanelView === "source-control" ? "is-active" : ""}
+								type="button"
+								onClick={() => setRightPanelView("source-control")}
+							>
+								更改
+							</button>
+						</div>
+						<button
+							className="icon-button"
+							type="button"
+							aria-label="关闭右侧面板"
+							onClick={() => setInspectorOpen(false)}
+						>
+							<Icon name="close" size={16} />
+						</button>
+					</header>
+					{rightPanelView === "source-control" ? (
+						<SourceControl />
+					) : (
+						<div className="file-workspace">
+							<div className="file-tree-panel">
+								<Explorer
+									entries={workspaceEntries}
+									error={fileExplorerError}
+									isLoading={loadingFiles || loadingFilePath !== undefined}
+									isTrusted={snapshot.projectTrusted}
+									selectedPath={activeTabPath}
+									workspacePath={snapshot.workspacePath}
+									onChooseWorkspace={() => void handleChooseWorkspace()}
+									onOpenFile={(entry) => void handleOpenFile(entry)}
+									onRefresh={() => void refreshWorkspaceFiles()}
+									onTrustProject={() => void handleProjectTrust()}
+								/>
+							</div>
+							<Inspector
+								tabs={fileTabs}
+								activeTabPath={activeTabPath}
+								onSelectTab={setActiveTabPath}
+								onCloseTab={handleCloseTab}
+								onClose={() => setInspectorOpen(false)}
+								onOpenFile={(path) => void handleOpenFileWithDefaultApp(path)}
+								onRevealFile={(path) => void handleRevealFile(path)}
+							/>
+						</div>
+					)}
+				</aside>
 			) : null}
 			{configModal === "models" ? (
 				<ModelsConfigModal

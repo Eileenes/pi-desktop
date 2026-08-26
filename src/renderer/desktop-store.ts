@@ -87,8 +87,22 @@ export function chooseImages(): Promise<DesktopImageAttachment[]> {
 	return window.piDesktop.chooseImages();
 }
 
-export async function submitPrompt(text: string, attachmentIds: string[]): Promise<DesktopSnapshot> {
-	const next = await window.piDesktop.prompt({ text, ...(attachmentIds.length ? { attachmentIds } : {}) });
+export async function submitPrompt(
+	text: string,
+	attachmentIds: string[],
+	streamingBehavior?: "steer" | "followUp",
+): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.prompt({
+		text,
+		...(attachmentIds.length ? { attachmentIds } : {}),
+		...(streamingBehavior === undefined ? {} : { streamingBehavior }),
+	});
+	publish(next);
+	return next;
+}
+
+export async function abortSession(): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.abort();
 	publish(next);
 	return next;
 }

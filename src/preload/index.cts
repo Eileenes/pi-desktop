@@ -34,6 +34,7 @@ const desktopApi: DesktopApi = {
 	chooseWorkspace: () => ipcRenderer.invoke("pi-desktop:choose-workspace") as Promise<DesktopSnapshot>,
 	chooseImages: () => ipcRenderer.invoke("pi-desktop:choose-images") as Promise<DesktopImageAttachment[]>,
 	prompt: (input: DesktopPromptInput) => ipcRenderer.invoke("pi-desktop:prompt", input) as Promise<DesktopSnapshot>,
+	abort: () => ipcRenderer.invoke("pi-desktop:abort") as Promise<DesktopSnapshot>,
 	openSession: (input: DesktopOpenSessionInput) =>
 		ipcRenderer.invoke("pi-desktop:open-session", input) as Promise<DesktopSnapshot>,
 	newSession: () => ipcRenderer.invoke("pi-desktop:new-session") as Promise<DesktopSnapshot>,

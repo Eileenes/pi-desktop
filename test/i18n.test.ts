@@ -5,6 +5,10 @@ describe("renderer translations", () => {
 	it("provides both supported languages for every public key", () => {
 		const keys = [
 			"newChat",
+			"chats",
+			"files",
+			"searchSessions",
+			"chooseFolder",
 			"sessions",
 			"models",
 			"skills",
@@ -14,7 +18,6 @@ describe("renderer translations", () => {
 			"recentProjects",
 			"welcomeTitle",
 			"welcomeBody",
-			"openFiles",
 			"openPreview",
 			"selectModel",
 			"addImage",
@@ -27,8 +30,6 @@ describe("renderer translations", () => {
 			"source",
 			"preview",
 			"diff",
-			"hideFileList",
-			"showFileList",
 		] as const;
 		for (const key of keys) {
 			expect(translate("zh-CN", key).trim()).not.toBe("");

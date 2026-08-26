@@ -53,13 +53,16 @@ import { SkillsConfigModal } from "./skills-config-modal.tsx";
 import { getLanguageForPath, HighlightedCode } from "./syntax-highlight.tsx";
 import { buildConversationTurns, partitionTranscript } from "./transcript-group.ts";
 import { UpdateReminder } from "./update-reminder.tsx";
-import { WorktreeSelector } from "./worktree-selector.tsx";
+import { WorktreeSection } from "./worktree-selector.tsx";
 
 type IconName =
 	| "branch"
+	| "bulb"
+	| "chat"
 	| "chevron"
 	| "close"
 	| "code"
+	| "compact"
 	| "copy"
 	| "doc"
 	| "external"
@@ -77,9 +80,10 @@ type IconName =
 	| "search"
 	| "send"
 	| "skill"
+	| "speaker"
 	| "sun"
-	| "tree"
-	| "wrap";
+	| "wrap"
+	| "wrench";
 type ConfigModal = "models" | "plugins" | "settings" | "skills";
 
 const DRAFT_STORAGE_PREFIX = "pi-desktop-draft:";
@@ -130,6 +134,45 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 			<svg {...shared} aria-hidden="true">
 				<path d="M12 3c.6 3.8 2.2 5.4 6 6-3.8.6-5.4 2.2-6 6-.6-3.8-2.2-5.4-6-6 3.8-.6 5.4-2.2 6-6Z" />
 				<path d="M18.5 15.5c.3 1.7 1 2.4 2.5 2.7-1.5.3-2.2 1-2.5 2.7-.3-1.7-1-2.4-2.5-2.7 1.5-.3 2.2-1 2.5-2.7Z" />
+			</svg>
+		);
+	}
+	if (name === "chat") {
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8Z" />
+			</svg>
+		);
+	}
+	if (name === "bulb") {
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M9 18h6M10 21h4" />
+				<path d="M12 3a6.5 6.5 0 0 0-3.7 11.8c.7.5 1.2 1.4 1.2 2.2h5c0-.8.5-1.7 1.2-2.2A6.5 6.5 0 0 0 12 3Z" />
+			</svg>
+		);
+	}
+	if (name === "wrench") {
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z" />
+			</svg>
+		);
+	}
+	if (name === "compact") {
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M5 3.5h14" />
+				<path d="m8 10.5 4-4 4 4" />
+				<path d="M12 6.5v14" />
+			</svg>
+		);
+	}
+	if (name === "speaker") {
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M11 5 6 9H3v6h3l5 4V5Z" />
+				<path d="M15.5 8.5a5 5 0 0 1 0 7" />
 			</svg>
 		);
 	}
@@ -261,13 +304,6 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 				<path d="M4 7h11a4 4 0 0 1 4 4v1" />
 				<path d="m16 9 3 3-3 3" />
 				<path d="M4 17h8" />
-			</svg>
-		);
-	if (name === "tree")
-		return (
-			<svg {...shared} aria-hidden="true">
-				<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
-				<path d="M15 7v10" />
 			</svg>
 		);
 	return (
@@ -863,8 +899,6 @@ interface FileTab {
 function Inspector({
 	tabs,
 	activeTabPath,
-	onSelectTab,
-	onCloseTab,
 	onClose,
 	onOpenFile,
 	onRevealFile,
@@ -872,8 +906,6 @@ function Inspector({
 }: {
 	tabs: FileTab[];
 	activeTabPath: string | undefined;
-	onSelectTab: (path: string) => void;
-	onCloseTab: (path: string) => void;
 	onClose: () => void;
 	onOpenFile: (path: string) => void;
 	onRevealFile: (path: string) => void;
@@ -906,50 +938,23 @@ function Inspector({
 
 	return (
 		<aside className="inspector" aria-label="文件预览">
-			{tabs.length > 0 ? (
-				<div className="file-tab-bar" role="tablist" aria-label="已打开文件">
-					{tabs.map((tab) => (
-						<div
-							key={tab.path}
-							role="tab"
-							aria-selected={tab.path === activeTabPath}
-							tabIndex={tab.path === activeTabPath ? 0 : -1}
-							className={`file-tab ${tab.path === activeTabPath ? "is-active" : ""}`}
-							title={tab.path}
-							onClick={() => onSelectTab(tab.path)}
-							onKeyDown={(event) => {
-								if (event.key === "Enter" || event.key === " ") {
-									event.preventDefault();
-									onSelectTab(tab.path);
-								}
-							}}
-						>
-							<span>{tab.path.split("/").at(-1) ?? tab.path}</span>
-							<button
-								type="button"
-								aria-label={`关闭 ${tab.path}`}
-								onClick={(event) => {
-									event.stopPropagation();
-									onCloseTab(tab.path);
-								}}
-							>
-								<Icon name="close" size={12} />
-							</button>
-						</div>
-					))}
-				</div>
-			) : null}
 			<div className="inspector-header">
 				<div className="inspector-title">
-					<p className="section-kicker">预览</p>
-					<strong>{preview?.path ?? "未选择文件"}</strong>
 					{preview ? (
-						<small className="inspector-meta">
-							{isImage
-								? getFileKindLabel(preview.path)
-								: `${getFileKindLabel(preview.path)} · ${lineCount} 行 · ${formatByteSize(byteSize)}`}
-						</small>
-					) : null}
+						<>
+							<span className="inspector-file-icon">
+								<Icon name={fileIconFor(preview.path)} size={15} />
+							</span>
+							<strong title={preview.path}>{preview.path.split("/").at(-1) ?? preview.path}</strong>
+							<small className="inspector-meta">
+								{isImage
+									? getFileKindLabel(preview.path)
+									: `${getFileKindLabel(preview.path)} · ${lineCount} 行 · ${formatByteSize(byteSize)}`}
+							</small>
+						</>
+					) : (
+						<strong>未选择文件</strong>
+					)}
 				</div>
 				<div className="inspector-header-actions">
 					{preview && isPreviewable ? (
@@ -1072,12 +1077,12 @@ export function App() {
 	const [soundOnComplete, setSoundOnComplete] = useState<boolean>(
 		() => localStorage.getItem("pi-desktop-sound-complete") !== "off",
 	);
-	const [fileTreeOpen, setFileTreeOpen] = useState(() => localStorage.getItem("pi-desktop-file-tree-open") !== "off");
-	const [fileTreeWidth, setFileTreeWidth] = useState(
-		() => Number(localStorage.getItem("pi-desktop-file-tree-width")) || 280,
+	const [sidebarView, setSidebarView] = useState<"chats" | "files">(() =>
+		localStorage.getItem("pi-desktop-sidebar-view") === "files" ? "files" : "chats",
 	);
+	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+	const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
 	const [trustDialogOpen, setTrustDialogOpen] = useState(false);
-	const [changesCollapsed, setChangesCollapsed] = useState(true);
 	const [draft, setDraft] = useState("");
 	const [openingWorkspace, setOpeningWorkspace] = useState(false);
 	const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>(() => {
@@ -1138,6 +1143,8 @@ export function App() {
 	const promptHistoryIndexRef = useRef(-1);
 	const draftBeforeHistoryRef = useRef("");
 	const previousPhaseRef = useRef<DesktopSessionPhase | undefined>(undefined);
+	const projectMenuRef = useRef<HTMLDivElement>(null);
+	const sessionMenuRef = useRef<HTMLDivElement>(null);
 	const apiKeyProviderIds = snapshot.apiKeyProviders.map((provider) => provider.id).join("\u0000");
 	const authenticationPrompt = snapshot.pendingAuthenticationPrompts[0];
 	const session = snapshot.session;
@@ -1241,6 +1248,8 @@ export function App() {
 			setBranchMenuOpen(false);
 			setStatsOpen(false);
 			setTopMoreOpen(false);
+			setProjectMenuOpen(false);
+			setSessionMenuOpen(false);
 		};
 		window.addEventListener("keydown", onEscape);
 		return () => {
@@ -1263,8 +1272,17 @@ export function App() {
 		return () => media.removeEventListener("change", apply);
 	}, [theme]);
 	useEffect(() => {
-		localStorage.setItem("pi-desktop-file-tree-open", fileTreeOpen ? "on" : "off");
-	}, [fileTreeOpen]);
+		localStorage.setItem("pi-desktop-sidebar-view", sidebarView);
+	}, [sidebarView]);
+	useEffect(() => {
+		if (!projectMenuOpen && !sessionMenuOpen) return;
+		const close = (event: MouseEvent) => {
+			if (!projectMenuRef.current?.contains(event.target as Node)) setProjectMenuOpen(false);
+			if (!sessionMenuRef.current?.contains(event.target as Node)) setSessionMenuOpen(false);
+		};
+		document.addEventListener("mousedown", close);
+		return () => document.removeEventListener("mousedown", close);
+	}, [projectMenuOpen, sessionMenuOpen]);
 	useEffect(() => {
 		if (!snapshot.workspacePath) return;
 		setRecentWorkspaces((current) => {
@@ -1699,8 +1717,8 @@ export function App() {
 			return true;
 		}
 		if (command === "files") {
+			setSidebarView("files");
 			setInspectorOpen(true);
-			setFileTreeOpen(true);
 			return true;
 		}
 		if (command === "settings" || command === "skills" || command === "plugins") {
@@ -1818,12 +1836,11 @@ export function App() {
 		}
 	}, []);
 
-	function beginResize(side: "sidebar" | "inspector" | "file-tree", startX: number): void {
-		const startWidth = side === "sidebar" ? sidebarWidth : side === "inspector" ? inspectorWidth : fileTreeWidth;
-		const min = side === "sidebar" ? 220 : side === "inspector" ? 300 : 220;
-		const max = side === "sidebar" ? 420 : side === "inspector" ? 760 : 520;
-		const variable =
-			side === "sidebar" ? "--sidebar-width" : side === "inspector" ? "--inspector-width" : "--file-tree-width";
+	function beginResize(side: "sidebar" | "inspector", startX: number): void {
+		const startWidth = side === "sidebar" ? sidebarWidth : inspectorWidth;
+		const min = side === "sidebar" ? 220 : 300;
+		const max = side === "sidebar" ? 420 : 760;
+		const variable = side === "sidebar" ? "--sidebar-width" : "--inspector-width";
 		const resolveWidth = (clientX: number) =>
 			Math.round(
 				Math.max(min, Math.min(max, startWidth + (side === "sidebar" ? clientX - startX : startX - clientX))),
@@ -1833,14 +1850,9 @@ export function App() {
 		const handleUp = (event: PointerEvent) => {
 			const width = resolveWidth(event.clientX);
 			if (side === "sidebar") setSidebarWidth(width);
-			else if (side === "inspector") setInspectorWidth(width);
-			else setFileTreeWidth(width);
+			else setInspectorWidth(width);
 			localStorage.setItem(
-				side === "sidebar"
-					? "pi-desktop-sidebar-width"
-					: side === "inspector"
-						? "pi-desktop-inspector-width"
-						: "pi-desktop-file-tree-width",
+				side === "sidebar" ? "pi-desktop-sidebar-width" : "pi-desktop-inspector-width",
 				String(width),
 			);
 			window.removeEventListener("pointermove", handleMove);
@@ -1850,23 +1862,17 @@ export function App() {
 		window.addEventListener("pointerup", handleUp);
 	}
 
-	function resizeByKeyboard(side: "sidebar" | "inspector" | "file-tree", delta: number): void {
-		const current = side === "sidebar" ? sidebarWidth : side === "inspector" ? inspectorWidth : fileTreeWidth;
-		const min = side === "sidebar" ? 220 : side === "inspector" ? 300 : 220;
-		const max = side === "sidebar" ? 420 : side === "inspector" ? 760 : 520;
-		const variable =
-			side === "sidebar" ? "--sidebar-width" : side === "inspector" ? "--inspector-width" : "--file-tree-width";
+	function resizeByKeyboard(side: "sidebar" | "inspector", delta: number): void {
+		const current = side === "sidebar" ? sidebarWidth : inspectorWidth;
+		const min = side === "sidebar" ? 220 : 300;
+		const max = side === "sidebar" ? 420 : 760;
+		const variable = side === "sidebar" ? "--sidebar-width" : "--inspector-width";
 		const width = Math.max(min, Math.min(max, current + delta));
 		document.documentElement.style.setProperty(variable, `${width}px`);
 		if (side === "sidebar") setSidebarWidth(width);
-		else if (side === "inspector") setInspectorWidth(width);
-		else setFileTreeWidth(width);
+		else setInspectorWidth(width);
 		localStorage.setItem(
-			side === "sidebar"
-				? "pi-desktop-sidebar-width"
-				: side === "inspector"
-					? "pi-desktop-inspector-width"
-					: "pi-desktop-file-tree-width",
+			side === "sidebar" ? "pi-desktop-sidebar-width" : "pi-desktop-inspector-width",
 			String(width),
 		);
 	}
@@ -1930,21 +1936,60 @@ export function App() {
 										{visibleItems.map((item) => {
 											const isCurrent = item.id === session?.id;
 											return (
-												<button
-													className={`session-row sidebar-session-tree-item ${isCurrent ? "is-current" : ""}`}
+												<div
+													className={`session-row-wrap ${isCurrent ? "is-current" : ""}`}
 													key={item.path}
-													type="button"
-													title={`${sessionTitle(item)} · ${item.messageCount} · ${formatSessionDate(item.modified)}`}
-													disabled={session?.phase === "running"}
-													onClick={() =>
-														isCurrent ? promptRef.current?.focus() : void handleOpenSession(item.path)
-													}
+													ref={isCurrent ? sessionMenuRef : undefined}
 												>
-													<span
-														className={`session-status ${isCurrent && session?.phase === "running" ? "is-running" : ""}`}
-													/>
-													<span>{sessionTitle(item)}</span>
-												</button>
+													<button
+														className="session-row"
+														type="button"
+														title={`${sessionTitle(item)} · ${item.messageCount} · ${formatSessionDate(item.modified)}`}
+														disabled={session?.phase === "running"}
+														onClick={() =>
+															isCurrent ? promptRef.current?.focus() : void handleOpenSession(item.path)
+														}
+													>
+														<span className="session-row-icon">
+															<Icon name="chat" size={14} />
+														</span>
+														<span>{sessionTitle(item)}</span>
+													</button>
+													{isCurrent ? (
+														<button
+															className="session-more"
+															type="button"
+															aria-label="会话操作"
+															aria-expanded={sessionMenuOpen}
+															onClick={() => setSessionMenuOpen((open) => !open)}
+														>
+															<Icon name="more" size={14} />
+														</button>
+													) : null}
+													{isCurrent && sessionMenuOpen ? (
+														<div className="session-more-menu" role="menu">
+															<button
+																type="button"
+																onClick={() => {
+																	setSessionMenuOpen(false);
+																	setStatsOpen(true);
+																}}
+															>
+																会话统计
+															</button>
+															<button
+																type="button"
+																disabled={session?.phase === "running"}
+																onClick={() => {
+																	setSessionMenuOpen(false);
+																	void handleForkSession();
+																}}
+															>
+																Fork 为独立会话
+															</button>
+														</div>
+													) : null}
+												</div>
 											);
 										})}
 										{!expanded && filteredItems.length > 5 ? (
@@ -1978,7 +2023,9 @@ export function App() {
 					})
 				) : (
 					<button className="session-row is-current" type="button" onClick={() => promptRef.current?.focus()}>
-						<span className="session-status" />
+						<span className="session-row-icon">
+							<Icon name="chat" size={14} />
+						</span>
 						<span>{session?.name ?? "新会话"}</span>
 					</button>
 				)}
@@ -1995,7 +2042,6 @@ export function App() {
 				{
 					"--sidebar-width": `${sidebarWidth}px`,
 					"--inspector-width": `${inspectorWidth}px`,
-					"--file-tree-width": `${fileTreeWidth}px`,
 				} as CSSProperties
 			}
 		>
@@ -2048,64 +2094,125 @@ export function App() {
 						<Icon name="plus" size={16} />
 						<span>{t("newChat")}</span>
 					</button>
-					<button
-						className="project-switcher"
-						disabled={!canChooseWorkspace}
-						type="button"
-						onClick={() => void handleChooseWorkspace()}
-					>
-						<Icon name="folder" size={16} />
-						<span>
-							<strong>{openingWorkspace ? "正在打开项目…" : formatWorkspace(snapshot.workspacePath)}</strong>
-							<small>{snapshot.workspacePath ?? "选择本地文件夹"}</small>
-						</span>
-						<Icon name="chevron" size={15} />
-					</button>
-					{recentWorkspaces.length > 1 ? (
-						<nav className="recent-workspaces" aria-label={t("recentProjects")}>
-							{recentWorkspaces
-								.filter((path) => path !== snapshot.workspacePath)
-								.slice(0, 4)
-								.map((path) => (
-									<button
-										type="button"
-										key={path}
-										title={path}
-										disabled={session?.phase === "running"}
-										onClick={() => void handleSwitchWorkspacePath(path)}
-									>
-										<Icon name="folder" size={12} />
-										<span>{formatWorkspace(path)}</span>
-									</button>
-								))}
-						</nav>
-					) : null}
-					{snapshot.workspacePath ? (
-						<WorktreeSelector
-							key={snapshot.workspacePath}
-							workspacePath={snapshot.workspacePath}
-							onSwitch={(path) => void handleSwitchWorkspacePath(path)}
-						/>
+					<div className="project-switcher-wrap" ref={projectMenuRef}>
+						<button
+							className="project-switcher"
+							disabled={!canChooseWorkspace}
+							type="button"
+							aria-expanded={projectMenuOpen}
+							onClick={() => setProjectMenuOpen((open) => !open)}
+						>
+							<Icon name="folder" size={15} />
+							<span className="project-switcher-name">
+								{openingWorkspace ? "正在打开项目…" : formatWorkspace(snapshot.workspacePath)}
+							</span>
+							<span className="switcher-chevron">
+								<Icon name="chevron" size={14} />
+							</span>
+						</button>
+						{projectMenuOpen ? (
+							<div className="project-menu" role="menu">
+								<button
+									className="project-menu-item"
+									type="button"
+									disabled={!canChooseWorkspace}
+									onClick={() => {
+										setProjectMenuOpen(false);
+										void handleChooseWorkspace();
+									}}
+								>
+									<Icon name="folder" size={14} />
+									<span>{t("chooseFolder")}</span>
+								</button>
+								{recentWorkspaces.length > 0 ? (
+									<>
+										<div className="project-menu-label">{t("recentProjects")}</div>
+										{recentWorkspaces.map((path) => (
+											<button
+												className="project-menu-item"
+												key={path}
+												type="button"
+												title={path}
+												disabled={session?.phase === "running"}
+												onClick={() => {
+													setProjectMenuOpen(false);
+													void handleSwitchWorkspacePath(path);
+												}}
+											>
+												<Icon name="folder" size={14} />
+												<span>{formatWorkspace(path)}</span>
+											</button>
+										))}
+									</>
+								) : null}
+								{snapshot.workspacePath ? (
+									<WorktreeSection
+										key={snapshot.workspacePath}
+										workspacePath={snapshot.workspacePath}
+										onSwitch={(path) => {
+											setProjectMenuOpen(false);
+											void handleSwitchWorkspacePath(path);
+										}}
+									/>
+								) : null}
+							</div>
+						) : null}
+					</div>
+					<div className="sidebar-segments" role="tablist" aria-label="侧栏视图">
+						<button
+							type="button"
+							role="tab"
+							aria-selected={sidebarView === "chats"}
+							className={sidebarView === "chats" ? "is-active" : ""}
+							onClick={() => setSidebarView("chats")}
+						>
+							{t("chats")}
+						</button>
+						<button
+							type="button"
+							role="tab"
+							aria-selected={sidebarView === "files"}
+							className={sidebarView === "files" ? "is-active" : ""}
+							onClick={() => setSidebarView("files")}
+						>
+							{t("files")}
+						</button>
+					</div>
+					{sidebarView === "chats" ? (
+						<div className="sidebar-search-wrap">
+							<Icon name="search" size={13} />
+							<input
+								aria-label="搜索会话"
+								placeholder={t("searchSessions")}
+								value={sessionSearch}
+								onChange={(event) => setSessionSearch(event.target.value)}
+							/>
+							{sessionSearch ? (
+								<button type="button" aria-label="清除搜索" onClick={() => setSessionSearch("")}>
+									×
+								</button>
+							) : null}
+						</div>
 					) : null}
 				</header>
-				<div className="sidebar-section-title sidebar-project-label">
-					<span>{t("sessions")}</span>
-					<small>{snapshot.sessions.length}</small>
+				<div className="sidebar-content">
+					{sidebarView === "chats" ? (
+						renderSidebar()
+					) : (
+						<Explorer
+							entries={workspaceEntries}
+							error={fileExplorerError}
+							isLoading={loadingFiles || loadingFilePath !== undefined}
+							isTrusted={snapshot.projectTrusted}
+							selectedPath={activeTabPath}
+							workspacePath={snapshot.workspacePath}
+							onChooseWorkspace={() => void handleChooseWorkspace()}
+							onOpenFile={(entry) => void handleOpenFile(entry)}
+							onRefresh={() => void refreshWorkspaceFiles()}
+							onTrustProject={() => void handleProjectTrust()}
+						/>
+					)}
 				</div>
-				<div className="sidebar-search-wrap">
-					<input
-						aria-label="搜索会话"
-						placeholder="搜索会话"
-						value={sessionSearch}
-						onChange={(event) => setSessionSearch(event.target.value)}
-					/>
-					{sessionSearch ? (
-						<button type="button" aria-label="清除搜索" onClick={() => setSessionSearch("")}>
-							×
-						</button>
-					) : null}
-				</div>
-				<div className="sidebar-content">{renderSidebar()}</div>
 				<footer className="sidebar-footer">
 					<button className="footer-button" type="button" onClick={() => setConfigModal("models")}>
 						<Icon name="model" size={15} />
@@ -2121,13 +2228,12 @@ export function App() {
 					</button>
 					<button
 						aria-label={t("sourceControl")}
-						aria-pressed={inspectorOpen && !changesCollapsed}
-						className={`footer-button is-icon ${inspectorOpen && !changesCollapsed ? "is-active" : ""}`}
+						aria-pressed={inspectorOpen && sidebarView === "files"}
+						className={`footer-button is-icon ${inspectorOpen && sidebarView === "files" ? "is-active" : ""}`}
 						type="button"
 						onClick={() => {
+							setSidebarView("files");
 							setInspectorOpen(true);
-							setFileTreeOpen(true);
-							setChangesCollapsed(false);
 						}}
 					>
 						<Icon name="branch" size={15} />
@@ -2636,14 +2742,6 @@ export function App() {
 									<button
 										className="composer-control-button"
 										type="button"
-										onClick={() => void handleChooseWorkspace()}
-									>
-										<Icon name="folder" size={15} />
-										<span>{formatWorkspace(snapshot.workspacePath)}</span>
-									</button>
-									<button
-										className="composer-control-button"
-										type="button"
 										disabled={!canSetModel || settingModel}
 										onClick={() => setComposerMenu((current) => (current === "model" ? undefined : "model"))}
 									>
@@ -2660,7 +2758,7 @@ export function App() {
 											setComposerMenu((current) => (current === "thinking" ? undefined : "thinking"))
 										}
 									>
-										<span>☼</span>
+										<Icon name="bulb" size={14} />
 										<span>{session?.thinkingLevel ?? "auto"}</span>
 									</button>
 									<button
@@ -2668,7 +2766,7 @@ export function App() {
 										type="button"
 										onClick={() => setComposerMenu((current) => (current === "tools" ? undefined : "tools"))}
 									>
-										<span>⌕</span>
+										<Icon name="wrench" size={14} />
 										<span>{toolPreset}</span>
 									</button>
 									<button
@@ -2677,7 +2775,7 @@ export function App() {
 										disabled={!session || session.phase === "running" || compacting}
 										onClick={() => void handleCompact()}
 									>
-										<span>{compacting ? "■" : "↗"}</span>
+										<Icon name="compact" size={14} />
 										<span>{compacting ? "压缩中" : "压缩"}</span>
 									</button>
 									<ContextUsageRing
@@ -2690,7 +2788,7 @@ export function App() {
 										aria-label="切换完成提示音"
 										onClick={() => setSoundOnComplete((current) => !current)}
 									>
-										<span>{soundOnComplete ? "◖" : "◗"}</span>
+										<Icon name="speaker" size={14} />
 									</button>
 								</div>
 								{composerMenu === "model" ? (
@@ -2815,15 +2913,6 @@ export function App() {
 						</div>
 						<div className="file-workbench-actions">
 							<button
-								className={`icon-button ${fileTreeOpen ? "is-active" : ""}`}
-								type="button"
-								aria-label={fileTreeOpen ? t("hideFileList") : t("showFileList")}
-								aria-pressed={fileTreeOpen}
-								onClick={() => setFileTreeOpen((open) => !open)}
-							>
-								<Icon name="tree" size={16} />
-							</button>
-							<button
 								className="icon-button"
 								type="button"
 								aria-label="关闭右侧面板"
@@ -2833,50 +2922,14 @@ export function App() {
 							</button>
 						</div>
 					</header>
-					<div className="file-workspace">
-						<Inspector
-							tabs={fileTabs}
-							activeTabPath={activeTabPath}
-							onSelectTab={setActiveTabPath}
-							onCloseTab={handleCloseTab}
-							onClose={() => setInspectorOpen(false)}
-							onOpenFile={(path) => void handleOpenFileWithDefaultApp(path)}
-							onRevealFile={(path) => void handleRevealFile(path)}
-							onQuoteLine={handleQuoteLine}
-						/>
-						{fileTreeOpen ? (
-							<>
-								<hr
-									className="column-resizer"
-									aria-label="调整文件树宽度"
-									aria-orientation="vertical"
-									aria-valuemin={220}
-									aria-valuemax={520}
-									aria-valuenow={fileTreeWidth}
-									tabIndex={0}
-									onPointerDown={(event) => beginResize("file-tree", event.clientX)}
-									onKeyDown={(event) => {
-										if (event.key === "ArrowLeft" || event.key === "ArrowRight")
-											resizeByKeyboard("file-tree", event.key === "ArrowLeft" ? 16 : -16);
-									}}
-								/>
-								<div className="file-tree-panel">
-									<Explorer
-										entries={workspaceEntries}
-										error={fileExplorerError}
-										isLoading={loadingFiles || loadingFilePath !== undefined}
-										isTrusted={snapshot.projectTrusted}
-										selectedPath={activeTabPath}
-										workspacePath={snapshot.workspacePath}
-										onChooseWorkspace={() => void handleChooseWorkspace()}
-										onOpenFile={(entry) => void handleOpenFile(entry)}
-										onRefresh={() => void refreshWorkspaceFiles()}
-										onTrustProject={() => void handleProjectTrust()}
-									/>
-								</div>
-							</>
-						) : null}
-					</div>
+					<Inspector
+						tabs={fileTabs}
+						activeTabPath={activeTabPath}
+						onClose={() => setInspectorOpen(false)}
+						onOpenFile={(path) => void handleOpenFileWithDefaultApp(path)}
+						onRevealFile={(path) => void handleRevealFile(path)}
+						onQuoteLine={handleQuoteLine}
+					/>
 				</aside>
 			) : null}
 			{configModal === "models" ? (

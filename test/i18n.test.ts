@@ -19,6 +19,16 @@ describe("renderer translations", () => {
 			"selectModel",
 			"addImage",
 			"languageName",
+			"fullHistory",
+			"branches",
+			"more",
+			"processDetails",
+			"send",
+			"source",
+			"preview",
+			"diff",
+			"hideFileList",
+			"showFileList",
 		] as const;
 		for (const key of keys) {
 			expect(translate("zh-CN", key).trim()).not.toBe("");

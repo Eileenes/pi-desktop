@@ -13,11 +13,13 @@ import type {
 	DesktopWorkspaceFilePreview,
 } from "../shared/contracts.ts";
 import { AppSettingsModal } from "./app-settings-modal.tsx";
+import { ConversationNavigator } from "./conversation-navigator.tsx";
 import {
 	abortSession,
 	attachDroppedImages,
 	chooseImages,
 	chooseWorkspace,
+	compactSession,
 	decideToolApproval,
 	forkSession,
 	getDesktopSnapshot,
@@ -35,6 +37,7 @@ import {
 	revealWorkspaceFile,
 	setModel,
 	setProjectTrust,
+	setThinkingLevel,
 	startDesktopStore,
 	startProviderSetup,
 	submitPrompt,
@@ -44,10 +47,12 @@ import { type AppLanguage, translate } from "./i18n.ts";
 import { MarkdownBody } from "./markdown.tsx";
 import { ModelsConfigModal } from "./models-config-modal.tsx";
 import { PluginsConfigModal } from "./plugins-config-modal.tsx";
+import { ProjectTrustDialog } from "./project-trust-dialog.tsx";
 import { ContextUsageRing, SessionStatsPanel } from "./session-stats.tsx";
 import { SkillsConfigModal } from "./skills-config-modal.tsx";
-import { SourceControl } from "./source-control.tsx";
 import { getLanguageForPath, HighlightedCode } from "./syntax-highlight.tsx";
+import { buildConversationTurns, partitionTranscript } from "./transcript-group.ts";
+import { UpdateReminder } from "./update-reminder.tsx";
 import { WorktreeSelector } from "./worktree-selector.tsx";
 
 type IconName =
@@ -55,21 +60,26 @@ type IconName =
 	| "chevron"
 	| "close"
 	| "code"
+	| "copy"
 	| "doc"
 	| "external"
 	| "files"
 	| "folder"
 	| "gear"
+	| "history"
 	| "image"
 	| "model"
 	| "moon"
+	| "more"
 	| "panel"
 	| "plugin"
 	| "plus"
 	| "search"
+	| "send"
 	| "skill"
-	| "sun";
-type RightPanelView = "files" | "source-control";
+	| "sun"
+	| "tree"
+	| "wrap";
 type ConfigModal = "models" | "plugins" | "settings" | "skills";
 
 const DRAFT_STORAGE_PREFIX = "pi-desktop-draft:";
@@ -215,6 +225,51 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 				<path d="M12 5v14M5 12h14" />
 			</svg>
 		);
+	if (name === "history")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+				<path d="M3 3v5h5" />
+				<path d="M12 7v5l3 2" />
+			</svg>
+		);
+	if (name === "more")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none" />
+				<circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+				<circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none" />
+			</svg>
+		);
+	if (name === "send")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M4 12h14" />
+				<path d="m12 6 6 6-6 6" />
+			</svg>
+		);
+	if (name === "copy")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<rect x="8" y="8" width="11" height="11" rx="2" />
+				<path d="M16 8V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h1" />
+			</svg>
+		);
+	if (name === "wrap")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M4 7h11a4 4 0 0 1 4 4v1" />
+				<path d="m16 9 3 3-3 3" />
+				<path d="M4 17h8" />
+			</svg>
+		);
+	if (name === "tree")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+				<path d="M15 7v10" />
+			</svg>
+		);
 	return (
 		<svg {...shared} aria-hidden="true">
 			<circle cx="11" cy="11" r="6" />
@@ -227,13 +282,6 @@ function formatWorkspace(path: string | undefined): string {
 	if (!path) return "未选择项目";
 	const segments = path.split(/[\\/]/u).filter(Boolean);
 	return segments.at(-1) ?? path;
-}
-
-function formatSessionPhase(phase: "error" | "idle" | "running" | "unavailable"): string {
-	if (phase === "error") return "错误";
-	if (phase === "idle") return "就绪";
-	if (phase === "running") return "运行中";
-	return "不可用";
 }
 
 function sessionTitle(info: DesktopSessionInfo): string {
@@ -452,10 +500,12 @@ const TranscriptBlock = memo(function TranscriptBlock({ block }: { block: Deskto
 
 const TranscriptMessage = memo(function TranscriptMessage({
 	message,
+	modelLabel,
 	onEdit,
 	onFork,
 }: {
 	message: DesktopTranscriptMessage;
+	modelLabel?: string;
 	onEdit: (text: string) => void;
 	onFork: (entryId: string) => void;
 }) {
@@ -472,7 +522,7 @@ const TranscriptMessage = memo(function TranscriptMessage({
 		<article className={`message message-${message.role}`}>
 			{isAssistant ? (
 				<div className="assistant-label">
-					<span>Pi</span>
+					<span>{modelLabel ?? "Pi"}</span>
 					{message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
 				</div>
 			) : null}
@@ -515,10 +565,18 @@ function transcriptDiffLineClass(line: string): string {
 
 const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 	message,
+	toolCall,
 }: {
 	message: DesktopTranscriptMessage;
+	toolCall?: { name: string; input: string };
 }) {
 	const [expanded, setExpanded] = useState(false);
+	const [copied, setCopied] = useState(false);
+	async function copyOutput(): Promise<void> {
+		await navigator.clipboard.writeText(message.text);
+		setCopied(true);
+		window.setTimeout(() => setCopied(false), 1200);
+	}
 	const isDiff = message.role === "tool" && /(^|\n)@@ |(^|\n)diff --git |(^|\n)--- /u.test(message.text);
 	return (
 		<article className={`transcript-entry ${expanded ? "is-expanded" : ""}`}>
@@ -535,32 +593,45 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 					{message.command
 						? `终端 · ${message.command}`
 						: message.role === "tool"
-							? `${message.isError ? "工具失败" : "工具结果"}${message.toolName ? ` · ${message.toolName}` : ""}`
+							? `${message.isError ? "工具失败" : "工具结果"}${message.toolName ? ` · ${message.toolName}` : toolCall ? ` · ${toolCall.name}` : ""}`
 							: "系统消息"}
 				</span>
 				{message.toolCallId ? <code className="tool-call-id">#{message.toolCallId.slice(-6)}</code> : null}
 				{message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
 			</button>
 			{expanded ? (
-				<pre className={`entry-detail ${message.isError ? "is-error" : ""} ${isDiff ? "is-diff" : ""}`}>
-					<code>
-						{isDiff
-							? message.text.split("\n").map((line, index) => (
-									// biome-ignore lint/suspicious/noArrayIndexKey: diff 行顺序固定
-									<span className={transcriptDiffLineClass(line)} key={index}>
-										{line || " "}
-										{"\n"}
-									</span>
-								))
-							: message.text || "…"}
-					</code>
-					{message.command ? (
-						<small>
-							{message.cancelled ? "已取消" : `退出码 ${message.exitCode ?? "未知"}`}
-							{message.truncated ? " · 输出已截断" : ""}
-						</small>
+				<div className="entry-detail-wrap">
+					{toolCall ? (
+						<pre className="entry-tool-input">
+							<code>{toolCall.input}</code>
+						</pre>
 					) : null}
-				</pre>
+					<pre className={`entry-detail ${message.isError ? "is-error" : ""} ${isDiff ? "is-diff" : ""}`}>
+						<code>
+							{isDiff
+								? message.text.split("\n").map((line, index) => (
+										// biome-ignore lint/suspicious/noArrayIndexKey: diff 行顺序固定
+										<span className={transcriptDiffLineClass(line)} key={index}>
+											{line || " "}
+											{"\n"}
+										</span>
+									))
+								: message.text || "…"}
+						</code>
+						{message.command ? (
+							<small>
+								{message.cancelled ? "已取消" : `退出码 ${message.exitCode ?? "未知"}`}
+								{message.truncated ? " · 输出已截断" : ""}
+							</small>
+						) : null}
+					</pre>
+					<div className="entry-detail-actions">
+						<button type="button" onClick={() => void copyOutput()} disabled={!message.text}>
+							{copied ? "已复制" : "复制输出"}
+						</button>
+						{message.truncated ? <span>输出已截断</span> : null}
+					</div>
+				</div>
 			) : null}
 		</article>
 	);
@@ -1001,7 +1072,12 @@ export function App() {
 	const [soundOnComplete, setSoundOnComplete] = useState<boolean>(
 		() => localStorage.getItem("pi-desktop-sound-complete") !== "off",
 	);
-	const [rightPanelView, setRightPanelView] = useState<RightPanelView>("files");
+	const [fileTreeOpen, setFileTreeOpen] = useState(() => localStorage.getItem("pi-desktop-file-tree-open") !== "off");
+	const [fileTreeWidth, setFileTreeWidth] = useState(
+		() => Number(localStorage.getItem("pi-desktop-file-tree-width")) || 280,
+	);
+	const [trustDialogOpen, setTrustDialogOpen] = useState(false);
+	const [changesCollapsed, setChangesCollapsed] = useState(true);
 	const [draft, setDraft] = useState("");
 	const [openingWorkspace, setOpeningWorkspace] = useState(false);
 	const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>(() => {
@@ -1036,9 +1112,20 @@ export function App() {
 	const [loadingFiles, setLoadingFiles] = useState(false);
 	const [loadingFilePath, setLoadingFilePath] = useState<string>();
 	const [inspectorOpen, setInspectorOpen] = useState(false);
+	const [sidebarOpen, setSidebarOpen] = useState(true);
 	const [statsOpen, setStatsOpen] = useState(false);
 	const [configModal, setConfigModal] = useState<ConfigModal | undefined>();
 	const [branchMenuOpen, setBranchMenuOpen] = useState(false);
+	const [topMoreOpen, setTopMoreOpen] = useState(false);
+	const [sessionSearch, setSessionSearch] = useState("");
+	const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
+	const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+	const [composerMenu, setComposerMenu] = useState<"model" | "thinking" | "tools" | undefined>();
+	const [toolPreset, setToolPreset] = useState<"off" | "default" | "full">(
+		() => (localStorage.getItem("pi-desktop-tool-preset") as "off" | "default" | "full" | null) ?? "default",
+	);
+	const [compacting, setCompacting] = useState(false);
+	const [suggestionIndex, setSuggestionIndex] = useState(0);
 	const fileRequestId = useRef(0);
 	const chatScrollRef = useRef<HTMLDivElement>(null);
 	const scrollFrameRef = useRef<number | undefined>(undefined);
@@ -1047,6 +1134,9 @@ export function App() {
 	const previousSessionIdRef = useRef<string | undefined>(undefined);
 	const promptRef = useRef<HTMLTextAreaElement>(null);
 	const composingRef = useRef(false);
+	const promptHistoryRef = useRef<string[]>([]);
+	const promptHistoryIndexRef = useRef(-1);
+	const draftBeforeHistoryRef = useRef("");
 	const previousPhaseRef = useRef<DesktopSessionPhase | undefined>(undefined);
 	const apiKeyProviderIds = snapshot.apiKeyProviders.map((provider) => provider.id).join("\u0000");
 	const authenticationPrompt = snapshot.pendingAuthenticationPrompts[0];
@@ -1054,6 +1144,8 @@ export function App() {
 	const draftKey = `${DRAFT_STORAGE_PREFIX}${session?.id ?? snapshot.workspacePath ?? "new"}`;
 	const lastMessage = session?.messages.at(-1);
 	const messageSignature = `${session?.id ?? ""}:${session?.messages.length ?? 0}:${lastMessage?.id ?? ""}:${lastMessage?.text.length ?? 0}`;
+	const transcriptItems = useMemo(() => partitionTranscript(session?.messages ?? []), [session?.messages]);
+	const conversationTurns = useMemo(() => buildConversationTurns(session?.messages ?? []), [session?.messages]);
 	const canSubmit =
 		!submitting &&
 		!aborting &&
@@ -1079,7 +1171,6 @@ export function App() {
 		!snapshot.providerSetupInProgress &&
 		!!session &&
 		session.phase !== "running";
-	const selectedModelKey = session?.model ? getModelKey(session.model.provider, session.model.id) : "";
 	const slashQuery = draft.trimStart().startsWith("/") ? draft.trimStart().slice(1).toLocaleLowerCase() : "";
 	const slashCommands = [
 		{ name: "help", description: "显示桌面端可用命令" },
@@ -1100,9 +1191,23 @@ export function App() {
 	const atFiles = atQuery
 		? workspaceEntries
 				.filter(isFileEntry)
-				.filter((entry) => entry.name.toLocaleLowerCase().includes(atQuery))
+				.filter((entry) => entry.path.toLocaleLowerCase().includes(atQuery))
 				.slice(0, 8)
 		: [];
+	const hashQuery = draft.trimStart().startsWith("#") ? draft.trimStart().slice(1).toLocaleLowerCase() : "";
+	const hashSessions = hashQuery
+		? snapshot.sessions
+				.filter((item) => `${item.name ?? ""} ${item.firstMessage}`.toLocaleLowerCase().includes(hashQuery))
+				.slice(0, 8)
+		: [];
+	const visibleSlashCommands = slashCommands.slice(0, 8);
+	const suggestionCount = slashQuery
+		? visibleSlashCommands.length
+		: hashQuery
+			? hashSessions.length
+			: atQuery
+				? atFiles.length
+				: 0;
 
 	useEffect(() => {
 		void startDesktopStore();
@@ -1116,7 +1221,7 @@ export function App() {
 	}, [draft, draftKey]);
 	function resizePrompt(textarea: HTMLTextAreaElement): void {
 		textarea.style.height = "auto";
-		textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
+		textarea.style.height = textarea.value ? `${Math.min(textarea.scrollHeight, 180)}px` : "24px";
 	}
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
@@ -1124,10 +1229,24 @@ export function App() {
 			if (event.key.toLowerCase() === "k") {
 				event.preventDefault();
 				promptRef.current?.focus();
+			} else if (event.key.toLowerCase() === "n") {
+				event.preventDefault();
+				void newSession();
 			}
 		};
 		window.addEventListener("keydown", onKeyDown);
-		return () => window.removeEventListener("keydown", onKeyDown);
+		const onEscape = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			setComposerMenu(undefined);
+			setBranchMenuOpen(false);
+			setStatsOpen(false);
+			setTopMoreOpen(false);
+		};
+		window.addEventListener("keydown", onEscape);
+		return () => {
+			window.removeEventListener("keydown", onKeyDown);
+			window.removeEventListener("keydown", onEscape);
+		};
 	}, []);
 	useEffect(() => {
 		localStorage.setItem("pi-desktop-language", language);
@@ -1143,6 +1262,9 @@ export function App() {
 		media.addEventListener("change", apply);
 		return () => media.removeEventListener("change", apply);
 	}, [theme]);
+	useEffect(() => {
+		localStorage.setItem("pi-desktop-file-tree-open", fileTreeOpen ? "on" : "off");
+	}, [fileTreeOpen]);
 	useEffect(() => {
 		if (!snapshot.workspacePath) return;
 		setRecentWorkspaces((current) => {
@@ -1322,9 +1444,36 @@ export function App() {
 		}
 	}
 
+	function selectComposerSuggestion(index: number): void {
+		if (slashQuery) {
+			const command = visibleSlashCommands[index];
+			if (!command) return;
+			setDraft(`/${command.name}${command.name === "model" || command.name === "login" ? " " : ""}`);
+		} else if (hashQuery) {
+			const item = hashSessions[index];
+			if (!item) return;
+			setDraft((current) => current.replace(/#[^\s]*$/u, `#${item.name ?? item.firstMessage.slice(0, 40)} `));
+		} else if (atQuery) {
+			const file = atFiles[index];
+			if (!file) return;
+			setDraft((current) => current.replace(/@[^\s]*$/u, `@${file.path} `));
+		}
+		promptRef.current?.focus();
+	}
+
+	function rememberPrompt(text: string): void {
+		const normalized = text.trim();
+		if (!normalized) return;
+		promptHistoryRef.current = [...promptHistoryRef.current.filter((item) => item !== normalized), normalized].slice(
+			-50,
+		);
+		promptHistoryIndexRef.current = -1;
+	}
+
 	async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
 		event.preventDefault();
 		if (!canSubmit) return;
+		rememberPrompt(draft);
 		if (await handleDesktopSlashCommand(draft)) {
 			startTransition(() => setDraft(""));
 			return;
@@ -1351,6 +1500,7 @@ export function App() {
 
 	async function handleSteer(): Promise<void> {
 		if (!canSubmit || session?.phase !== "running") return;
+		rememberPrompt(draft);
 		setSubmitting(true);
 		setActionError(undefined);
 		try {
@@ -1386,11 +1536,27 @@ export function App() {
 
 	async function handleProjectTrust(): Promise<void> {
 		const nextTrusted = !snapshot.projectTrusted;
-		if (nextTrusted && !window.confirm("要信任此项目吗？项目设置、说明和扩展程序可能会运行。")) return;
+		if (nextTrusted) {
+			setTrustDialogOpen(true);
+			return;
+		}
 		setChangingTrust(true);
 		setActionError(undefined);
 		try {
-			await setProjectTrust(nextTrusted);
+			await setProjectTrust(false);
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setChangingTrust(false);
+		}
+	}
+
+	async function confirmProjectTrust(): Promise<void> {
+		setChangingTrust(true);
+		setActionError(undefined);
+		try {
+			await setProjectTrust(true);
+			setTrustDialogOpen(false);
 		} catch (error) {
 			setActionError(error instanceof Error ? error.message : String(error));
 		} finally {
@@ -1437,6 +1603,37 @@ export function App() {
 		} finally {
 			setSettingModel(false);
 		}
+	}
+
+	async function handleChangeThinking(
+		level: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
+	): Promise<void> {
+		if (!session || session.phase === "running" || session.thinkingLevel === level) return;
+		setComposerMenu(undefined);
+		try {
+			await setThinkingLevel(level);
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	async function handleCompact(): Promise<void> {
+		if (!session || session.phase === "running" || compacting) return;
+		setCompacting(true);
+		setActionError(undefined);
+		try {
+			await compactSession();
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setCompacting(false);
+		}
+	}
+
+	function handleToolPresetChange(next: "off" | "default" | "full"): void {
+		setToolPreset(next);
+		localStorage.setItem("pi-desktop-tool-preset", next);
+		setComposerMenu(undefined);
 	}
 
 	async function handleDroppedImages(files: File[]): Promise<void> {
@@ -1502,8 +1699,8 @@ export function App() {
 			return true;
 		}
 		if (command === "files") {
-			setRightPanelView("files");
 			setInspectorOpen(true);
+			setFileTreeOpen(true);
 			return true;
 		}
 		if (command === "settings" || command === "skills" || command === "plugins") {
@@ -1621,29 +1818,29 @@ export function App() {
 		}
 	}, []);
 
-	function beginResize(side: "sidebar" | "inspector", startX: number): void {
-		const startWidth = side === "sidebar" ? sidebarWidth : inspectorWidth;
+	function beginResize(side: "sidebar" | "inspector" | "file-tree", startX: number): void {
+		const startWidth = side === "sidebar" ? sidebarWidth : side === "inspector" ? inspectorWidth : fileTreeWidth;
+		const min = side === "sidebar" ? 220 : side === "inspector" ? 300 : 220;
+		const max = side === "sidebar" ? 420 : side === "inspector" ? 760 : 520;
+		const variable =
+			side === "sidebar" ? "--sidebar-width" : side === "inspector" ? "--inspector-width" : "--file-tree-width";
 		const resolveWidth = (clientX: number) =>
 			Math.round(
-				Math.max(
-					side === "sidebar" ? 220 : 300,
-					Math.min(
-						side === "sidebar" ? 420 : 760,
-						startWidth + (side === "sidebar" ? clientX - startX : startX - clientX),
-					),
-				),
+				Math.max(min, Math.min(max, startWidth + (side === "sidebar" ? clientX - startX : startX - clientX))),
 			);
 		const handleMove = (event: PointerEvent) =>
-			document.documentElement.style.setProperty(
-				side === "sidebar" ? "--sidebar-width" : "--inspector-width",
-				`${resolveWidth(event.clientX)}px`,
-			);
+			document.documentElement.style.setProperty(variable, `${resolveWidth(event.clientX)}px`);
 		const handleUp = (event: PointerEvent) => {
 			const width = resolveWidth(event.clientX);
 			if (side === "sidebar") setSidebarWidth(width);
-			else setInspectorWidth(width);
+			else if (side === "inspector") setInspectorWidth(width);
+			else setFileTreeWidth(width);
 			localStorage.setItem(
-				side === "sidebar" ? "pi-desktop-sidebar-width" : "pi-desktop-inspector-width",
+				side === "sidebar"
+					? "pi-desktop-sidebar-width"
+					: side === "inspector"
+						? "pi-desktop-inspector-width"
+						: "pi-desktop-file-tree-width",
 				String(width),
 			);
 			window.removeEventListener("pointermove", handleMove);
@@ -1653,63 +1850,139 @@ export function App() {
 		window.addEventListener("pointerup", handleUp);
 	}
 
-	function resizeByKeyboard(side: "sidebar" | "inspector", delta: number): void {
-		const current = side === "sidebar" ? sidebarWidth : inspectorWidth;
-		const width = Math.max(side === "sidebar" ? 220 : 300, Math.min(side === "sidebar" ? 420 : 760, current + delta));
-		document.documentElement.style.setProperty(
-			side === "sidebar" ? "--sidebar-width" : "--inspector-width",
-			`${width}px`,
-		);
+	function resizeByKeyboard(side: "sidebar" | "inspector" | "file-tree", delta: number): void {
+		const current = side === "sidebar" ? sidebarWidth : side === "inspector" ? inspectorWidth : fileTreeWidth;
+		const min = side === "sidebar" ? 220 : side === "inspector" ? 300 : 220;
+		const max = side === "sidebar" ? 420 : side === "inspector" ? 760 : 520;
+		const variable =
+			side === "sidebar" ? "--sidebar-width" : side === "inspector" ? "--inspector-width" : "--file-tree-width";
+		const width = Math.max(min, Math.min(max, current + delta));
+		document.documentElement.style.setProperty(variable, `${width}px`);
 		if (side === "sidebar") setSidebarWidth(width);
-		else setInspectorWidth(width);
+		else if (side === "inspector") setInspectorWidth(width);
+		else setFileTreeWidth(width);
 		localStorage.setItem(
-			side === "sidebar" ? "pi-desktop-sidebar-width" : "pi-desktop-inspector-width",
+			side === "sidebar"
+				? "pi-desktop-sidebar-width"
+				: side === "inspector"
+					? "pi-desktop-inspector-width"
+					: "pi-desktop-file-tree-width",
 			String(width),
 		);
 	}
 
 	function renderSidebar() {
+		const projects = new Map<string, DesktopSessionInfo[]>();
+		for (const item of snapshot.sessions) {
+			const root = item.cwd.replace(/[\\\\/]+$/, "");
+			const entries = projects.get(root) ?? [];
+			entries.push(item);
+			projects.set(root, entries);
+		}
 		return (
-			<div className="sessions-panel">
-				<div className="session-list">
-					{snapshot.sessions.length ? (
-						snapshot.sessions.map((item) => {
-							const isCurrent = item.id === session?.id;
-							return (
-								<button
-									className={`session-row ${isCurrent ? "is-current" : ""}`}
-									key={item.path}
-									type="button"
-									disabled={session?.phase === "running"}
-									onClick={() => (isCurrent ? promptRef.current?.focus() : void handleOpenSession(item.path))}
-								>
-									<span
-										className={`session-status ${isCurrent && session?.phase === "running" ? "is-running" : ""}`}
-									/>
-									<span>
-										<strong>{sessionTitle(item)}</strong>
-										<small>
-											{item.messageCount} 条消息 · {formatSessionDate(item.modified)}
-										</small>
-									</span>
-								</button>
-							);
-						})
-					) : (
-						<button className="session-row is-current" type="button" onClick={() => promptRef.current?.focus()}>
-							<span className={`session-status ${session?.phase === "running" ? "is-running" : ""}`} />
-							<span>
-								<strong>{session?.name ?? "新会话"}</strong>
-								<small>
-									{session
-										? `${session.messages.length} 条消息 · ${formatSessionPhase(session.phase)}`
-										: "等待选择项目"}
-								</small>
-							</span>
-						</button>
-					)}
-				</div>
-			</div>
+			<section className="sessions-panel sidebar-project-tree" aria-label={t("sessions")}>
+				{projects.size ? (
+					[...projects.entries()].map(([root, items]) => {
+						const filteredItems = sessionSearch.trim()
+							? items.filter((item) =>
+									`${item.name ?? ""} ${item.firstMessage}`
+										.toLocaleLowerCase()
+										.includes(sessionSearch.trim().toLocaleLowerCase()),
+								)
+							: items;
+						if (sessionSearch.trim() && filteredItems.length === 0) return null;
+						const active = items.some((item) => item.id === session?.id);
+						const collapsed = collapsedProjects.has(root) && !sessionSearch.trim();
+						const expanded = expandedProjects.has(root);
+						const visibleItems = expanded || sessionSearch.trim() ? filteredItems : filteredItems.slice(0, 5);
+						return (
+							<section className={`sidebar-project-tree-group ${active ? "is-active" : ""}`} key={root}>
+								<div className="sidebar-project-tree-row">
+									<button
+										className="sidebar-project-tree-row-main"
+										type="button"
+										onClick={() =>
+											setCollapsedProjects((current) => {
+												const next = new Set(current);
+												if (next.has(root)) next.delete(root);
+												else next.add(root);
+												return next;
+											})
+										}
+										title={root}
+										aria-expanded={!collapsed}
+									>
+										<Icon name="folder" size={15} />
+										<span className="sidebar-project-tree-name">{formatWorkspace(root)}</span>
+										<span className="sidebar-project-tree-meta">{items.length}</span>
+									</button>
+									<button
+										className="sidebar-project-tree-action"
+										type="button"
+										aria-label="新建会话"
+										onClick={() => void handleNewSession()}
+									>
+										<Icon name="plus" size={13} />
+									</button>
+								</div>
+								{!collapsed ? (
+									<div className="sidebar-project-tree-children">
+										{visibleItems.map((item) => {
+											const isCurrent = item.id === session?.id;
+											return (
+												<button
+													className={`session-row sidebar-session-tree-item ${isCurrent ? "is-current" : ""}`}
+													key={item.path}
+													type="button"
+													title={`${sessionTitle(item)} · ${item.messageCount} · ${formatSessionDate(item.modified)}`}
+													disabled={session?.phase === "running"}
+													onClick={() =>
+														isCurrent ? promptRef.current?.focus() : void handleOpenSession(item.path)
+													}
+												>
+													<span
+														className={`session-status ${isCurrent && session?.phase === "running" ? "is-running" : ""}`}
+													/>
+													<span>{sessionTitle(item)}</span>
+												</button>
+											);
+										})}
+										{!expanded && filteredItems.length > 5 ? (
+											<button
+												className="sidebar-more-button"
+												type="button"
+												onClick={() => setExpandedProjects((current) => new Set(current).add(root))}
+											>
+												显示更多 ({filteredItems.length - 5})
+											</button>
+										) : null}
+										{expanded && filteredItems.length > 5 ? (
+											<button
+												className="sidebar-more-button"
+												type="button"
+												onClick={() =>
+													setExpandedProjects((current) => {
+														const next = new Set(current);
+														next.delete(root);
+														return next;
+													})
+												}
+											>
+												显示更少
+											</button>
+										) : null}
+									</div>
+								) : null}
+							</section>
+						);
+					})
+				) : (
+					<button className="session-row is-current" type="button" onClick={() => promptRef.current?.focus()}>
+						<span className="session-status" />
+						<span>{session?.name ?? "新会话"}</span>
+					</button>
+				)}
+			</section>
 		);
 	}
 
@@ -1717,17 +1990,55 @@ export function App() {
 
 	return (
 		<main
-			className={`app-workbench ${macOSClassName} ${inspectorOpen ? "is-inspector-open" : ""}`}
-			style={{ "--sidebar-width": `${sidebarWidth}px`, "--inspector-width": `${inspectorWidth}px` } as CSSProperties}
+			className={`app-workbench ${macOSClassName} ${sidebarOpen ? "is-sidebar-open" : "is-sidebar-closed"} ${inspectorOpen ? "is-inspector-open" : ""}`}
+			style={
+				{
+					"--sidebar-width": `${sidebarWidth}px`,
+					"--inspector-width": `${inspectorWidth}px`,
+					"--file-tree-width": `${fileTreeWidth}px`,
+				} as CSSProperties
+			}
 		>
-			<aside className="sidebar" aria-label="项目导航">
-				<header className="sidebar-header">
-					<p className="section-kicker">Pi</p>
-					<span className={snapshot.projectTrusted ? "trust-badge is-trusted" : "trust-badge"}>
-						{snapshot.projectTrusted ? "已信任" : "受限"}
-					</span>
-				</header>
-				<div className="sidebar-body">
+			<aside className="sidebar" aria-label="项目导航" aria-hidden={!sidebarOpen}>
+				<header className="session-sidebar-header">
+					<div className="sidebar-controls-row">
+						<button
+							className="sidebar-chrome-button"
+							type="button"
+							aria-label={theme === "dark" ? "切换为浅色主题" : "切换为深色主题"}
+							onClick={() => {
+								const next = theme === "dark" ? "light" : "dark";
+								const apply = () => {
+									document.documentElement.dataset.theme = next;
+									setTheme(next);
+								};
+								if (
+									window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+									typeof document.startViewTransition !== "function"
+								) {
+									apply();
+									return;
+								}
+								try {
+									const transition = document.startViewTransition(apply);
+									void transition.ready.catch(() => undefined);
+									void transition.finished.catch(() => undefined);
+								} catch {
+									apply();
+								}
+							}}
+						>
+							<Icon name={theme === "dark" ? "sun" : "moon"} size={15} />
+						</button>
+						<button
+							className="sidebar-chrome-button"
+							type="button"
+							aria-label="隐藏侧栏"
+							onClick={() => setSidebarOpen(false)}
+						>
+							<Icon name="panel" size={15} />
+						</button>
+					</div>
 					<button
 						className="new-chat-button"
 						type="button"
@@ -1776,10 +2087,23 @@ export function App() {
 							onSwitch={(path) => void handleSwitchWorkspacePath(path)}
 						/>
 					) : null}
-					<div className="sidebar-section-title sidebar-project-label">
-						<span>{t("sessions")}</span>
-						<small>{snapshot.sessions.length}</small>
-					</div>
+				</header>
+				<div className="sidebar-section-title sidebar-project-label">
+					<span>{t("sessions")}</span>
+					<small>{snapshot.sessions.length}</small>
+				</div>
+				<div className="sidebar-search-wrap">
+					<input
+						aria-label="搜索会话"
+						placeholder="搜索会话"
+						value={sessionSearch}
+						onChange={(event) => setSessionSearch(event.target.value)}
+					/>
+					{sessionSearch ? (
+						<button type="button" aria-label="清除搜索" onClick={() => setSessionSearch("")}>
+							×
+						</button>
+					) : null}
 				</div>
 				<div className="sidebar-content">{renderSidebar()}</div>
 				<footer className="sidebar-footer">
@@ -1797,12 +2121,13 @@ export function App() {
 					</button>
 					<button
 						aria-label={t("sourceControl")}
-						aria-pressed={inspectorOpen && rightPanelView === "source-control"}
-						className={`footer-button is-icon ${inspectorOpen && rightPanelView === "source-control" ? "is-active" : ""}`}
+						aria-pressed={inspectorOpen && !changesCollapsed}
+						className={`footer-button is-icon ${inspectorOpen && !changesCollapsed ? "is-active" : ""}`}
 						type="button"
 						onClick={() => {
-							setRightPanelView("source-control");
 							setInspectorOpen(true);
+							setFileTreeOpen(true);
+							setChangesCollapsed(false);
 						}}
 					>
 						<Icon name="branch" size={15} />
@@ -1817,42 +2142,56 @@ export function App() {
 					</button>
 				</footer>
 			</aside>
-			<hr
-				className="column-resizer sidebar-resizer"
-				aria-label="调整会话栏宽度"
-				aria-orientation="vertical"
-				aria-valuemin={220}
-				aria-valuemax={420}
-				aria-valuenow={sidebarWidth}
-				tabIndex={0}
-				onPointerDown={(event) => beginResize("sidebar", event.clientX)}
-				onKeyDown={(event) => {
-					if (event.key === "ArrowLeft" || event.key === "ArrowRight")
-						resizeByKeyboard("sidebar", event.key === "ArrowLeft" ? -16 : 16);
-				}}
-			/>
+			{sidebarOpen ? (
+				<hr
+					className="column-resizer sidebar-resizer"
+					aria-label="调整会话栏宽度"
+					aria-orientation="vertical"
+					aria-valuemin={220}
+					aria-valuemax={420}
+					aria-valuenow={sidebarWidth}
+					tabIndex={0}
+					onPointerDown={(event) => beginResize("sidebar", event.clientX)}
+					onKeyDown={(event) => {
+						if (event.key === "ArrowLeft" || event.key === "ArrowRight")
+							resizeByKeyboard("sidebar", event.key === "ArrowLeft" ? -16 : 16);
+					}}
+				/>
+			) : null}
 			<section className="chat-workspace" aria-label="智能体对话">
 				<header className="top-bar">
+					{!sidebarOpen ? (
+						<button
+							className="sidebar-reopen-button"
+							type="button"
+							aria-label="显示侧栏"
+							onClick={() => setSidebarOpen(true)}
+						>
+							<Icon name="panel" size={16} />
+						</button>
+					) : null}
 					<div className="chat-title">
 						<strong>{session?.name ?? "新会话"}</strong>
 						<small>{formatWorkspace(snapshot.workspacePath)}</small>
 					</div>
 					<div className="top-bar-actions">
-						<ContextUsageRing
-							stats={snapshot.sessionStats}
-							onToggle={() => setStatsOpen((current) => !current)}
-						/>
-						<span className="model-chip">
-							{session?.model ? `${session.model.provider}/${session.model.id}` : "未选择模型"}
-						</span>
 						<button
-							className="icon-button"
+							className="native-toolbar-button"
 							type="button"
-							aria-label="分支"
+							disabled={!session}
+							onClick={() => setStatsOpen(true)}
+						>
+							<Icon name="history" size={12} />
+							<span>{t("fullHistory")}</span>
+						</button>
+						<button
+							className={`native-toolbar-button ${branchMenuOpen ? "is-active" : ""}`}
+							type="button"
 							disabled={!snapshot.branchPoints?.length || session?.phase === "running"}
 							onClick={() => setBranchMenuOpen((current) => !current)}
 						>
-							<Icon name="branch" size={16} />
+							<Icon name="branch" size={12} />
+							<span>{t("branches")}</span>
 						</button>
 						{branchMenuOpen ? (
 							<div className="branch-popover" role="menu" aria-label="分支">
@@ -1877,25 +2216,39 @@ export function App() {
 								</div>
 							</div>
 						) : null}
-						<button
-							className="icon-button"
-							type="button"
-							aria-label={theme === "dark" ? "切换为浅色主题" : "切换为深色主题"}
-							onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
-						>
-							<Icon name={theme === "dark" ? "sun" : "moon"} size={16} />
-						</button>
-						<button
-							className="icon-button"
-							type="button"
-							aria-label={t("openFiles")}
-							onClick={() => {
-								setRightPanelView("files");
-								setInspectorOpen(true);
-							}}
-						>
-							<Icon name="files" size={16} />
-						</button>
+						<div className="top-bar-more-wrap">
+							<button
+								className={`native-toolbar-button ${topMoreOpen ? "is-active" : ""}`}
+								type="button"
+								aria-expanded={topMoreOpen}
+								onClick={() => setTopMoreOpen((current) => !current)}
+							>
+								<Icon name="more" size={12} />
+								<span>{t("more")}</span>
+							</button>
+							{topMoreOpen ? (
+								<div className="top-bar-more-menu" role="menu">
+									<button
+										type="button"
+										onClick={() => {
+											setTopMoreOpen(false);
+											setStatsOpen(true);
+										}}
+									>
+										会话统计
+									</button>
+									<button
+										type="button"
+										onClick={() => {
+											setTopMoreOpen(false);
+											setConfigModal("settings");
+										}}
+									>
+										设置
+									</button>
+								</div>
+							) : null}
+						</div>
 						<button
 							className="icon-button"
 							type="button"
@@ -1910,6 +2263,15 @@ export function App() {
 					</div>
 				</header>
 				<div className="chat-scroll" ref={chatScrollRef} onScroll={handleChatScroll}>
+					<ConversationNavigator
+						turns={conversationTurns}
+						scrollContainerRef={chatScrollRef}
+						onSelect={(messageId) => {
+							chatScrollRef.current
+								?.querySelector(`[data-turn-id="${messageId}"]`)
+								?.scrollIntoView({ block: "start", behavior: "smooth" });
+						}}
+					/>
 					<div className="chat-column">
 						{startupError ? (
 							<button className="retry-startup-button" type="button" onClick={() => void startDesktopStore()}>
@@ -1942,19 +2304,63 @@ export function App() {
 						) : null}
 						<div className="transcript">
 							{session?.messages.length ? (
-								session.messages.map((message) =>
-									message.role === "user" || message.role === "assistant" ? (
-										<TranscriptMessage
-											key={message.id}
-											message={message}
-											onEdit={handleEditMessage}
-											onFork={(entryId) => void handleForkFromMessage(entryId)}
-										/>
-									) : (
-										<CollapsibleTranscriptEntry key={message.id} message={message} />
-									),
-								)
-							) : (
+								transcriptItems.map((item) => {
+									if (item.type === "process") {
+										return (
+											<div
+												className="process-details"
+												key={`process:${item.messages[0]?.id ?? item.blocks.map((block) => block.type).join(":")}`}
+											>
+												<details>
+													<summary className="process-details-trigger">
+														{t("processDetails")} · {item.messageCount}
+														{item.toolCallCount > 0 ? ` · ${item.toolCallCount}` : ""}
+													</summary>
+													<div className="process-details-content">
+														{item.blocks.map((block, blockIndex) => (
+															<TranscriptBlock key={`${block.type}:${blockIndex}`} block={block} />
+														))}
+														{item.messages.map((message) => {
+															const call = message.toolCallId
+																? item.blocks.find(
+																		(block) =>
+																			block.type === "toolCall" && block.id === message.toolCallId,
+																	)
+																: undefined;
+															return (
+																<CollapsibleTranscriptEntry
+																	key={message.id}
+																	message={message}
+																	toolCall={
+																		call?.type === "toolCall"
+																			? { name: call.name, input: call.input }
+																			: undefined
+																	}
+																/>
+															);
+														})}
+													</div>
+												</details>
+											</div>
+										);
+									}
+									const turnIndex = conversationTurns.findIndex((turn) => turn.messageId === item.message.id);
+									return (
+										<div
+											data-conversation-turn={turnIndex >= 0 ? turnIndex : undefined}
+											data-turn-id={item.message.id}
+											key={item.message.id}
+										>
+											<TranscriptMessage
+												message={item.message}
+												modelLabel={session.model?.id}
+												onEdit={handleEditMessage}
+												onFork={(entryId) => void handleForkFromMessage(entryId)}
+											/>
+										</div>
+									);
+								})
+							) : snapshot.workspacePath ? (
 								<div className="chat-empty-state">
 									<span className="empty-index">01</span>
 									<h2>{t("welcomeTitle")}</h2>
@@ -1969,6 +2375,19 @@ export function App() {
 										<button type="button" onClick={() => setDraft("帮我实现一个新功能：")}>
 											实现新功能
 										</button>
+									</div>
+								</div>
+							) : (
+								<div className="workspace-get-started">
+									<Icon name="chevron" size={44} />
+									<div>
+										<strong>开始使用</strong>
+										<p>
+											<span>1.</span> 选择项目
+										</p>
+										<p>
+											<span>2.</span> 添加模型
+										</p>
 									</div>
 								</div>
 							)}
@@ -2014,18 +2433,15 @@ export function App() {
 						{slashQuery ? (
 							<div className="slash-menu" role="listbox" aria-label="斜杠命令">
 								{slashCommands.length ? (
-									slashCommands.slice(0, 8).map((command) => (
+									visibleSlashCommands.map((command, index) => (
 										<button
-											className="slash-command"
+											aria-selected={suggestionIndex === index}
+											className={`slash-command ${suggestionIndex === index ? "is-selected" : ""}`}
 											key={command.name}
+											role="option"
 											type="button"
 											onMouseDown={(event) => event.preventDefault()}
-											onClick={() => {
-												setDraft(
-													`/${command.name}${command.name === "model" || command.name === "login" ? " " : ""}`,
-												);
-												promptRef.current?.focus();
-											}}
+											onClick={() => selectComposerSuggestion(index)}
 										>
 											<code>/{command.name}</code>
 											<span>{command.description}</span>
@@ -2036,19 +2452,40 @@ export function App() {
 								)}
 							</div>
 						) : null}
+						{hashQuery ? (
+							<div className="slash-menu" role="listbox" aria-label="会话提及">
+								{hashSessions.length ? (
+									hashSessions.map((item, index) => (
+										<button
+											aria-selected={suggestionIndex === index}
+											className={`slash-command ${suggestionIndex === index ? "is-selected" : ""}`}
+											key={item.path}
+											role="option"
+											type="button"
+											onMouseDown={(event) => event.preventDefault()}
+											onClick={() => selectComposerSuggestion(index)}
+										>
+											<span>#{item.name ?? "未命名会话"}</span>
+											<small>{item.firstMessage}</small>
+										</button>
+									))
+								) : (
+									<p className="slash-empty">没有匹配的会话。</p>
+								)}
+							</div>
+						) : null}
 						{atQuery ? (
 							<div className="slash-menu" role="listbox" aria-label="文件提及">
 								{atFiles.length ? (
-									atFiles.map((file) => (
+									atFiles.map((file, index) => (
 										<button
-											className="slash-command"
+											aria-selected={suggestionIndex === index}
+											className={`slash-command ${suggestionIndex === index ? "is-selected" : ""}`}
 											key={file.path}
+											role="option"
 											type="button"
 											onMouseDown={(event) => event.preventDefault()}
-											onClick={() => {
-												setDraft(draft.replace(/@[^\s]*$/u, `${file.path} `));
-												promptRef.current?.focus();
-											}}
+											onClick={() => selectComposerSuggestion(index)}
 										>
 											<span className="tree-file-icon">
 												<Icon name={fileIconFor(file.path)} size={13} />
@@ -2086,76 +2523,85 @@ export function App() {
 								))}
 							</div>
 						) : null}
-						<textarea
-							ref={promptRef}
-							id="prompt"
-							value={draft}
-							onChange={(event) => {
-								setDraft(event.target.value);
-								resizePrompt(event.currentTarget);
-							}}
-							onCompositionStart={() => {
-								composingRef.current = true;
-							}}
-							onCompositionEnd={() => {
-								composingRef.current = false;
-							}}
-							onKeyDown={(event) => {
-								if (
-									event.key === "Enter" &&
-									!event.shiftKey &&
-									!composingRef.current &&
-									!event.nativeEvent.isComposing
-								) {
-									event.preventDefault();
-									event.currentTarget.form?.requestSubmit();
+						<div className="composer-editor">
+							<textarea
+								ref={promptRef}
+								id="prompt"
+								value={draft}
+								onChange={(event) => {
+									setDraft(event.target.value);
+									setSuggestionIndex(0);
+									promptHistoryIndexRef.current = -1;
+									resizePrompt(event.currentTarget);
+								}}
+								onCompositionStart={() => {
+									composingRef.current = true;
+								}}
+								onCompositionEnd={() => {
+									composingRef.current = false;
+								}}
+								onKeyDown={(event) => {
+									if (suggestionCount > 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+										event.preventDefault();
+										setSuggestionIndex((current) =>
+											event.key === "ArrowDown"
+												? (current + 1) % suggestionCount
+												: (current - 1 + suggestionCount) % suggestionCount,
+										);
+										return;
+									}
+									if (suggestionCount > 0 && (event.key === "Tab" || event.key === "Enter")) {
+										event.preventDefault();
+										selectComposerSuggestion(suggestionIndex);
+										return;
+									}
+									if (!draft && event.key === "ArrowUp" && promptHistoryRef.current.length > 0) {
+										event.preventDefault();
+										draftBeforeHistoryRef.current = draft;
+										promptHistoryIndexRef.current = promptHistoryRef.current.length - 1;
+										setDraft(promptHistoryRef.current[promptHistoryIndexRef.current] ?? "");
+										return;
+									}
+									if (
+										promptHistoryIndexRef.current >= 0 &&
+										(event.key === "ArrowUp" || event.key === "ArrowDown")
+									) {
+										event.preventDefault();
+										const next = promptHistoryIndexRef.current + (event.key === "ArrowUp" ? -1 : 1);
+										if (next >= promptHistoryRef.current.length) {
+											promptHistoryIndexRef.current = -1;
+											setDraft(draftBeforeHistoryRef.current);
+										} else {
+											promptHistoryIndexRef.current = Math.max(0, next);
+											setDraft(promptHistoryRef.current[promptHistoryIndexRef.current] ?? "");
+										}
+										return;
+									}
+									if (
+										event.key === "Enter" &&
+										!event.shiftKey &&
+										!composingRef.current &&
+										!event.nativeEvent.isComposing
+									) {
+										event.preventDefault();
+										event.currentTarget.form?.requestSubmit();
+									}
+								}}
+								placeholder={
+									session?.phase === "running"
+										? "输入引导或排队跟进…"
+										: "消息…输入 / 使用命令，@ 查找文件，# 查找会话"
 								}
-							}}
-							placeholder={
-								session?.phase === "running"
-									? "输入引导或排队跟进…"
-									: session
-										? "输入消息，或键入 / 调用命令…"
-										: "正在准备本地智能体…"
-							}
-							disabled={
-								!session ||
-								submitting ||
-								openingWorkspace ||
-								changingTrust ||
-								settingUpProvider ||
-								snapshot.providerSetupInProgress
-							}
-						/>
-						<div className="composer-footer">
-							<select
-								aria-label={t("selectModel")}
-								className="composer-model-select"
-								disabled={!canSetModel || settingModel}
-								value={selectedModelKey}
-								onChange={(event) => void handleChangeModel(event.target.value)}
-							>
-								<option value="">{snapshot.availableModels.length ? "选择模型" : "配置模型"}</option>
-								{snapshot.availableModels.map((model) => (
-									<option
-										key={getModelKey(model.provider, model.id)}
-										value={getModelKey(model.provider, model.id)}
-									>
-										{model.provider} / {model.name}
-									</option>
-								))}
-							</select>
-							<button
-								aria-label={t("addImage")}
-								className="composer-icon-button"
-								disabled={!session || choosingImages || session.phase === "running"}
-								type="button"
-								onClick={() => void handleChooseImages()}
-							>
-								<Icon name="image" size={16} />
-							</button>
+								disabled={
+									submitting ||
+									openingWorkspace ||
+									changingTrust ||
+									settingUpProvider ||
+									snapshot.providerSetupInProgress
+								}
+							/>
 							{session?.phase === "running" ? (
-								<>
+								<div className="composer-stream-actions">
 									<button
 										className="composer-action-button"
 										type="button"
@@ -2167,6 +2613,134 @@ export function App() {
 									<button className="send-button" type="submit" disabled={!canSubmit}>
 										{submitting ? "排队中" : "跟进"}
 									</button>
+								</div>
+							) : (
+								<button className="send-button" type="submit" disabled={!canSubmit}>
+									<Icon name="send" size={14} />
+									{submitting ? "正在发送" : t("send")}
+								</button>
+							)}
+						</div>
+						<div className="composer-footer">
+							<div className="composer-footer-left">
+								<div className="composer-control-group">
+									<button
+										aria-label={t("addImage")}
+										className="composer-icon-button"
+										disabled={!session || choosingImages || session.phase === "running"}
+										type="button"
+										onClick={() => void handleChooseImages()}
+									>
+										<Icon name="image" size={16} />
+									</button>
+									<button
+										className="composer-control-button"
+										type="button"
+										onClick={() => void handleChooseWorkspace()}
+									>
+										<Icon name="folder" size={15} />
+										<span>{formatWorkspace(snapshot.workspacePath)}</span>
+									</button>
+									<button
+										className="composer-control-button"
+										type="button"
+										disabled={!canSetModel || settingModel}
+										onClick={() => setComposerMenu((current) => (current === "model" ? undefined : "model"))}
+									>
+										<Icon name="model" size={15} />
+										<span>{session?.model?.id ?? "模型"}</span>
+									</button>
+								</div>
+								<div className="composer-control-group composer-control-group-right">
+									<button
+										className="composer-control-button"
+										type="button"
+										disabled={!session || session.phase === "running"}
+										onClick={() =>
+											setComposerMenu((current) => (current === "thinking" ? undefined : "thinking"))
+										}
+									>
+										<span>☼</span>
+										<span>{session?.thinkingLevel ?? "auto"}</span>
+									</button>
+									<button
+										className="composer-control-button"
+										type="button"
+										onClick={() => setComposerMenu((current) => (current === "tools" ? undefined : "tools"))}
+									>
+										<span>⌕</span>
+										<span>{toolPreset}</span>
+									</button>
+									<button
+										className="composer-control-button"
+										type="button"
+										disabled={!session || session.phase === "running" || compacting}
+										onClick={() => void handleCompact()}
+									>
+										<span>{compacting ? "■" : "↗"}</span>
+										<span>{compacting ? "压缩中" : "压缩"}</span>
+									</button>
+									<ContextUsageRing
+										stats={snapshot.sessionStats}
+										onToggle={() => setStatsOpen((current) => !current)}
+									/>
+									<button
+										className="composer-control-button"
+										type="button"
+										aria-label="切换完成提示音"
+										onClick={() => setSoundOnComplete((current) => !current)}
+									>
+										<span>{soundOnComplete ? "◖" : "◗"}</span>
+									</button>
+								</div>
+								{composerMenu === "model" ? (
+									<div className="composer-popover" role="menu">
+										{snapshot.availableModels.map((model) => (
+											<button
+												key={getModelKey(model.provider, model.id)}
+												type="button"
+												onClick={() => {
+													setComposerMenu(undefined);
+													void handleChangeModel(getModelKey(model.provider, model.id));
+												}}
+											>
+												{model.provider} / {model.name}
+											</button>
+										))}
+									</div>
+								) : null}
+								{composerMenu === "thinking" ? (
+									<div className="composer-popover" role="menu">
+										{(
+											session?.availableThinkingLevels ?? [
+												"auto",
+												"off",
+												"minimal",
+												"low",
+												"medium",
+												"high",
+												"xhigh",
+												"max",
+											]
+										).map((level) => (
+											<button key={level} type="button" onClick={() => void handleChangeThinking(level)}>
+												{level}
+											</button>
+										))}
+									</div>
+								) : null}
+								{composerMenu === "tools" ? (
+									<div className="composer-popover" role="menu">
+										{(["off", "default", "full"] as const).map((preset) => (
+											<button key={preset} type="button" onClick={() => handleToolPresetChange(preset)}>
+												{preset}
+											</button>
+										))}
+									</div>
+								) : null}
+							</div>
+							<div className="composer-footer-right">
+								{session?.phase === "running" ? (
 									<button
 										className="stop-button"
 										type="button"
@@ -2175,12 +2749,8 @@ export function App() {
 									>
 										{aborting ? "停止中" : "停止"}
 									</button>
-								</>
-							) : (
-								<button className="send-button" type="submit" disabled={!canSubmit}>
-									{submitting ? "正在发送" : "发送"}
-								</button>
-							)}
+								) : null}
+							</div>
 						</div>
 					</div>
 				</form>
@@ -2202,63 +2772,111 @@ export function App() {
 				/>
 			) : null}
 			{inspectorOpen ? (
-				<aside className="right-panel" aria-label={rightPanelView === "files" ? "文件" : "源代码管理"}>
+				<aside className="right-panel" aria-label="文件">
 					<header className="right-panel-header">
-						<div className="right-panel-tabs" role="tablist" aria-label="右侧面板">
+						<div className="file-tab-bar" role="tablist" aria-label="已打开文件">
+							{fileTabs.length === 0 ? (
+								<div className="file-tab-bar-empty">
+									<Icon name="files" size={14} />
+									<span>Files</span>
+								</div>
+							) : (
+								fileTabs.map((tab) => (
+									<div
+										key={tab.path}
+										role="tab"
+										aria-selected={tab.path === activeTabPath}
+										tabIndex={tab.path === activeTabPath ? 0 : -1}
+										className={`file-tab ${tab.path === activeTabPath ? "is-active" : ""}`}
+										title={tab.path}
+										onClick={() => setActiveTabPath(tab.path)}
+										onKeyDown={(event) => {
+											if (event.key === "Enter" || event.key === " ") {
+												event.preventDefault();
+												setActiveTabPath(tab.path);
+											}
+										}}
+									>
+										<Icon name={fileIconFor(tab.path)} size={14} />
+										<span>{tab.path.split("/").at(-1) ?? tab.path}</span>
+										<button
+											type="button"
+											aria-label={`关闭 ${tab.path}`}
+											onClick={(event) => {
+												event.stopPropagation();
+												handleCloseTab(tab.path);
+											}}
+										>
+											<Icon name="close" size={12} />
+										</button>
+									</div>
+								))
+							)}
+						</div>
+						<div className="file-workbench-actions">
 							<button
-								className={rightPanelView === "files" ? "is-active" : ""}
+								className={`icon-button ${fileTreeOpen ? "is-active" : ""}`}
 								type="button"
-								onClick={() => setRightPanelView("files")}
+								aria-label={fileTreeOpen ? t("hideFileList") : t("showFileList")}
+								aria-pressed={fileTreeOpen}
+								onClick={() => setFileTreeOpen((open) => !open)}
 							>
-								文件
+								<Icon name="tree" size={16} />
 							</button>
 							<button
-								className={rightPanelView === "source-control" ? "is-active" : ""}
+								className="icon-button"
 								type="button"
-								onClick={() => setRightPanelView("source-control")}
+								aria-label="关闭右侧面板"
+								onClick={() => setInspectorOpen(false)}
 							>
-								更改
+								<Icon name="close" size={16} />
 							</button>
 						</div>
-						<button
-							className="icon-button"
-							type="button"
-							aria-label="关闭右侧面板"
-							onClick={() => setInspectorOpen(false)}
-						>
-							<Icon name="close" size={16} />
-						</button>
 					</header>
-					{rightPanelView === "source-control" ? (
-						<SourceControl />
-					) : (
-						<div className="file-workspace">
-							<div className="file-tree-panel">
-								<Explorer
-									entries={workspaceEntries}
-									error={fileExplorerError}
-									isLoading={loadingFiles || loadingFilePath !== undefined}
-									isTrusted={snapshot.projectTrusted}
-									selectedPath={activeTabPath}
-									workspacePath={snapshot.workspacePath}
-									onChooseWorkspace={() => void handleChooseWorkspace()}
-									onOpenFile={(entry) => void handleOpenFile(entry)}
-									onRefresh={() => void refreshWorkspaceFiles()}
-									onTrustProject={() => void handleProjectTrust()}
+					<div className="file-workspace">
+						<Inspector
+							tabs={fileTabs}
+							activeTabPath={activeTabPath}
+							onSelectTab={setActiveTabPath}
+							onCloseTab={handleCloseTab}
+							onClose={() => setInspectorOpen(false)}
+							onOpenFile={(path) => void handleOpenFileWithDefaultApp(path)}
+							onRevealFile={(path) => void handleRevealFile(path)}
+							onQuoteLine={handleQuoteLine}
+						/>
+						{fileTreeOpen ? (
+							<>
+								<hr
+									className="column-resizer"
+									aria-label="调整文件树宽度"
+									aria-orientation="vertical"
+									aria-valuemin={220}
+									aria-valuemax={520}
+									aria-valuenow={fileTreeWidth}
+									tabIndex={0}
+									onPointerDown={(event) => beginResize("file-tree", event.clientX)}
+									onKeyDown={(event) => {
+										if (event.key === "ArrowLeft" || event.key === "ArrowRight")
+											resizeByKeyboard("file-tree", event.key === "ArrowLeft" ? 16 : -16);
+									}}
 								/>
-							</div>
-							<Inspector
-								tabs={fileTabs}
-								activeTabPath={activeTabPath}
-								onSelectTab={setActiveTabPath}
-								onCloseTab={handleCloseTab}
-								onClose={() => setInspectorOpen(false)}
-								onOpenFile={(path) => void handleOpenFileWithDefaultApp(path)}
-								onRevealFile={(path) => void handleRevealFile(path)}
-								onQuoteLine={handleQuoteLine}
-							/>
-						</div>
-					)}
+								<div className="file-tree-panel">
+									<Explorer
+										entries={workspaceEntries}
+										error={fileExplorerError}
+										isLoading={loadingFiles || loadingFilePath !== undefined}
+										isTrusted={snapshot.projectTrusted}
+										selectedPath={activeTabPath}
+										workspacePath={snapshot.workspacePath}
+										onChooseWorkspace={() => void handleChooseWorkspace()}
+										onOpenFile={(entry) => void handleOpenFile(entry)}
+										onRefresh={() => void refreshWorkspaceFiles()}
+										onTrustProject={() => void handleProjectTrust()}
+									/>
+								</div>
+							</>
+						) : null}
+					</div>
 				</aside>
 			) : null}
 			{configModal === "models" ? (
@@ -2294,6 +2912,16 @@ export function App() {
 					onClose={() => setConfigModal(undefined)}
 				/>
 			) : null}
+			{trustDialogOpen && snapshot.workspacePath ? (
+				<ProjectTrustDialog
+					workspacePath={snapshot.workspacePath}
+					busy={changingTrust}
+					error={actionError}
+					onCancel={() => setTrustDialogOpen(false)}
+					onConfirm={() => void confirmProjectTrust()}
+				/>
+			) : null}
+			<UpdateReminder onOpenSettings={() => setConfigModal("settings")} />
 		</main>
 	);
 }

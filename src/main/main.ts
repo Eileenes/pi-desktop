@@ -304,6 +304,22 @@ function registerIpc(): void {
 		}
 		return getHost().setModel(value.provider, value.modelId);
 	});
+	ipcMain.handle("pi-desktop:set-thinking-level", async (event, value: unknown): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		if (
+			typeof value !== "string" ||
+			!["auto", "off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(value)
+		) {
+			throw new Error("无效的思考级别。");
+		}
+		return getHost().setThinkingLevel(
+			value as "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
+		);
+	});
+	ipcMain.handle("pi-desktop:compact", async (event): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		return getHost().compact();
+	});
 	ipcMain.handle("pi-desktop:set-project-trust", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
 		if (!isDesktopProjectTrustInput(value)) {

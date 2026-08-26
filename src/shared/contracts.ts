@@ -22,6 +22,8 @@ export interface DesktopTranscriptMessage {
 	timestamp?: number;
 }
 
+export type DesktopThinkingLevel = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
 export interface DesktopSessionSnapshot {
 	id: string;
 	name?: string;
@@ -34,7 +36,9 @@ export interface DesktopSessionSnapshot {
 		provider: string;
 		id: string;
 	};
-	thinkingLevel?: string;
+	thinkingLevel?: DesktopThinkingLevel;
+	availableThinkingLevels?: DesktopThinkingLevel[];
+	isCompacting?: boolean;
 	messages: DesktopTranscriptMessage[];
 }
 
@@ -309,6 +313,8 @@ export interface DesktopApi {
 	navigateTree(input: DesktopNavigateTreeInput): Promise<DesktopSnapshot>;
 	forkSession(): Promise<DesktopSnapshot>;
 	setModel(input: DesktopModelSelectionInput): Promise<DesktopSnapshot>;
+	setThinkingLevel(level: DesktopThinkingLevel): Promise<DesktopSnapshot>;
+	compact(): Promise<DesktopSnapshot>;
 	setProjectTrust(input: DesktopProjectTrustInput): Promise<DesktopSnapshot>;
 	decideToolApproval(input: DesktopToolApprovalDecisionInput): Promise<DesktopSnapshot>;
 	startProviderSetup(input: DesktopProviderSetupInput): Promise<DesktopSnapshot>;

@@ -94,11 +94,16 @@ function renderInline(tokens: Token[]): ReactNode[] {
 			}
 			case "image": {
 				const image = token as Tokens.Image;
-				children.push(
-					<span className="md-image" key={index}>
-						{image.text || image.href}
-					</span>,
-				);
+				const href = safeHref(image.href);
+				if (href && (href.startsWith("http://") || href.startsWith("https://"))) {
+					children.push(<img alt={image.text || ""} className="md-inline-image" key={index} src={href} />);
+				} else {
+					children.push(
+						<span className="md-image" key={index}>
+							{image.text || image.href}
+						</span>,
+					);
+				}
 				break;
 			}
 			default:
@@ -158,10 +163,17 @@ function renderBlock(tokens: Token[]): ReactNode[] {
 				const ListTag = list.ordered ? "ol" : "ul";
 				const start = list.ordered && typeof list.start === "number" && list.start !== 1 ? list.start : undefined;
 				children.push(
-					<ListTag key={index} start={start}>
+					<ListTag
+						className={list.items.some((item) => item.task) ? "md-task-list" : undefined}
+						key={index}
+						start={start}
+					>
 						{list.items.map((item, itemIndex) => (
 							// biome-ignore lint/suspicious/noArrayIndexKey: markdown token 列表是静态的、不可重排
-							<li key={itemIndex}>{renderBlock(item.tokens)}</li>
+							<li className={item.task ? "md-task-item" : undefined} key={itemIndex}>
+								{item.task ? <input checked={item.checked === true} disabled readOnly type="checkbox" /> : null}
+								{renderBlock(item.tokens)}
+							</li>
 						))}
 					</ListTag>,
 				);

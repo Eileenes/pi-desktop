@@ -141,6 +141,20 @@ export async function setModel(input: DesktopModelSelectionInput): Promise<Deskt
 	return next;
 }
 
+export async function setThinkingLevel(
+	level: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
+): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.setThinkingLevel(level);
+	publish(next);
+	return next;
+}
+
+export async function compactSession(): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.compact();
+	publish(next);
+	return next;
+}
+
 export async function setProjectTrust(trusted: boolean): Promise<DesktopSnapshot> {
 	const next = await window.piDesktop.setProjectTrust({ trusted });
 	publish(next);

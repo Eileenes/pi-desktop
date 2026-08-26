@@ -224,6 +224,8 @@ export class DesktopAgentHost {
 			],
 			...(model === undefined ? {} : { model: { provider: model.provider, id: model.id } }),
 			thinkingLevel: this.session.thinkingLevel,
+			availableThinkingLevels: this.session.getAvailableThinkingLevels(),
+			isCompacting: this.session.isCompacting,
 			messages: (() => {
 				const forkPoints = this.session?.getUserMessagesForForking() ?? [];
 				let userIndex = 0;
@@ -559,6 +561,27 @@ export class DesktopAgentHost {
 		this.error = undefined;
 		try {
 			await this.session.setModel(model, { persist: true });
+		} catch (error) {
+			this.error = error instanceof Error ? error.message : String(error);
+		}
+		return this.publish();
+	}
+
+	async setThinkingLevel(
+		level: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
+	): Promise<DesktopSnapshot> {
+		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
+		if (this.session.isStreaming) throw new Error("请等待当前智能体任务完成后，再调整思考级别。");
+		if (level !== "auto") this.session.setThinkingLevel(level as Exclude<typeof level, "auto">, { persist: true });
+		return this.publish();
+	}
+
+	async compact(): Promise<DesktopSnapshot> {
+		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
+		if (this.session.isStreaming) throw new Error("请等待当前智能体任务完成后，再压缩上下文。");
+		this.error = undefined;
+		try {
+			await this.session.compact();
 		} catch (error) {
 			this.error = error instanceof Error ? error.message : String(error);
 		}

@@ -46,6 +46,8 @@ const desktopApi: DesktopApi = {
 	forkSession: () => ipcRenderer.invoke("pi-desktop:fork-session") as Promise<DesktopSnapshot>,
 	setModel: (input: DesktopModelSelectionInput) =>
 		ipcRenderer.invoke("pi-desktop:set-model", input) as Promise<DesktopSnapshot>,
+	setThinkingLevel: (level) => ipcRenderer.invoke("pi-desktop:set-thinking-level", level) as Promise<DesktopSnapshot>,
+	compact: () => ipcRenderer.invoke("pi-desktop:compact") as Promise<DesktopSnapshot>,
 	setProjectTrust: (input) => ipcRenderer.invoke("pi-desktop:set-project-trust", input) as Promise<DesktopSnapshot>,
 	decideToolApproval: (input) =>
 		ipcRenderer.invoke("pi-desktop:decide-tool-approval", input) as Promise<DesktopSnapshot>,

@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { DesktopGitWorktree } from "../shared/contracts.ts";
 import { addGitWorktree, listGitWorktrees, removeGitWorktree } from "./desktop-store.ts";
 
@@ -14,6 +14,9 @@ export const WorktreeSelector = memo(function WorktreeSelector({ workspacePath, 
 	const [branchDraft, setBranchDraft] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string>();
+	const [confirmRemovePath, setConfirmRemovePath] = useState<string>();
+	const rootRef = useRef<HTMLDivElement>(null);
+	const branchInputRef = useRef<HTMLInputElement>(null);
 
 	const load = useCallback(async () => {
 		setLoading(true);
@@ -30,6 +33,28 @@ export const WorktreeSelector = memo(function WorktreeSelector({ workspacePath, 
 	useEffect(() => {
 		void load();
 	}, [load]);
+
+	useEffect(() => {
+		if (!open) return;
+		branchInputRef.current?.focus();
+		const close = (event: MouseEvent) => {
+			if (!rootRef.current?.contains(event.target as Node)) {
+				setOpen(false);
+				setConfirmRemovePath(undefined);
+			}
+		};
+		const closeOnEscape = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			setOpen(false);
+			setConfirmRemovePath(undefined);
+		};
+		document.addEventListener("mousedown", close);
+		window.addEventListener("keydown", closeOnEscape);
+		return () => {
+			document.removeEventListener("mousedown", close);
+			window.removeEventListener("keydown", closeOnEscape);
+		};
+	}, [open]);
 
 	if (loading || worktrees.length <= 1) return null;
 
@@ -67,8 +92,13 @@ export const WorktreeSelector = memo(function WorktreeSelector({ workspacePath, 
 	}
 
 	return (
-		<div className="worktree-selector">
-			<button className="worktree-trigger" type="button" onClick={() => setOpen((current) => !current)}>
+		<div className="worktree-selector" ref={rootRef}>
+			<button
+				className="worktree-trigger"
+				type="button"
+				aria-expanded={open}
+				onClick={() => setOpen((current) => !current)}
+			>
 				<span className="worktree-branch-icon">⎇</span>
 				<span>{currentBranch}</span>
 			</button>
@@ -89,20 +119,32 @@ export const WorktreeSelector = memo(function WorktreeSelector({ workspacePath, 
 									<small>{tree.path}</small>
 								</button>
 								{tree.path !== workspacePath ? (
-									<button
-										className="worktree-remove"
-										type="button"
-										aria-label={`移除 ${tree.branch}`}
-										onClick={() => void handleRemove(tree.path)}
-									>
-										×
-									</button>
+									confirmRemovePath === tree.path ? (
+										<div className="worktree-confirm-remove">
+											<button type="button" disabled={busy} onClick={() => void handleRemove(tree.path)}>
+												确认
+											</button>
+											<button type="button" onClick={() => setConfirmRemovePath(undefined)}>
+												取消
+											</button>
+										</div>
+									) : (
+										<button
+											className="worktree-remove"
+											type="button"
+											aria-label={`移除 ${tree.branch}`}
+											onClick={() => setConfirmRemovePath(tree.path)}
+										>
+											×
+										</button>
+									)
 								) : null}
 							</div>
 						))}
 					</div>
 					<div className="worktree-add">
 						<input
+							ref={branchInputRef}
 							placeholder="新分支名"
 							value={branchDraft}
 							onChange={(event) => setBranchDraft(event.target.value)}

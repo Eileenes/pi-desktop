@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	isDesktopAuthenticationPromptResponseInput,
 	isDesktopModelSelectionInput,
+	isDesktopModelTestInput,
 	isDesktopProjectTrustInput,
 	isDesktopPromptInput,
 	isDesktopProviderSetupInput,
@@ -61,14 +62,24 @@ describe("isDesktopToolApprovalDecisionInput", () => {
 });
 
 describe("isDesktopProviderSetupInput", () => {
-	it("accepts an exact provider setup payload", () => {
-		expect(isDesktopProviderSetupInput({ providerId: "anthropic" })).toBe(true);
+	it("accepts explicit API-key and OAuth setup payloads", () => {
+		expect(isDesktopProviderSetupInput({ providerId: "anthropic", authType: "api_key" })).toBe(true);
+		expect(isDesktopProviderSetupInput({ providerId: "anthropic", authType: "oauth" })).toBe(true);
 	});
 
 	it("rejects malformed, oversized, and extra fields", () => {
-		expect(isDesktopProviderSetupInput({ providerId: "" })).toBe(false);
-		expect(isDesktopProviderSetupInput({ providerId: "anthropic", persist: true })).toBe(false);
-		expect(isDesktopProviderSetupInput({ providerId: "x".repeat(201) })).toBe(false);
+		expect(isDesktopProviderSetupInput({ providerId: "", authType: "oauth" })).toBe(false);
+		expect(isDesktopProviderSetupInput({ providerId: "anthropic", authType: "password" })).toBe(false);
+		expect(isDesktopProviderSetupInput({ providerId: "anthropic", authType: "oauth", persist: true })).toBe(false);
+		expect(isDesktopProviderSetupInput({ providerId: "x".repeat(201), authType: "api_key" })).toBe(false);
+	});
+});
+
+describe("isDesktopModelTestInput", () => {
+	it("requires a provider and model id", () => {
+		expect(isDesktopModelTestInput({ provider: { id: "custom" }, model: { id: "model" } })).toBe(true);
+		expect(isDesktopModelTestInput({ provider: { id: "custom" }, model: { id: "" } })).toBe(false);
+		expect(isDesktopModelTestInput({ provider: { id: "custom" }, model: { id: "model" }, extra: true })).toBe(false);
 	});
 });
 

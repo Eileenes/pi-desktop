@@ -66,7 +66,10 @@ declare module "@earendil-works/pi-coding-agent" {
 	export interface Provider {
 		id: string;
 		name: string;
-		auth: { apiKey?: { login?: unknown } };
+		auth: {
+			apiKey?: { login?: unknown };
+			oauth?: { name: string; login: unknown };
+		};
 	}
 
 	export type AuthPrompt =
@@ -83,21 +86,33 @@ declare module "@earendil-works/pi-coding-agent" {
 	export interface ModelRuntime {
 		getAvailableSnapshot(): readonly Model[];
 		getProviders(): readonly Provider[];
+		getModel(providerId: string, modelId: string): Model | undefined;
 		getProviderAuthStatus(providerId: string): { configured: boolean };
+		isUsingOAuth(providerId: string): boolean;
 		login(
 			providerId: string,
-			type: "api_key",
+			type: "api_key" | "oauth",
 			interaction: {
 				signal?: AbortSignal;
 				prompt(prompt: AuthPrompt): Promise<string>;
 				notify(
 					event:
-						| { type: "auth_url"; instructions?: string }
+						| { type: "auth_url"; url: string; instructions?: string }
 						| { type: "device_code"; userCode: string; verificationUri: string }
 						| { type: "info" | "progress"; message: string },
 				): void;
 			},
 		): Promise<unknown>;
+		logout(providerId: string, options?: { signal?: AbortSignal }): Promise<void>;
+		completeSimple(
+			model: Model,
+			context: { messages: Array<{ role: "user"; content: string; timestamp: number }> },
+			options?: { maxTokens?: number; maxRetries?: number; signal?: AbortSignal },
+		): Promise<{
+			stopReason: string;
+			errorMessage?: string;
+			content: Array<{ type: string; text?: string }>;
+		}>;
 		refresh(options?: { allowNetwork?: boolean; signal?: AbortSignal }): Promise<unknown>;
 	}
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -21,6 +21,7 @@ import {
 	isDesktopDiscoverModelsInput,
 	isDesktopGitDiffInput,
 	isDesktopModelSelectionInput,
+	isDesktopModelTestInput,
 	isDesktopNavigateTreeInput,
 	isDesktopOpenExternalUrlInput,
 	isDesktopOpenSessionInput,
@@ -28,6 +29,7 @@ import {
 	isDesktopPluginSourceInput,
 	isDesktopProjectTrustInput,
 	isDesktopPromptInput,
+	isDesktopProviderLogoutInput,
 	isDesktopProviderSetupInput,
 	isDesktopSaveModelsConfigInput,
 	isDesktopToggleSkillInput,
@@ -43,16 +45,19 @@ let tray: Tray | undefined;
 let isQuitting = false;
 let closeQuits = false;
 
-const TRAY_ICON_TEMPLATE_BASE64 =
-	"iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAABR0lEQVR4nO2Z3Q2CMBSFD0Zn8EWfTFzAQVzALRzBTZzAN0cwuoFxEF9M8AHBUqC9/bttCScp6QPc8+Xk0gYKTAqrwmOtksPPtQAF0qu3LbALqBODKbBPUFkklplBwZCw5PpU4NCwZB8KMBcsyU8HzA2r9VUBx4JV+g8Bx4at1eEwWSVEXVAtQy7jYGPcB5xKurW0PKXBeAnPHRX33YT7ToYeLWA54dTSrdVw2fZwNGUNnGo71CqBzBPOQhNwaHEBL4T5x6UQF/BSmF9R7ZBPm0JcwCsAm9/8AWALYG9TiLOHzwB2AOYuReQvVdPN4w3g/puv8U8xhIrmIijl3a4ARrCs+fzX5lMNV/YJA+ml3OIZRcJAOil3OFQJx4bu9de1RCzoQV9KD3NDK/2oLx0XtNbHZJUIDU2qP/ozDlnZnCL1ieWcLjt9ARcgQ7dZeiDEAAAAAElFTkSuQmCC";
+const TRAY_ICON_WHITE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><path fill="white" d="M9 2.25a6.75 6.75 0 1 0 0 13.5A6.75 6.75 0 0 0 9 2.25Zm0 2.1a4.65 4.65 0 1 1 0 9.3 4.65 4.65 0 0 1 0-9.3Z"/><circle cx="9" cy="9" r="2.05" fill="white"/></svg>`;
 const TRAY_ICON_COLOR_BASE64 =
 	"iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAABjklEQVR4nO2ZvW6DMBRGv5ZKvARlqxTBC2RJ361pJNKdJWVpprqvwEuwBnVmYWFGArWTo/J/DdjgKmdiMPcefTK2hYEbcrmbq9Bm8/QzNOZy+Z7cb1IBimQXY+VHvTRFtI6ouNDgOUXrUMXvqQVlyorUJwnLlhXpMyisSpbar1dYtSylb6fwUrJD/VuFl5bltHk8jCm02z3D87xJMmEYYr9/EX6vkfBa0uXUfRqLtYiwZVlg7AsAwNgnfN9vHee6Lk6ndwBAEAQ4nz/oxqhuKpWE15Yu568XeadbC/oKr3U6cLifvgnrwk1YNkqEi6K4PhuGMamWEuEsy67P2+0WlvUI27ZH1VIinKYpkiQBADiOA8YYjse3UbWUzeHD4RVxHKMsy0l1Kocf0c3DNE04jgOgmqIM+AFo1HmYk+c5oiiax4iI3svaHP++ZNB5HtaBhvDaUq776J8wsJ6U2zw6E15auqt/75RYSrqv7+AcVi091I/00amSpvQhrxKypan1//cdRx1tbpHaUHVPpx2/NvmcOC+ox8YAAAAASUVORK5CYII=";
 
 function getTrayIcon(): NativeImage {
-	const base64 = process.platform === "darwin" ? TRAY_ICON_TEMPLATE_BASE64 : TRAY_ICON_COLOR_BASE64;
-	const image = nativeImage.createFromDataURL(`data:image/png;base64,${base64}`);
-	if (process.platform === "darwin") image.setTemplateImage(true);
-	return image;
+	if (process.platform === "darwin") {
+		const image = nativeImage.createFromDataURL(
+			`data:image/svg+xml;base64,${Buffer.from(TRAY_ICON_WHITE_SVG).toString("base64")}`,
+		);
+		image.setTemplateImage(false);
+		return image;
+	}
+	return nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_COLOR_BASE64}`);
 }
 
 const MAX_IMAGE_ATTACHMENTS = 5;
@@ -145,6 +150,11 @@ function createWindow(): BrowserWindow {
 		window.hide();
 	});
 	window.once("ready-to-show", () => window.show());
+	window.webContents.on("did-finish-load", () => {
+		void readFile(join(app.getPath("userData"), "custom.css"), "utf8")
+			.then((css) => window.webContents.insertCSS(css))
+			.catch(() => {});
+	});
 	void window.loadFile(join(currentDirectory, "..", "..", "renderer", "index.html"));
 	return window;
 }
@@ -292,7 +302,12 @@ function registerIpc(): void {
 		if (!isDesktopProviderSetupInput(value)) {
 			throw new Error("无效的模型服务商配置请求。");
 		}
-		return getHost().startProviderSetup(value.providerId);
+		return getHost().startProviderSetup(value.providerId, value.authType);
+	});
+	ipcMain.handle("pi-desktop:logout-provider", async (event, value: unknown): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		if (!isDesktopProviderLogoutInput(value)) throw new Error("无效的模型服务商注销请求。");
+		return getHost().logoutProvider(value.providerId);
 	});
 	ipcMain.handle("pi-desktop:respond-to-authentication-prompt", (event, value: unknown): DesktopSnapshot => {
 		assertMainWindowSender(event);
@@ -397,6 +412,39 @@ function registerIpc(): void {
 			throw new Error("无效的模型发现请求。");
 		}
 		return getHost().discoverModels(value.baseUrl, value.apiKey);
+	});
+	ipcMain.handle("pi-desktop:test-model", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (!isDesktopModelTestInput(value)) throw new Error("无效的模型测试请求。");
+		return getHost().testModel(value.provider, value.model);
+	});
+	ipcMain.handle("pi-desktop:open-custom-css", async (event): Promise<string> => {
+		assertMainWindowSender(event);
+		const cssPath = join(app.getPath("userData"), "custom.css");
+		await mkdir(app.getPath("userData"), { recursive: true });
+		try {
+			await readFile(cssPath);
+		} catch {
+			await writeFile(cssPath, "/* Pi Desktop custom styles */\n", { mode: 0o600 });
+		}
+		await getHost().openPath(cssPath);
+		return cssPath;
+	});
+	ipcMain.handle("pi-desktop:check-for-updates", async (event) => {
+		assertMainWindowSender(event);
+		const response = await fetch("https://api.github.com/repos/earendil-works/pi/releases/latest", {
+			headers: { Accept: "application/vnd.github+json", "User-Agent": "pi-desktop" },
+		});
+		if (!response.ok) throw new Error(`检查更新失败（HTTP ${response.status}）。`);
+		const release = (await response.json()) as { tag_name?: string; html_url?: string };
+		const latestVersion = release.tag_name?.replace(/^v/u, "");
+		return {
+			currentVersion: app.getVersion(),
+			...(latestVersion ? { latestVersion } : {}),
+			releaseUrl: release.html_url ?? "https://github.com/earendil-works/pi/releases",
+			updateAvailable: Boolean(latestVersion && latestVersion !== app.getVersion()),
+			checkedAt: Date.now(),
+		};
 	});
 	ipcMain.handle("pi-desktop:toggle-skill", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);

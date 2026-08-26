@@ -1,5 +1,6 @@
-import { memo, useState } from "react";
-import { quitApp, setCloseQuits } from "./desktop-store.ts";
+import { memo, useEffect, useState } from "react";
+import type { DesktopUpdateInfo } from "../shared/contracts.ts";
+import { checkForUpdates, openCustomCss, openExternalUrl, quitApp, setCloseQuits } from "./desktop-store.ts";
 import { Modal } from "./modal.tsx";
 
 interface AppSettingsModalProps {
@@ -20,6 +21,27 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 	const [closeQuits, setCloseQuitsState] = useState<boolean>(
 		() => localStorage.getItem("pi-desktop-close-quits") === "on",
 	);
+	const [update, setUpdate] = useState<DesktopUpdateInfo>();
+	const [updateError, setUpdateError] = useState<string>();
+	const [checkingUpdate, setCheckingUpdate] = useState(true);
+	const [cssBusy, setCssBusy] = useState(false);
+
+	useEffect(() => {
+		let active = true;
+		void checkForUpdates()
+			.then((value) => {
+				if (active) setUpdate(value);
+			})
+			.catch((error: unknown) => {
+				if (active) setUpdateError(error instanceof Error ? error.message : String(error));
+			})
+			.finally(() => {
+				if (active) setCheckingUpdate(false);
+			});
+		return () => {
+			active = false;
+		};
+	}, []);
 
 	function handleToggleCloseQuits(): void {
 		const next = !closeQuits;
@@ -33,6 +55,27 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 			<div className="app-settings-intro">
 				<strong>Pi 桌面端设置</strong>
 				<p>配置界面外观、桌面行为和任务通知。</p>
+				<div className="settings-version-row">
+					<span>当前 v{update?.currentVersion ?? "…"}</span>
+					<span>
+						{checkingUpdate
+							? "正在检查更新…"
+							: updateError
+								? updateError
+								: update?.updateAvailable
+									? `最新 v${update.latestVersion}`
+									: "已是最新版本"}
+					</span>
+					{update?.updateAvailable ? (
+						<button
+							className="outline-button"
+							type="button"
+							onClick={() => void openExternalUrl(update.releaseUrl)}
+						>
+							查看版本
+						</button>
+					) : null}
+				</div>
 			</div>
 			<div className="app-settings-cards">
 				<section className="app-settings-card">
@@ -63,6 +106,23 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 							onClick={() => onChangeTheme("dark")}
 						>
 							深色
+						</button>
+					</div>
+					<div className="custom-css-row">
+						<span>
+							<strong>自定义样式表</strong>
+							<small>修改字体、颜色与尺寸，重载窗口后生效。</small>
+						</span>
+						<button
+							className="outline-button"
+							type="button"
+							disabled={cssBusy}
+							onClick={() => {
+								setCssBusy(true);
+								void openCustomCss().finally(() => setCssBusy(false));
+							}}
+						>
+							{cssBusy ? "正在打开…" : "打开 custom.css"}
 						</button>
 					</div>
 				</section>

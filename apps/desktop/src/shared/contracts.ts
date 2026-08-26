@@ -42,6 +42,10 @@ export interface DesktopApiKeyProvider {
 	id: string;
 	name: string;
 	configured: boolean;
+	credentialType?: "api_key" | "oauth";
+	supportsApiKey: boolean;
+	supportsOAuth: boolean;
+	oauthName?: string;
 }
 
 export interface DesktopModel {
@@ -228,6 +232,32 @@ export interface DesktopToolApprovalDecisionInput {
 
 export interface DesktopProviderSetupInput {
 	providerId: string;
+	authType: "api_key" | "oauth";
+}
+
+export interface DesktopProviderLogoutInput {
+	providerId: string;
+}
+
+export interface DesktopModelTestInput {
+	provider: DesktopProviderConfig;
+	model: DesktopProviderModelConfig;
+}
+
+export interface DesktopModelTestResult {
+	ok: boolean;
+	latencyMs?: number;
+	status?: number;
+	responseText?: string;
+	error?: string;
+}
+
+export interface DesktopUpdateInfo {
+	currentVersion: string;
+	latestVersion?: string;
+	releaseUrl: string;
+	updateAvailable: boolean;
+	checkedAt: number;
 }
 
 export interface DesktopAuthenticationPromptResponseInput {
@@ -255,6 +285,7 @@ export interface DesktopApi {
 	setProjectTrust(input: DesktopProjectTrustInput): Promise<DesktopSnapshot>;
 	decideToolApproval(input: DesktopToolApprovalDecisionInput): Promise<DesktopSnapshot>;
 	startProviderSetup(input: DesktopProviderSetupInput): Promise<DesktopSnapshot>;
+	logoutProvider(input: DesktopProviderLogoutInput): Promise<DesktopSnapshot>;
 	respondToAuthenticationPrompt(input: DesktopAuthenticationPromptResponseInput): Promise<DesktopSnapshot>;
 	listWorkspaceFiles(): Promise<DesktopWorkspaceEntry[]>;
 	readWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<DesktopWorkspaceFilePreview>;
@@ -272,6 +303,9 @@ export interface DesktopApi {
 	getModelsConfig(): Promise<DesktopProviderConfig[]>;
 	saveModelsConfig(input: DesktopSaveModelsConfigInput): Promise<DesktopSnapshot>;
 	discoverModels(input: DesktopDiscoverModelsInput): Promise<Array<{ id: string }>>;
+	testModel(input: DesktopModelTestInput): Promise<DesktopModelTestResult>;
+	openCustomCss(): Promise<string>;
+	checkForUpdates(): Promise<DesktopUpdateInfo>;
 	toggleSkill(input: DesktopToggleSkillInput): Promise<DesktopSnapshot>;
 	installPlugin(input: DesktopPluginSourceInput): Promise<DesktopSnapshot>;
 	removePlugin(input: DesktopPluginSourceInput): Promise<DesktopSnapshot>;
@@ -423,10 +457,31 @@ export function isDesktopToolApprovalDecisionInput(value: unknown): value is Des
 
 export function isDesktopProviderSetupInput(value: unknown): value is DesktopProviderSetupInput {
 	return (
+		isExactRecord(value, ["providerId", "authType"]) &&
+		typeof value.providerId === "string" &&
+		value.providerId.length > 0 &&
+		value.providerId.length <= 200 &&
+		(value.authType === "api_key" || value.authType === "oauth")
+	);
+}
+
+export function isDesktopProviderLogoutInput(value: unknown): value is DesktopProviderLogoutInput {
+	return (
 		isExactRecord(value, ["providerId"]) &&
 		typeof value.providerId === "string" &&
 		value.providerId.length > 0 &&
 		value.providerId.length <= 200
+	);
+}
+
+export function isDesktopModelTestInput(value: unknown): value is DesktopModelTestInput {
+	if (!isExactRecord(value, ["provider", "model"])) return false;
+	if (typeof value.provider !== "object" || value.provider === null || Array.isArray(value.provider)) return false;
+	if (typeof value.model !== "object" || value.model === null || Array.isArray(value.model)) return false;
+	const provider = value.provider as Record<string, unknown>;
+	const model = value.model as Record<string, unknown>;
+	return (
+		typeof provider.id === "string" && provider.id.length > 0 && typeof model.id === "string" && model.id.length > 0
 	);
 }
 

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { DesktopApiKeyProvider, DesktopProviderConfig, DesktopProviderModelConfig } from "../shared/contracts.ts";
-import { discoverModels, getModelsConfig, saveModelsConfig } from "./desktop-store.ts";
+import { discoverModels, getModelsConfig, logoutProvider, saveModelsConfig, testModel } from "./desktop-store.ts";
 import { Modal } from "./modal.tsx";
 
 interface ModelsConfigModalProps {
@@ -9,11 +9,14 @@ interface ModelsConfigModalProps {
 	providerSetupInProgress: boolean;
 	settingUpProvider: boolean;
 	onChangeProvider: (providerId: string) => void;
-	onStartProviderSetup: (providerId: string) => void;
+	onStartProviderSetup: (providerId: string, authType: "api_key" | "oauth") => void;
 	onClose: () => void;
 }
 
-type Selection = { type: "provider"; providerId: string } | { type: "model"; providerId: string; modelIndex: number };
+type Selection =
+	| { type: "managed"; providerId: string }
+	| { type: "provider"; providerId: string }
+	| { type: "model"; providerId: string; modelIndex: number };
 
 type DiscoveryState =
 	| { phase: "idle" }
@@ -49,6 +52,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	const [selectedDiscovered, setSelectedDiscovered] = useState<string[]>([]);
 	const [confirmDiscard, setConfirmDiscard] = useState(false);
 	const [providerPickerOpen, setProviderPickerOpen] = useState(false);
+	const [modelTest, setModelTest] = useState<{ phase: "idle" | "loading" | "success" | "error"; message?: string }>({
+		phase: "idle",
+	});
 	const hasChanges = JSON.stringify(config) !== JSON.stringify(savedConfig);
 	const requestClose = useCallback(() => {
 		if (hasChanges) setConfirmDiscard(true);
@@ -75,7 +81,12 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 		};
 	}, []);
 
-	const selectedProvider = selection ? config.find((provider) => provider.id === selection.providerId) : undefined;
+	const managedProvider =
+		selection?.type === "managed" ? providers.find((provider) => provider.id === selection.providerId) : undefined;
+	const selectedProvider =
+		selection && selection.type !== "managed"
+			? config.find((provider) => provider.id === selection.providerId)
+			: undefined;
 	const selectedModel = selection?.type === "model" ? selectedProvider?.models?.[selection.modelIndex] : undefined;
 
 	const resetDiscovery = useCallback(() => {
@@ -175,6 +186,20 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 		setSelectedDiscovered([]);
 	}
 
+	async function handleModelTest(): Promise<void> {
+		if (!selectedProvider || !selectedModel) return;
+		setModelTest({ phase: "loading" });
+		const result = await testModel(selectedProvider, selectedModel);
+		setModelTest(
+			result.ok
+				? {
+						phase: "success",
+						message: `连接成功 · ${result.latencyMs ?? 0}ms${result.responseText ? ` · ${result.responseText}` : ""}`,
+					}
+				: { phase: "error", message: result.error ?? "连接失败" },
+		);
+	}
+
 	async function handleSave(): Promise<void> {
 		setSaving(true);
 		setSaveError(undefined);
@@ -200,7 +225,8 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								type="button"
 								onClick={() => {
 									onChangeProvider(provider.id);
-									onStartProviderSetup(provider.id);
+									if (provider.configured) setSelection({ type: "managed", providerId: provider.id });
+									else onStartProviderSetup(provider.id, provider.supportsOAuth ? "oauth" : "api_key");
 								}}
 							>
 								<span className="models-provider-mark">{provider.name.slice(0, 1).toUpperCase()}</span>
@@ -250,7 +276,26 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 				</aside>
 
 				<section className="models-detail">
-					{selectedProvider && selection?.type === "provider" ? (
+					{managedProvider ? (
+						<div className="models-detail-form">
+							<div className="models-detail-heading">
+								<span>{managedProvider.name}</span>
+								<span className="models-auth-badge">
+									{managedProvider.credentialType === "oauth" ? "OAuth" : "API Key"}
+								</span>
+							</div>
+							<p className="models-managed-description">
+								该服务商已连接。断开后会移除本地保存的认证信息，不会删除模型配置。
+							</p>
+							<button
+								className="danger-button"
+								type="button"
+								onClick={() => void logoutProvider(managedProvider.id)}
+							>
+								断开连接
+							</button>
+						</div>
+					) : selectedProvider && selection?.type === "provider" ? (
 						<div className="models-detail-form">
 							<div className="models-detail-heading">
 								<span>服务商</span>
@@ -396,10 +441,23 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 						<div className="models-detail-form">
 							<div className="models-detail-heading">
 								<span>模型</span>
-								<button className="danger-text-button" type="button" onClick={removeModel}>
-									移除
-								</button>
+								<div className="models-heading-actions">
+									<button
+										className="outline-button"
+										type="button"
+										disabled={modelTest.phase === "loading" || !selectedModel.id.trim()}
+										onClick={() => void handleModelTest()}
+									>
+										{modelTest.phase === "loading" ? "测试中…" : "测试连接"}
+									</button>
+									<button className="danger-text-button" type="button" onClick={removeModel}>
+										移除
+									</button>
+								</div>
 							</div>
+							{modelTest.phase !== "idle" && modelTest.phase !== "loading" ? (
+								<p className={`model-test-result is-${modelTest.phase}`}>{modelTest.message}</p>
+							) : null}
 							<div className="models-form-grid">
 								<label>
 									ID *
@@ -574,7 +632,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									onClick={() => {
 										onChangeProvider(provider.id);
 										setProviderPickerOpen(false);
-										onStartProviderSetup(provider.id);
+										onStartProviderSetup(provider.id, provider.supportsOAuth ? "oauth" : "api_key");
 									}}
 								>
 									<span>

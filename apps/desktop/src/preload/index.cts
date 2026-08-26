@@ -10,17 +10,21 @@ import type {
 	DesktopGitWorktree,
 	DesktopImageAttachment,
 	DesktopModelSelectionInput,
+	DesktopModelTestInput,
+	DesktopModelTestResult,
 	DesktopNavigateTreeInput,
 	DesktopOpenSessionInput,
 	DesktopOpenWorkspacePathInput,
 	DesktopPluginSourceInput,
 	DesktopPromptInput,
 	DesktopProviderConfig,
+	DesktopProviderLogoutInput,
 	DesktopProviderSetupInput,
 	DesktopSaveModelsConfigInput,
 	DesktopSnapshot,
 	DesktopSnapshotListener,
 	DesktopToggleSkillInput,
+	DesktopUpdateInfo,
 	DesktopWorkspaceFileInput,
 	Unsubscribe,
 } from "../shared/contracts.ts" with { "resolution-mode": "import" };
@@ -43,6 +47,8 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:decide-tool-approval", input) as Promise<DesktopSnapshot>,
 	startProviderSetup: (input: DesktopProviderSetupInput) =>
 		ipcRenderer.invoke("pi-desktop:start-provider-setup", input) as Promise<DesktopSnapshot>,
+	logoutProvider: (input: DesktopProviderLogoutInput) =>
+		ipcRenderer.invoke("pi-desktop:logout-provider", input) as Promise<DesktopSnapshot>,
 	respondToAuthenticationPrompt: (input: DesktopAuthenticationPromptResponseInput) =>
 		ipcRenderer.invoke("pi-desktop:respond-to-authentication-prompt", input) as Promise<DesktopSnapshot>,
 	listWorkspaceFiles: () => ipcRenderer.invoke("pi-desktop:list-workspace-files"),
@@ -71,6 +77,10 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:save-models-config", input) as Promise<DesktopSnapshot>,
 	discoverModels: (input: DesktopDiscoverModelsInput) =>
 		ipcRenderer.invoke("pi-desktop:discover-models", input) as Promise<Array<{ id: string }>>,
+	testModel: (input: DesktopModelTestInput) =>
+		ipcRenderer.invoke("pi-desktop:test-model", input) as Promise<DesktopModelTestResult>,
+	openCustomCss: () => ipcRenderer.invoke("pi-desktop:open-custom-css") as Promise<string>,
+	checkForUpdates: () => ipcRenderer.invoke("pi-desktop:check-for-updates") as Promise<DesktopUpdateInfo>,
 	toggleSkill: (input: DesktopToggleSkillInput) =>
 		ipcRenderer.invoke("pi-desktop:toggle-skill", input) as Promise<DesktopSnapshot>,
 	installPlugin: (input: DesktopPluginSourceInput) =>

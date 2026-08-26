@@ -7,6 +7,7 @@ import type {
 	DesktopNavigateTreeInput,
 	DesktopOpenSessionInput,
 	DesktopProviderConfig,
+	DesktopProviderModelConfig,
 	DesktopProviderSetupInput,
 	DesktopSnapshot,
 	DesktopSnapshotListener,
@@ -191,6 +192,10 @@ export function quitApp(): Promise<void> {
 	return window.piDesktop.quitApp();
 }
 
+export function openExternalUrl(url: string): Promise<void> {
+	return window.piDesktop.openExternalUrl(url);
+}
+
 export function getModelsConfig(): Promise<DesktopProviderConfig[]> {
 	return window.piDesktop.getModelsConfig();
 }
@@ -203,6 +208,24 @@ export async function saveModelsConfig(providers: DesktopProviderConfig[]): Prom
 
 export function discoverModels(baseUrl: string, apiKey?: string): Promise<Array<{ id: string }>> {
 	return window.piDesktop.discoverModels({ baseUrl, ...(apiKey ? { apiKey } : {}) });
+}
+
+export async function logoutProvider(providerId: string): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.logoutProvider({ providerId });
+	publish(next);
+	return next;
+}
+
+export function testModel(provider: DesktopProviderConfig, model: DesktopProviderModelConfig) {
+	return window.piDesktop.testModel({ provider, model });
+}
+
+export function openCustomCss(): Promise<string> {
+	return window.piDesktop.openCustomCss();
+}
+
+export function checkForUpdates() {
+	return window.piDesktop.checkForUpdates();
 }
 
 export async function toggleSkill(filePath: string, disable: boolean): Promise<DesktopSnapshot> {

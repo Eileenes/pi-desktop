@@ -16,8 +16,14 @@ Coding Agent SDK; it does not start a shell process or duplicate agent logic.
 - Isolate the renderer with `contextIsolation`, sandboxing, a narrow preload API,
   and a local-only content security policy.
 
-OAuth is intentionally not exposed yet. It needs browser and callback handling
-in addition to the authentication prompt bridge.
+The model configuration UI supports API-key and OAuth authentication, provider
+logout, custom providers, model discovery, and live model connection tests. OAuth
+credentials remain in the runtime's private `auth.json` store.
+
+The settings UI checks the official GitHub release, opens a user-data
+`custom.css` file, controls window-close and notification behavior, and shows the
+installed version. Signed in-app installation is intentionally deferred until a
+desktop packaging and signing pipeline exists.
 
 ## Develop
 
@@ -54,13 +60,12 @@ Run the tests from `apps/desktop`; run the check from the repository root.
 | Boundary | `src/shared/contracts.ts`, `src/preload/index.cts` | Validated IPC contracts and the only renderer capability surface |
 | Renderer | `src/renderer/` | Workspace, authentication, approval, transcript, and prompt interface |
 
-## Next development increments
+## Remaining release work
 
-1. Add OAuth browser and callback handling without exposing credentials outside
-   the narrow IPC boundary.
-2. Add model selection and model-switch state to the desktop shell.
-3. Record security-relevant events locally: trust changes, tool approval,
-   denials, and credential configuration outcomes, never raw credentials.
-4. Select an installer pipeline (Electron Forge or electron-builder), configure
-   signing/notarization, then produce macOS, Windows, and Linux release
-   artifacts in CI.
+Select an installer pipeline (Electron Forge or electron-builder), configure
+signing/notarization, then produce macOS, Windows, and Linux release artifacts in
+CI. This is also required before enabling signed download/install/restart updates.
+
+Security-relevant trust, tool approval, denial, authentication, and logout events
+are recorded as metadata-only JSON lines in `security-audit.jsonl` under the
+Electron user-data agent directory. Credentials and tool inputs are never logged.

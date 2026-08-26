@@ -1,4 +1,5 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
 import {
 	type AgentSession,
@@ -17,8 +18,10 @@ import type {
 	DesktopGitChange,
 	DesktopGitWorktree,
 	DesktopModel,
+	DesktopModelTestResult,
 	DesktopPlugin,
 	DesktopProviderConfig,
+	DesktopProviderModelConfig,
 	DesktopSessionInfo,
 	DesktopSessionPhase,
 	DesktopSessionStats,
@@ -43,6 +46,7 @@ import {
 	readModelsConfig,
 	writeModelsConfig,
 } from "./models-config-store.ts";
+import { SecurityAuditLog } from "./security-audit-log.ts";
 import { setSkillDisableModelInvocation } from "./skill-toggle.ts";
 import { ToolApprovalQueue } from "./tool-approval-queue.ts";
 import { TrustedWorkspaceBrowser } from "./trusted-workspace-browser.ts";
@@ -113,6 +117,7 @@ export class DesktopAgentHost {
 	private readonly approvalQueue: ToolApprovalQueue;
 	private readonly authenticationPromptQueue: AuthenticationPromptQueue;
 	private readonly trustStore: WorkspaceTrustStore;
+	private readonly auditLog: SecurityAuditLog;
 	private workspaceChangeQueue: Promise<void> = Promise.resolve();
 	private session: AgentSession | undefined;
 	private modelRuntime: ModelRuntime | undefined;
@@ -134,6 +139,7 @@ export class DesktopAgentHost {
 		this.approvalQueue = new ToolApprovalQueue({ onChange: () => this.publish() });
 		this.authenticationPromptQueue = new AuthenticationPromptQueue({ onChange: () => this.publish() });
 		this.trustStore = new WorkspaceTrustStore(join(agentDir, "trusted-workspaces.json"));
+		this.auditLog = new SecurityAuditLog(join(agentDir, "security-audit.jsonl"));
 	}
 
 	async initialize(): Promise<DesktopSnapshot> {
@@ -510,6 +516,9 @@ export class DesktopAgentHost {
 			const workspacePath = this.workspacePath;
 			try {
 				await this.trustStore.setTrusted(workspacePath, trusted);
+				this.auditLog.write("workspace.trust", trusted ? "allowed" : "denied", {
+					workspaceKey: getWorkspaceKey(workspacePath),
+				});
 				return await this.openWorkspaceInternal(workspacePath);
 			} catch (error) {
 				this.error = error instanceof Error ? error.message : String(error);
@@ -519,13 +528,17 @@ export class DesktopAgentHost {
 	}
 
 	decideToolApproval(id: string, approved: boolean): DesktopSnapshot {
+		const approval = this.approvalQueue.getPendingApprovals().find((item) => item.id === id);
 		if (!this.approvalQueue.resolve(id, approved)) {
 			throw new Error("This tool approval request is no longer pending.");
 		}
+		this.auditLog.write("tool.approval", approved ? "allowed" : "denied", {
+			...(approval ? { toolName: approval.toolName } : {}),
+		});
 		return this.getSnapshot();
 	}
 
-	async startProviderSetup(providerId: string): Promise<DesktopSnapshot> {
+	async startProviderSetup(providerId: string, authType: "api_key" | "oauth"): Promise<DesktopSnapshot> {
 		if (this.session?.isStreaming) {
 			throw new Error("请等待当前智能体任务完成后，再更改模型认证信息。");
 		}
@@ -535,8 +548,9 @@ export class DesktopAgentHost {
 
 		const modelRuntime = await this.getModelRuntime();
 		const provider = modelRuntime.getProviders().find((candidate) => candidate.id === providerId);
-		if (!provider?.auth.apiKey?.login) {
-			throw new Error("该模型服务商暂不支持在 Pi 桌面端中配置 API Key。");
+		const auth = authType === "oauth" ? provider?.auth.oauth : provider?.auth.apiKey;
+		if (!auth?.login) {
+			throw new Error(authType === "oauth" ? "该模型服务商不支持 OAuth 登录。" : "该模型服务商不支持配置 API Key。");
 		}
 		const workspacePath = this.workspacePath;
 		const controller = new AbortController();
@@ -547,12 +561,13 @@ export class DesktopAgentHost {
 		this.publish();
 
 		try {
-			await modelRuntime.login(providerId, "api_key", {
+			await modelRuntime.login(providerId, authType, {
 				signal: controller.signal,
 				prompt: async (prompt) => {
 					return this.authenticationPromptQueue.request(this.toDesktopAuthenticationPrompt(prompt), prompt.signal);
 				},
 				notify: (event) => {
+					if (event.type === "auth_url") void shell.openExternal(event.url);
 					this.authenticationNotice =
 						event.type === "auth_url"
 							? (event.instructions ?? "请在浏览器窗口中完成模型服务商登录。")
@@ -563,10 +578,12 @@ export class DesktopAgentHost {
 				},
 			});
 			await modelRuntime.refresh({ allowNetwork: true, signal: controller.signal });
+			this.auditLog.write("credential.configure", "succeeded", { providerId, authType });
 			if (!workspacePath) return this.publish();
 			return await this.enqueueWorkspaceChange(() => this.openWorkspaceInternal(workspacePath));
-		} catch {
-			this.error = "模型服务商配置失败，请检查填写内容后重试。";
+		} catch (error) {
+			this.auditLog.write("credential.configure", "failed", { providerId, authType });
+			this.error = error instanceof Error ? error.message : "模型服务商配置失败，请检查填写内容后重试。";
 			return this.publish();
 		} finally {
 			this.authenticationPromptQueue.cancelAll();
@@ -577,6 +594,15 @@ export class DesktopAgentHost {
 			this.providerSetupInProgress = false;
 			this.publish();
 		}
+	}
+
+	async logoutProvider(providerId: string): Promise<DesktopSnapshot> {
+		if (this.session?.isStreaming) throw new Error("请等待当前智能体任务完成后，再断开模型服务商。");
+		const modelRuntime = await this.getModelRuntime();
+		await modelRuntime.logout(providerId);
+		await modelRuntime.refresh({ allowNetwork: false });
+		this.auditLog.write("credential.logout", "succeeded", { providerId });
+		return this.publish();
 	}
 
 	respondToAuthenticationPrompt(id: string, response: string): DesktopSnapshot {
@@ -673,6 +699,60 @@ export class DesktopAgentHost {
 
 	async discoverModels(baseUrl: string, apiKey?: string): Promise<Array<{ id: string }>> {
 		return discoverModelsFromUrl(baseUrl, apiKey);
+	}
+
+	async testModel(
+		provider: DesktopProviderConfig,
+		model: DesktopProviderModelConfig,
+	): Promise<DesktopModelTestResult> {
+		const tempDir = await mkdtemp(join(tmpdir(), "pi-desktop-model-test-"));
+		const startedAt = Date.now();
+		try {
+			const modelsPath = join(tempDir, "models.json");
+			await writeFile(
+				modelsPath,
+				JSON.stringify({ providers: { [provider.id]: { ...provider, id: undefined, models: [{ ...model }] } } }),
+			);
+			const runtime = await ModelRuntime.create({
+				authPath: join(tempDir, "auth.json"),
+				modelsPath,
+				allowModelNetwork: true,
+			});
+			const loadedModel = runtime.getModel(provider.id, model.id);
+			if (!loadedModel) return { ok: false, error: `找不到模型 ${provider.id}/${model.id}` };
+			const controller = new AbortController();
+			const timeout = setTimeout(() => controller.abort(), 20_000);
+			try {
+				const message = await runtime.completeSimple(
+					loadedModel,
+					{ messages: [{ role: "user", content: "Reply with OK only.", timestamp: Date.now() }] },
+					{ maxTokens: 16, maxRetries: 0, signal: controller.signal },
+				);
+				if (message.stopReason === "error" || message.stopReason === "aborted")
+					return { ok: false, latencyMs: Date.now() - startedAt, error: message.errorMessage ?? "模型测试失败" };
+				const responseText = message.content
+					.filter((block) => block.type === "text")
+					.map((block) => block.text ?? "")
+					.join("")
+					.slice(0, 300);
+				return { ok: true, latencyMs: Date.now() - startedAt, responseText };
+			} finally {
+				clearTimeout(timeout);
+			}
+		} catch (error) {
+			return {
+				ok: false,
+				latencyMs: Date.now() - startedAt,
+				error: error instanceof Error ? error.message : String(error),
+			};
+		} finally {
+			await rm(tempDir, { recursive: true, force: true });
+		}
+	}
+
+	async openPath(path: string): Promise<void> {
+		const error = await shell.openPath(path);
+		if (error) throw new Error(error);
 	}
 
 	async toggleSkill(filePath: string, disable: boolean): Promise<DesktopSnapshot> {
@@ -898,12 +978,25 @@ export class DesktopAgentHost {
 		if (!this.modelRuntime) return [];
 		const providers = this.modelRuntime
 			.getProviders()
-			.filter((provider) => provider.auth.apiKey?.login !== undefined)
-			.map((provider) => ({
-				id: provider.id,
-				name: provider.name,
-				configured: this.modelRuntime?.getProviderAuthStatus(provider.id).configured ?? false,
-			}));
+			.filter((provider) => provider.auth.apiKey?.login !== undefined || provider.auth.oauth !== undefined)
+			.map((provider) => {
+				const configured = this.modelRuntime?.getProviderAuthStatus(provider.id).configured ?? false;
+				return {
+					id: provider.id,
+					name: provider.name,
+					configured,
+					...(configured
+						? {
+								credentialType: this.modelRuntime?.isUsingOAuth(provider.id)
+									? ("oauth" as const)
+									: ("api_key" as const),
+							}
+						: {}),
+					supportsApiKey: provider.auth.apiKey?.login !== undefined,
+					supportsOAuth: provider.auth.oauth !== undefined,
+					...(provider.auth.oauth?.name ? { oauthName: provider.auth.oauth.name } : {}),
+				};
+			});
 		return providers.sort((left, right) => left.name.localeCompare(right.name));
 	}
 

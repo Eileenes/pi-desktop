@@ -1068,12 +1068,12 @@ export function App() {
 		}
 	}, []);
 
-	async function beginProviderSetup(providerId: string): Promise<void> {
+	async function beginProviderSetup(providerId: string, authType: "api_key" | "oauth" = "api_key"): Promise<void> {
 		if (!providerId || !canStartProviderSetup) return;
 		setSettingUpProvider(true);
 		setActionError(undefined);
 		try {
-			await startProviderSetup({ providerId });
+			await startProviderSetup({ providerId, authType });
 		} catch (error) {
 			setActionError(error instanceof Error ? error.message : String(error));
 		} finally {
@@ -1669,9 +1669,9 @@ export function App() {
 					providerSetupInProgress={snapshot.providerSetupInProgress}
 					settingUpProvider={settingUpProvider}
 					onChangeProvider={setSelectedProviderId}
-					onStartProviderSetup={(providerId) => {
+					onStartProviderSetup={(providerId, authType) => {
 						setConfigModal(undefined);
-						void beginProviderSetup(providerId);
+						void beginProviderSetup(providerId, authType);
 					}}
 					onClose={() => setConfigModal(undefined)}
 				/>

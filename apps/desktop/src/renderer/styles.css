@@ -2133,6 +2133,184 @@ textarea:focus-visible {
 	margin: 0;
 }
 
+.modal-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 100;
+	display: grid;
+	place-items: center;
+	padding: 48px;
+	background: rgb(0 0 0 / 45%);
+}
+
+.modal-panel {
+	display: flex;
+	flex-direction: column;
+	width: min(680px, 100%);
+	max-height: min(720px, 100%);
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-l);
+	background: var(--surface-1);
+	box-shadow: var(--shadow-float);
+}
+
+.modal-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	flex: 0 0 auto;
+	padding: 16px 16px 12px;
+	border-bottom: 1px solid var(--border-subtle);
+}
+
+.modal-title {
+	margin: 0;
+	color: var(--text);
+	font-size: 17px;
+	font-weight: 600;
+	letter-spacing: -0.01em;
+}
+
+.modal-body {
+	overflow: auto;
+	flex: 1 1 auto;
+	min-height: 0;
+	padding: 16px;
+}
+
+.settings-modal-sections {
+	display: grid;
+	gap: 12px;
+}
+
+.settings-modal-sections .settings-group {
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-m);
+}
+
+.choice-row {
+	display: flex;
+	gap: 8px;
+}
+
+.choice-button {
+	flex: 1;
+	padding: 8px 0;
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-s);
+	color: var(--text-dim);
+	background: transparent;
+	font-size: 12px;
+	font-weight: 550;
+}
+
+.choice-button:hover {
+	color: var(--text);
+	background: var(--hover);
+}
+
+.choice-button.is-active {
+	border-color: var(--accent-strong);
+	color: var(--text);
+	background: var(--hover-strong);
+}
+
+.modal-empty {
+	margin: 0;
+	color: var(--muted);
+	font-size: 12px;
+	line-height: 1.55;
+}
+
+.models-config {
+	display: grid;
+	grid-template-columns: 180px minmax(0, 1fr);
+	gap: 12px;
+	min-height: 320px;
+}
+
+.models-config-sidebar {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	min-width: 0;
+}
+
+.models-provider-list {
+	display: grid;
+	gap: 2px;
+	overflow: auto;
+	max-height: 380px;
+}
+
+.models-provider-item {
+	padding: 7px 10px;
+	border: 0;
+	border-radius: var(--radius-s);
+	color: var(--text-dim);
+	background: transparent;
+	font-size: 12px;
+	text-align: left;
+}
+
+.models-provider-item:hover,
+.models-provider-item.is-active {
+	color: var(--text);
+	background: var(--surface-3);
+}
+
+.models-provider-item span {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.models-config-main {
+	min-width: 0;
+}
+
+.models-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	padding-top: 4px;
+}
+
+.models-builtin {
+	margin-top: 12px;
+	padding-top: 12px;
+	border-top: 1px solid var(--border-subtle);
+}
+
+.discovery-list {
+	display: grid;
+	gap: 4px;
+	max-height: 180px;
+	overflow: auto;
+	margin-top: 8px;
+}
+
+.discovery-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 6px;
+	border-radius: var(--radius-s);
+	color: var(--text-dim);
+	font-family: var(--font-mono);
+	font-size: 11px;
+}
+
+.discovery-row:hover {
+	background: var(--hover);
+}
+
+.discovery-row input {
+	accent-color: var(--accent-strong);
+}
+
 @media (width <= 1120px) {
 	.app-workbench.is-inspector-open {
 		grid-template-columns: 248px minmax(360px, 1fr) minmax(260px, 300px);

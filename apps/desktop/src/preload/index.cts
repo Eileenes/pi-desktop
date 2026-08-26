@@ -4,6 +4,7 @@ import type {
 	DesktopApi,
 	DesktopAuthenticationPromptResponseInput,
 	DesktopAddWorktreeInput,
+	DesktopDiscoverModelsInput,
 	DesktopGitChange,
 	DesktopGitDiffInput,
 	DesktopGitWorktree,
@@ -13,7 +14,9 @@ import type {
 	DesktopOpenSessionInput,
 	DesktopOpenWorkspacePathInput,
 	DesktopPromptInput,
+	DesktopProviderConfig,
 	DesktopProviderSetupInput,
+	DesktopSaveModelsConfigInput,
 	DesktopSnapshot,
 	DesktopSnapshotListener,
 	DesktopWorkspaceFileInput,
@@ -58,6 +61,14 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:add-git-worktree", input) as Promise<DesktopGitWorktree>,
 	openWorkspacePath: (input: DesktopOpenWorkspacePathInput) =>
 		ipcRenderer.invoke("pi-desktop:open-workspace-path", input) as Promise<DesktopSnapshot>,
+	setCloseQuits: (closeQuits: boolean) =>
+		ipcRenderer.invoke("pi-desktop:set-close-quits", closeQuits) as Promise<void>,
+	quitApp: () => ipcRenderer.invoke("pi-desktop:quit-app") as Promise<void>,
+	getModelsConfig: () => ipcRenderer.invoke("pi-desktop:get-models-config") as Promise<DesktopProviderConfig[]>,
+	saveModelsConfig: (input: DesktopSaveModelsConfigInput) =>
+		ipcRenderer.invoke("pi-desktop:save-models-config", input) as Promise<DesktopSnapshot>,
+	discoverModels: (input: DesktopDiscoverModelsInput) =>
+		ipcRenderer.invoke("pi-desktop:discover-models", input) as Promise<Array<{ id: string }>>,
 	onSnapshot(listener: DesktopSnapshotListener): Unsubscribe {
 		const subscription = (_event: IpcRendererEvent, snapshot: DesktopSnapshot) => listener(snapshot);
 		ipcRenderer.on("pi-desktop:snapshot", subscription);

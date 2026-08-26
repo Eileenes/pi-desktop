@@ -18,6 +18,7 @@ import {
 	type DesktopSnapshot,
 	isDesktopAddWorktreeInput,
 	isDesktopAuthenticationPromptResponseInput,
+	isDesktopDiscoverModelsInput,
 	isDesktopGitDiffInput,
 	isDesktopModelSelectionInput,
 	isDesktopNavigateTreeInput,
@@ -27,6 +28,7 @@ import {
 	isDesktopProjectTrustInput,
 	isDesktopPromptInput,
 	isDesktopProviderSetupInput,
+	isDesktopSaveModelsConfigInput,
 	isDesktopToolApprovalDecisionInput,
 	isDesktopWorkspaceFileInput,
 } from "../shared/contracts.ts";
@@ -37,6 +39,7 @@ let mainWindow: BrowserWindow | undefined;
 let host: DesktopAgentHost | undefined;
 let tray: Tray | undefined;
 let isQuitting = false;
+let closeQuits = false;
 
 const TRAY_ICON_TEMPLATE_BASE64 =
 	"iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAABR0lEQVR4nO2Z3Q2CMBSFD0Zn8EWfTFzAQVzALRzBTZzAN0cwuoFxEF9M8AHBUqC9/bttCScp6QPc8+Xk0gYKTAqrwmOtksPPtQAF0qu3LbALqBODKbBPUFkklplBwZCw5PpU4NCwZB8KMBcsyU8HzA2r9VUBx4JV+g8Bx4at1eEwWSVEXVAtQy7jYGPcB5xKurW0PKXBeAnPHRX33YT7ToYeLWA54dTSrdVw2fZwNGUNnGo71CqBzBPOQhNwaHEBL4T5x6UQF/BSmF9R7ZBPm0JcwCsAm9/8AWALYG9TiLOHzwB2AOYuReQvVdPN4w3g/puv8U8xhIrmIijl3a4ARrCs+fzX5lMNV/YJA+ml3OIZRcJAOil3OFQJx4bu9de1RCzoQV9KD3NDK/2oLx0XtNbHZJUIDU2qP/ozDlnZnCL1ieWcLjt9ARcgQ7dZeiDEAAAAAElFTkSuQmCC";
@@ -135,7 +138,7 @@ function createWindow(): BrowserWindow {
 	window.webContents.on("will-navigate", (event) => event.preventDefault());
 	window.webContents.on("will-redirect", (event) => event.preventDefault());
 	window.on("close", (event) => {
-		if (isQuitting) return;
+		if (isQuitting || closeQuits) return;
 		event.preventDefault();
 		window.hide();
 	});
@@ -334,6 +337,18 @@ function registerIpc(): void {
 		if (!Notification.isSupported()) return;
 		new Notification({ title: "Pi 任务完成", body: "智能体已处理完毕。" }).show();
 	});
+	ipcMain.handle("pi-desktop:set-close-quits", (event, value: unknown): void => {
+		assertMainWindowSender(event);
+		if (typeof value !== "boolean") {
+			throw new Error("无效的关闭行为设置。");
+		}
+		closeQuits = value;
+	});
+	ipcMain.handle("pi-desktop:quit-app", (event): void => {
+		assertMainWindowSender(event);
+		isQuitting = true;
+		app.quit();
+	});
 	ipcMain.handle("pi-desktop:list-git-changes", async (event) => {
 		assertMainWindowSender(event);
 		return getHost().listGitChanges();
@@ -362,6 +377,24 @@ function registerIpc(): void {
 			throw new Error("无效的项目路径请求。");
 		}
 		return getHost().openWorkspace(value.path);
+	});
+	ipcMain.handle("pi-desktop:get-models-config", async (event) => {
+		assertMainWindowSender(event);
+		return getHost().getModelsConfig();
+	});
+	ipcMain.handle("pi-desktop:save-models-config", async (event, value: unknown): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		if (!isDesktopSaveModelsConfigInput(value)) {
+			throw new Error("无效的模型配置。");
+		}
+		return getHost().saveModelsConfig(value.providers);
+	});
+	ipcMain.handle("pi-desktop:discover-models", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (!isDesktopDiscoverModelsInput(value)) {
+			throw new Error("无效的模型发现请求。");
+		}
+		return getHost().discoverModels(value.baseUrl, value.apiKey);
 	});
 }
 

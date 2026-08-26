@@ -17,6 +17,7 @@ import type {
 	DesktopGitWorktree,
 	DesktopModel,
 	DesktopPlugin,
+	DesktopProviderConfig,
 	DesktopSessionInfo,
 	DesktopSessionPhase,
 	DesktopSessionStats,
@@ -33,6 +34,14 @@ import {
 	listGitChanges as gitListChanges,
 	listGitWorktrees as gitListWorktrees,
 } from "./git-integration.ts";
+import {
+	discoverModels as discoverModelsFromUrl,
+	type ModelsJson,
+	type ModelsJsonProvider,
+	modelsJsonPathFor,
+	readModelsConfig,
+	writeModelsConfig,
+} from "./models-config-store.ts";
 import { ToolApprovalQueue } from "./tool-approval-queue.ts";
 import { TrustedWorkspaceBrowser } from "./trusted-workspace-browser.ts";
 import { getWorkspaceKey, WorkspaceTrustStore } from "./workspace-trust-store.ts";
@@ -593,6 +602,86 @@ export class DesktopAgentHost {
 			throw new Error("只能打开 http、https 或 mailto 链接。");
 		}
 		await shell.openExternal(url);
+	}
+
+	async getModelsConfig(): Promise<DesktopProviderConfig[]> {
+		const config = await readModelsConfig(modelsJsonPathFor(this.agentDir));
+		return Object.entries(config.providers).map(([id, provider]) => ({
+			id,
+			...(provider.name === undefined ? {} : { name: provider.name }),
+			...(provider.baseUrl === undefined ? {} : { baseUrl: provider.baseUrl }),
+			...(provider.apiKey === undefined ? {} : { apiKey: provider.apiKey }),
+			...(provider.api === undefined ? {} : { api: provider.api }),
+			...(provider.models === undefined
+				? {}
+				: {
+						models: provider.models.map((model) => ({
+							id: model.id,
+							...(model.name === undefined ? {} : { name: model.name }),
+						})),
+					}),
+		}));
+	}
+
+	async saveModelsConfig(providers: DesktopProviderConfig[]): Promise<DesktopSnapshot> {
+		if (this.session?.isStreaming) {
+			throw new Error("请等待当前智能体任务完成后，再保存模型配置。");
+		}
+
+		const config: ModelsJson = {
+			providers: Object.fromEntries(
+				providers.map((provider): [string, ModelsJsonProvider] => [
+					provider.id,
+					{
+						...(provider.name === undefined ? {} : { name: provider.name }),
+						...(provider.baseUrl === undefined ? {} : { baseUrl: provider.baseUrl }),
+						...(provider.apiKey === undefined ? {} : { apiKey: provider.apiKey }),
+						...(provider.api === undefined ? {} : { api: provider.api }),
+						...(provider.models === undefined
+							? {}
+							: {
+									models: provider.models.map((model) => ({
+										id: model.id,
+										...(model.name === undefined ? {} : { name: model.name }),
+									})),
+								}),
+					},
+				]),
+			),
+		};
+		await writeModelsConfig(modelsJsonPathFor(this.agentDir), config);
+
+		return this.enqueueWorkspaceChange(() => this.rebuildAfterModelsConfigChange());
+	}
+
+	async discoverModels(baseUrl: string, apiKey?: string): Promise<Array<{ id: string }>> {
+		return discoverModelsFromUrl(baseUrl, apiKey);
+	}
+
+	private async rebuildAfterModelsConfigChange(): Promise<DesktopSnapshot> {
+		const workspacePath = this.workspacePath;
+		const projectTrusted = this.projectTrusted;
+		const sessionDirectory = this.sessionDirectory;
+		const sessionFile = this.session?.sessionManager.getSessionFile();
+
+		this.modelRuntime = undefined;
+		await this.disposeSession();
+
+		const cwd = workspacePath ?? this.agentDir;
+		const directory = sessionDirectory ?? join(this.agentDir, "sessions", "default");
+		try {
+			await this.createSession({
+				cwd,
+				projectTrusted,
+				sessionDirectory: directory,
+				...(workspacePath ? { workspacePath } : {}),
+				...(sessionFile ? { sessionFile } : {}),
+			});
+		} catch (error) {
+			this.projectTrusted = projectTrusted;
+			this.error = error instanceof Error ? error.message : String(error);
+		}
+		return this.publish();
 	}
 
 	async listGitChanges(): Promise<DesktopGitChange[]> {

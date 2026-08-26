@@ -6,6 +6,7 @@ import type {
 	DesktopModelSelectionInput,
 	DesktopNavigateTreeInput,
 	DesktopOpenSessionInput,
+	DesktopProviderConfig,
 	DesktopProviderSetupInput,
 	DesktopSnapshot,
 	DesktopSnapshotListener,
@@ -180,6 +181,28 @@ export function listGitWorktrees(): Promise<DesktopGitWorktree[]> {
 
 export function addGitWorktree(branch: string): Promise<DesktopGitWorktree> {
 	return window.piDesktop.addGitWorktree({ branch });
+}
+
+export function setCloseQuits(closeQuits: boolean): Promise<void> {
+	return window.piDesktop.setCloseQuits(closeQuits);
+}
+
+export function quitApp(): Promise<void> {
+	return window.piDesktop.quitApp();
+}
+
+export function getModelsConfig(): Promise<DesktopProviderConfig[]> {
+	return window.piDesktop.getModelsConfig();
+}
+
+export async function saveModelsConfig(providers: DesktopProviderConfig[]): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.saveModelsConfig({ providers });
+	publish(next);
+	return next;
+}
+
+export function discoverModels(baseUrl: string, apiKey?: string): Promise<Array<{ id: string }>> {
+	return window.piDesktop.discoverModels({ baseUrl, ...(apiKey ? { apiKey } : {}) });
 }
 
 export async function openWorkspacePath(path: string): Promise<DesktopSnapshot> {

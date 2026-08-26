@@ -10,6 +10,7 @@ import type {
 	DesktopWorkspaceEntry,
 	DesktopWorkspaceFilePreview,
 } from "../shared/contracts.ts";
+import { AppSettingsModal } from "./app-settings-modal.tsx";
 import {
 	chooseImages,
 	chooseWorkspace,
@@ -35,7 +36,10 @@ import {
 	subscribeDesktopSnapshot,
 } from "./desktop-store.ts";
 import { MarkdownBody } from "./markdown.tsx";
+import { ModelsConfigModal } from "./models-config-modal.tsx";
+import { PluginsConfigModal } from "./plugins-config-modal.tsx";
 import { ContextUsageRing, SessionStatsPanel } from "./session-stats.tsx";
+import { SkillsConfigModal } from "./skills-config-modal.tsx";
 import { SourceControl } from "./source-control.tsx";
 import { getLanguageForPath, HighlightedCode } from "./syntax-highlight.tsx";
 import { WorktreeSelector } from "./worktree-selector.tsx";
@@ -59,15 +63,12 @@ type IconName =
 	| "search"
 	| "skill"
 	| "sun";
-type WorkbenchView = "chats" | "files" | "models" | "plugins" | "settings" | "skills" | "source-control";
+type WorkbenchView = "chats" | "files" | "source-control";
+type ConfigModal = "models" | "plugins" | "settings" | "skills";
 
 const SIDEBAR_TITLES: Record<WorkbenchView, string> = {
 	chats: "Pi 桌面端",
 	files: "文件",
-	models: "模型",
-	plugins: "插件",
-	settings: "设置",
-	skills: "技能",
 	"source-control": "源代码管理",
 };
 
@@ -623,168 +624,6 @@ function Explorer({
 	);
 }
 
-interface SettingsProps {
-	view: WorkbenchView;
-	canChangeTrust: boolean;
-	canStartProviderSetup: boolean;
-	canSetModel: boolean;
-	changingTrust: boolean;
-	isTrusted: boolean;
-	models: ReturnType<typeof getDesktopSnapshot>["availableModels"];
-	plugins: ReturnType<typeof getDesktopSnapshot>["plugins"];
-	providers: ReturnType<typeof getDesktopSnapshot>["apiKeyProviders"];
-	providerSetupInProgress: boolean;
-	selectedProviderId: string;
-	selectedModelKey: string;
-	settingModel: boolean;
-	settingUpProvider: boolean;
-	skills: ReturnType<typeof getDesktopSnapshot>["skills"];
-	notifyOnComplete: boolean;
-	onChangeProvider: (providerId: string) => void;
-	onChangeModel: (modelKey: string) => void;
-	onStartProviderSetup: (event: FormEvent<HTMLFormElement>) => void;
-	onToggleNotify: () => void;
-	onToggleTrust: () => void;
-}
-
-function Settings({
-	view,
-	canChangeTrust,
-	canStartProviderSetup,
-	canSetModel,
-	changingTrust,
-	isTrusted,
-	models,
-	plugins,
-	providers,
-	providerSetupInProgress,
-	selectedProviderId,
-	selectedModelKey,
-	settingModel,
-	settingUpProvider,
-	skills,
-	notifyOnComplete,
-	onChangeProvider,
-	onChangeModel,
-	onStartProviderSetup,
-	onToggleNotify,
-	onToggleTrust,
-}: SettingsProps) {
-	return (
-		<div className="settings-panel">
-			{view === "settings" && (
-				<section className="settings-group">
-					<p className="section-kicker">项目安全</p>
-					<strong>{isTrusted ? "已信任项目" : "未信任项目"}</strong>
-					<p>
-						{isTrusted
-							? "项目说明和工具现已可用，但每次工具调用仍须单独确认。"
-							: "项目说明、上下文和工具仍处于禁用状态。"}
-					</p>
-					<button className="outline-button" type="button" disabled={!canChangeTrust} onClick={onToggleTrust}>
-						{changingTrust ? "正在更新权限" : isTrusted ? "取消信任" : "信任项目"}
-					</button>
-				</section>
-			)}
-			{view === "settings" && (
-				<section className="settings-group">
-					<p className="section-kicker">通知</p>
-					<label className="toggle-row">
-						<span>
-							<strong>任务完成通知</strong>
-							<small>窗口在后台时，任务完成后发送系统通知。</small>
-						</span>
-						<input type="checkbox" checked={notifyOnComplete} onChange={onToggleNotify} />
-					</label>
-				</section>
-			)}
-			{view === "models" && (
-				<section className="settings-group">
-					<p className="section-kicker">模型访问</p>
-					{providers.length ? (
-						<form className="provider-form" onSubmit={onStartProviderSetup}>
-							<label htmlFor="api-key-provider">服务商</label>
-							<select
-								id="api-key-provider"
-								value={selectedProviderId}
-								disabled={settingUpProvider || providerSetupInProgress}
-								onChange={(event) => onChangeProvider(event.target.value)}
-							>
-								{providers.map((provider) => (
-									<option key={provider.id} value={provider.id}>
-										{provider.name}
-										{provider.configured ? " · 已连接" : ""}
-									</option>
-								))}
-							</select>
-							<button className="accent-button" type="submit" disabled={!canStartProviderSetup}>
-								{settingUpProvider || providerSetupInProgress ? "正在配置" : "配置服务商"}
-							</button>
-						</form>
-					) : (
-						<p>正在加载可配置的模型服务商。</p>
-					)}
-				</section>
-			)}
-			{view === "models" && (
-				<section className="settings-group">
-					<p className="section-kicker">当前模型</p>
-					<select
-						aria-label="选择具体模型"
-						disabled={!canSetModel || settingModel}
-						value={selectedModelKey}
-						onChange={(event) => onChangeModel(event.target.value)}
-					>
-						<option value="">{models.length ? "选择具体模型" : "请先配置服务商"}</option>
-						{models.map((model) => (
-							<option key={getModelKey(model.provider, model.id)} value={getModelKey(model.provider, model.id)}>
-								{model.provider} / {model.name}
-							</option>
-						))}
-					</select>
-					<p>{settingModel ? "正在切换模型…" : `当前可选择 ${models.length} 个已认证模型。`}</p>
-				</section>
-			)}
-			{view === "skills" && (
-				<section className="settings-group">
-					<p className="section-kicker">技能</p>
-					{skills.length ? (
-						<ul className="resource-list">
-							{skills.map((skill) => (
-								<li key={skill.name}>
-									<code>/skill:{skill.name}</code>
-									<span>{skill.description}</span>
-								</li>
-							))}
-						</ul>
-					) : (
-						<p>信任项目后，此处会显示项目和用户目录中的技能。</p>
-					)}
-				</section>
-			)}
-			{view === "plugins" && (
-				<section className="settings-group">
-					<p className="section-kicker">插件</p>
-					{plugins.length ? (
-						<ul className="resource-list">
-							{plugins.map((plugin) => (
-								<li key={plugin.name}>
-									<code>{plugin.name}</code>
-									<span>
-										{plugin.commands.length ? `提供 ${plugin.commands.length} 个斜杠命令` : "未注册斜杠命令"}
-									</span>
-								</li>
-							))}
-						</ul>
-					) : (
-						<p>信任项目后，此处会显示已加载的插件。</p>
-					)}
-				</section>
-			)}
-		</div>
-	);
-}
-
 interface FileTab {
 	path: string;
 	preview: DesktopWorkspaceFilePreview;
@@ -976,6 +815,7 @@ export function App() {
 	const [loadingFilePath, setLoadingFilePath] = useState<string>();
 	const [inspectorOpen, setInspectorOpen] = useState(false);
 	const [statsOpen, setStatsOpen] = useState(false);
+	const [configModal, setConfigModal] = useState<ConfigModal | undefined>();
 	const [branchMenuOpen, setBranchMenuOpen] = useState(false);
 	const fileRequestId = useRef(0);
 	const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -992,13 +832,6 @@ export function App() {
 		!!session &&
 		(draft.trim().length > 0 || attachments.length > 0);
 	const canChooseWorkspace = !openingWorkspace && !settingUpProvider && !snapshot.providerSetupInProgress;
-	const canChangeTrust =
-		!!snapshot.workspacePath &&
-		!openingWorkspace &&
-		!changingTrust &&
-		!settingUpProvider &&
-		!snapshot.providerSetupInProgress &&
-		session?.phase !== "running";
 	const canStartProviderSetup =
 		!openingWorkspace &&
 		!settingUpProvider &&
@@ -1248,11 +1081,6 @@ export function App() {
 		}
 	}
 
-	async function handleStartProviderSetup(event: FormEvent<HTMLFormElement>): Promise<void> {
-		event.preventDefault();
-		await beginProviderSetup(selectedProviderId);
-	}
-
 	async function handleChangeModel(modelKey: string): Promise<void> {
 		const separatorIndex = modelKey.indexOf("\u0000");
 		if (!canSetModel || separatorIndex < 1 || separatorIndex === modelKey.length - 1) return;
@@ -1301,7 +1129,7 @@ export function App() {
 					return true;
 				}
 			}
-			setActiveView("models");
+			setConfigModal("models");
 			return true;
 		}
 		if (command === "login") {
@@ -1309,7 +1137,7 @@ export function App() {
 				setSelectedProviderId(argument);
 				await beginProviderSetup(argument);
 			} else {
-				setActiveView("models");
+				setConfigModal("models");
 			}
 			return true;
 		}
@@ -1322,7 +1150,7 @@ export function App() {
 			return true;
 		}
 		if (command === "settings" || command === "skills" || command === "plugins") {
-			setActiveView(command);
+			setConfigModal(command);
 			return true;
 		}
 		if (command === "trust") {
@@ -1422,32 +1250,6 @@ export function App() {
 					onOpenFile={(entry) => void handleOpenFile(entry)}
 					onRefresh={() => void refreshWorkspaceFiles()}
 					onTrustProject={() => void handleProjectTrust()}
-				/>
-			);
-		if (activeView === "models" || activeView === "skills" || activeView === "plugins" || activeView === "settings")
-			return (
-				<Settings
-					view={activeView}
-					canChangeTrust={canChangeTrust}
-					canStartProviderSetup={canStartProviderSetup}
-					canSetModel={canSetModel}
-					changingTrust={changingTrust}
-					isTrusted={snapshot.projectTrusted}
-					models={snapshot.availableModels}
-					plugins={snapshot.plugins}
-					providers={snapshot.apiKeyProviders}
-					providerSetupInProgress={snapshot.providerSetupInProgress}
-					selectedProviderId={selectedProviderId}
-					selectedModelKey={selectedModelKey}
-					settingModel={settingModel}
-					settingUpProvider={settingUpProvider}
-					skills={snapshot.skills}
-					notifyOnComplete={notifyOnComplete}
-					onChangeProvider={setSelectedProviderId}
-					onChangeModel={(modelKey) => void handleChangeModel(modelKey)}
-					onStartProviderSetup={(event) => void handleStartProviderSetup(event)}
-					onToggleNotify={() => setNotifyOnComplete((current) => !current)}
-					onToggleTrust={() => void handleProjectTrust()}
 				/>
 			);
 		if (activeView === "source-control") return <SourceControl />;
@@ -1557,27 +1359,15 @@ export function App() {
 				</div>
 				<div className="sidebar-content">{renderSidebar()}</div>
 				<footer className="sidebar-footer">
-					<button
-						className={`footer-button ${activeView === "models" ? "is-active" : ""}`}
-						type="button"
-						onClick={() => setActiveView("models")}
-					>
+					<button className="footer-button" type="button" onClick={() => setConfigModal("models")}>
 						<Icon name="model" size={15} />
 						<span>模型</span>
 					</button>
-					<button
-						className={`footer-button ${activeView === "skills" ? "is-active" : ""}`}
-						type="button"
-						onClick={() => setActiveView("skills")}
-					>
+					<button className="footer-button" type="button" onClick={() => setConfigModal("skills")}>
 						<Icon name="skill" size={15} />
 						<span>技能</span>
 					</button>
-					<button
-						className={`footer-button ${activeView === "plugins" ? "is-active" : ""}`}
-						type="button"
-						onClick={() => setActiveView("plugins")}
-					>
+					<button className="footer-button" type="button" onClick={() => setConfigModal("plugins")}>
 						<Icon name="plugin" size={15} />
 						<span>插件</span>
 					</button>
@@ -1592,10 +1382,9 @@ export function App() {
 					</button>
 					<button
 						aria-label="设置"
-						aria-pressed={activeView === "settings"}
-						className={`footer-button is-icon is-settings ${activeView === "settings" ? "is-active" : ""}`}
+						className="footer-button is-icon is-settings"
 						type="button"
-						onClick={() => setActiveView("settings")}
+						onClick={() => setConfigModal("settings")}
 					>
 						<Icon name="gear" size={15} />
 					</button>
@@ -1871,6 +1660,36 @@ export function App() {
 					onClose={() => setInspectorOpen(false)}
 					onOpenFile={(path) => void handleOpenFileWithDefaultApp(path)}
 					onRevealFile={(path) => void handleRevealFile(path)}
+				/>
+			) : null}
+			{configModal === "models" ? (
+				<ModelsConfigModal
+					providers={snapshot.apiKeyProviders}
+					models={snapshot.availableModels}
+					selectedProviderId={selectedProviderId}
+					selectedModelKey={selectedModelKey}
+					providerSetupInProgress={snapshot.providerSetupInProgress}
+					settingUpProvider={settingUpProvider}
+					settingModel={settingModel}
+					onChangeProvider={setSelectedProviderId}
+					onChangeModel={(modelKey) => void handleChangeModel(modelKey)}
+					onStartProviderSetup={() => void beginProviderSetup(selectedProviderId)}
+					onClose={() => setConfigModal(undefined)}
+				/>
+			) : null}
+			{configModal === "skills" ? (
+				<SkillsConfigModal skills={snapshot.skills} onClose={() => setConfigModal(undefined)} />
+			) : null}
+			{configModal === "plugins" ? (
+				<PluginsConfigModal plugins={snapshot.plugins} onClose={() => setConfigModal(undefined)} />
+			) : null}
+			{configModal === "settings" ? (
+				<AppSettingsModal
+					theme={theme}
+					notifyOnComplete={notifyOnComplete}
+					onChangeTheme={setTheme}
+					onToggleNotify={() => setNotifyOnComplete((current) => !current)}
+					onClose={() => setConfigModal(undefined)}
 				/>
 			) : null}
 		</main>

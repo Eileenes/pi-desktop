@@ -151,6 +151,24 @@ export interface DesktopGitWorktree {
 	branch: string;
 }
 
+export interface DesktopProviderConfig {
+	id: string;
+	name?: string;
+	baseUrl?: string;
+	apiKey?: string;
+	api?: string;
+	models?: Array<{ id: string; name?: string }>;
+}
+
+export interface DesktopSaveModelsConfigInput {
+	providers: DesktopProviderConfig[];
+}
+
+export interface DesktopDiscoverModelsInput {
+	baseUrl: string;
+	apiKey?: string;
+}
+
 export interface DesktopGitDiffInput {
 	path: string;
 }
@@ -226,6 +244,11 @@ export interface DesktopApi {
 	listGitWorktrees(): Promise<DesktopGitWorktree[]>;
 	addGitWorktree(input: DesktopAddWorktreeInput): Promise<DesktopGitWorktree>;
 	openWorkspacePath(input: DesktopOpenWorkspacePathInput): Promise<DesktopSnapshot>;
+	setCloseQuits(closeQuits: boolean): Promise<void>;
+	quitApp(): Promise<void>;
+	getModelsConfig(): Promise<DesktopProviderConfig[]>;
+	saveModelsConfig(input: DesktopSaveModelsConfigInput): Promise<DesktopSnapshot>;
+	discoverModels(input: DesktopDiscoverModelsInput): Promise<Array<{ id: string }>>;
 	onSnapshot(listener: DesktopSnapshotListener): Unsubscribe;
 }
 
@@ -305,6 +328,25 @@ export function isDesktopOpenWorkspacePathInput(value: unknown): value is Deskto
 		value.path.length > 0 &&
 		value.path.length <= 2000
 	);
+}
+
+export function isDesktopDiscoverModelsInput(value: unknown): value is DesktopDiscoverModelsInput {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	const input = value as Record<string, unknown>;
+	if (typeof input.baseUrl !== "string" || input.baseUrl.length === 0 || input.baseUrl.length > 2000) return false;
+	if (input.apiKey !== undefined && (typeof input.apiKey !== "string" || input.apiKey.length > 2000)) return false;
+	return true;
+}
+
+export function isDesktopSaveModelsConfigInput(value: unknown): value is DesktopSaveModelsConfigInput {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	const input = value as Record<string, unknown>;
+	if (!Array.isArray(input.providers) || input.providers.length > 500) return false;
+	return input.providers.every((provider) => {
+		if (typeof provider !== "object" || provider === null || Array.isArray(provider)) return false;
+		const record = provider as Record<string, unknown>;
+		return typeof record.id === "string" && record.id.length > 0 && record.id.length <= 200;
+	});
 }
 
 export function isDesktopModelSelectionInput(value: unknown): value is DesktopModelSelectionInput {

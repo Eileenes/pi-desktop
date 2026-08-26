@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	isDesktopAuthenticationPromptResponseInput,
+	isDesktopDiscoverModelsInput,
 	isDesktopModelSelectionInput,
 	isDesktopModelTestInput,
 	isDesktopProjectTrustInput,
@@ -24,6 +25,19 @@ describe("isDesktopPromptInput", () => {
 		);
 		expect(isDesktopPromptInput({ text: 42 })).toBe(false);
 		expect(isDesktopPromptInput(null)).toBe(false);
+	});
+});
+
+describe("isDesktopDiscoverModelsInput", () => {
+	it("requires the provider id used to resolve a main-process credential", () => {
+		expect(isDesktopDiscoverModelsInput({ providerId: "custom", baseUrl: "https://api.example.com/v1" })).toBe(true);
+		expect(
+			isDesktopDiscoverModelsInput({ providerId: "custom", baseUrl: "https://api.example.com/v1", apiKey: "new" }),
+		).toBe(true);
+		expect(isDesktopDiscoverModelsInput({ baseUrl: "https://api.example.com/v1" })).toBe(false);
+		expect(
+			isDesktopDiscoverModelsInput({ providerId: "custom", baseUrl: "https://api.example.com", extra: true }),
+		).toBe(false);
 	});
 });
 

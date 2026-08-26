@@ -1,7 +1,13 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
-export type SecurityAuditEvent = "credential.configure" | "credential.logout" | "tool.approval" | "workspace.trust";
+export type SecurityAuditEvent =
+	| "credential.configure"
+	| "credential.logout"
+	| "plugin.install"
+	| "plugin.remove"
+	| "tool.approval"
+	| "workspace.trust";
 
 export interface SecurityAuditRecord {
 	event: SecurityAuditEvent;

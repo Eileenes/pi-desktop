@@ -12,7 +12,7 @@
 		"build:main": "tsgo -p tsconfig.main.json",
 		"build:renderer": "vite build",
 		"check": "biome check . && npm run build && node scripts/check-build-artifacts.mjs && tsgo --noEmit -p tsconfig.check.json && tsgo --noEmit -p tsconfig.renderer.json",
-		"start": "electron .",
+		"start": "npm run build && electron .",
 		"package": "npm run build && electron-builder",
 		"package:mac": "npm run build && electron-builder --mac",
 		"package:win": "npm run build && electron-builder --win",
@@ -47,6 +47,7 @@
 		"appId": "com.earendil.pi.desktop",
 		"productName": "Pi Desktop",
 		"asar": true,
+		"icon": "build/icon.png",
 		"files": [
 			"dist/**/*",
 			"package.json",

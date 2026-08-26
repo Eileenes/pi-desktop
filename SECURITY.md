@@ -3,10 +3,11 @@
 Pi Desktop is a local Electron application. Its security boundary is built
 around a restricted renderer and a privileged main process.
 
-The renderer has no direct filesystem, process, credential, or network
-capability. It communicates through a narrow preload API. Workspace access
-requires explicit trust, and each built-in tool invocation requires a separate
-approval. Credentials remain in the Pi runtime's private authentication store.
+The renderer has no direct filesystem, process, or network capability. It
+communicates through a narrow preload API. Workspace access requires explicit
+trust, and each built-in tool invocation requires a separate approval. The
+renderer may submit a new credential entered by the user, but stored credentials
+are never returned to it. Credentials remain in main-process-owned storage.
 Security audit events contain metadata only; credentials and tool inputs are not
 logged.
 

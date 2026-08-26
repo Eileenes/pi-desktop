@@ -207,8 +207,8 @@ export async function saveModelsConfig(providers: DesktopProviderConfig[]): Prom
 	return next;
 }
 
-export function discoverModels(baseUrl: string, apiKey?: string): Promise<Array<{ id: string }>> {
-	return window.piDesktop.discoverModels({ baseUrl, ...(apiKey ? { apiKey } : {}) });
+export function discoverModels(providerId: string, baseUrl: string, apiKey?: string): Promise<Array<{ id: string }>> {
+	return window.piDesktop.discoverModels({ providerId, baseUrl, ...(apiKey ? { apiKey } : {}) });
 }
 
 export async function logoutProvider(providerId: string): Promise<DesktopSnapshot> {

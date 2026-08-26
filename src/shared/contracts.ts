@@ -182,6 +182,7 @@ export interface DesktopSaveModelsConfigInput {
 }
 
 export interface DesktopDiscoverModelsInput {
+	providerId: string;
 	baseUrl: string;
 	apiKey?: string;
 }
@@ -394,6 +395,10 @@ export function isDesktopOpenWorkspacePathInput(value: unknown): value is Deskto
 export function isDesktopDiscoverModelsInput(value: unknown): value is DesktopDiscoverModelsInput {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
 	const input = value as Record<string, unknown>;
+	const keys = Object.keys(input);
+	if (!keys.every((key) => key === "providerId" || key === "baseUrl" || key === "apiKey")) return false;
+	if (typeof input.providerId !== "string" || input.providerId.length === 0 || input.providerId.length > 200)
+		return false;
 	if (typeof input.baseUrl !== "string" || input.baseUrl.length === 0 || input.baseUrl.length > 2000) return false;
 	if (input.apiKey !== undefined && (typeof input.apiKey !== "string" || input.apiKey.length > 2000)) return false;
 	return true;

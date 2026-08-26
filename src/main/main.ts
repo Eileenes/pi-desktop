@@ -413,7 +413,7 @@ function registerIpc(): void {
 		if (!isDesktopDiscoverModelsInput(value)) {
 			throw new Error("无效的模型发现请求。");
 		}
-		return getHost().discoverModels(value.baseUrl, value.apiKey);
+		return getHost().discoverModels(value.providerId, value.baseUrl, value.apiKey);
 	});
 	ipcMain.handle("pi-desktop:test-model", async (event, value: unknown) => {
 		assertMainWindowSender(event);
@@ -434,7 +434,7 @@ function registerIpc(): void {
 	});
 	ipcMain.handle("pi-desktop:check-for-updates", async (event) => {
 		assertMainWindowSender(event);
-		const response = (await fetch("https://api.github.com/repos/earendil-works/pi/releases/latest", {
+		const response = (await fetch("https://api.github.com/repos/Eileenes/pi-desktop/releases/latest", {
 			headers: { Accept: "application/vnd.github+json", "User-Agent": "pi-desktop" },
 		})) as FetchResponse;
 		if (!response.ok) throw new Error(`检查更新失败（HTTP ${response.status}）。`);
@@ -443,7 +443,7 @@ function registerIpc(): void {
 		return {
 			currentVersion: app.getVersion(),
 			...(latestVersion ? { latestVersion } : {}),
-			releaseUrl: release.html_url ?? "https://github.com/earendil-works/pi/releases",
+			releaseUrl: release.html_url ?? "https://github.com/Eileenes/pi-desktop/releases",
 			updateAvailable: Boolean(latestVersion && isNewerVersion(latestVersion, app.getVersion())),
 			checkedAt: Date.now(),
 		};
@@ -460,7 +460,22 @@ function registerIpc(): void {
 		if (!isDesktopPluginSourceInput(value)) {
 			throw new Error("无效的插件安装请求。");
 		}
-		return getHost().installPlugin(value.source, value.local);
+		const host = getHost();
+		if (value.local && !host.getSnapshot().projectTrusted) {
+			throw new Error("请先信任当前项目，再安装项目插件。");
+		}
+		const confirmation = await dialog.showMessageBox(mainWindow!, {
+			type: "warning",
+			title: "确认安装插件",
+			message: `安装${value.local ? "项目" : "用户"}插件？`,
+			detail: value.source,
+			buttons: ["取消", "安装"],
+			defaultId: 0,
+			cancelId: 0,
+			noLink: true,
+		});
+		if (confirmation.response !== 1) return host.getSnapshot();
+		return host.installPlugin(value.source, value.local);
 	});
 	ipcMain.handle("pi-desktop:remove-plugin", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);

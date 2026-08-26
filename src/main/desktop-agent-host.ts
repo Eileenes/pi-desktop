@@ -646,7 +646,6 @@ export class DesktopAgentHost {
 			id,
 			...(provider.name === undefined ? {} : { name: provider.name }),
 			...(provider.baseUrl === undefined ? {} : { baseUrl: provider.baseUrl }),
-			...(provider.apiKey === undefined ? {} : { apiKey: provider.apiKey }),
 			...(provider.api === undefined ? {} : { api: provider.api }),
 			...(provider.models === undefined
 				? {}
@@ -670,6 +669,7 @@ export class DesktopAgentHost {
 			throw new Error("请等待当前智能体任务完成后，再保存模型配置。");
 		}
 
+		const currentConfig = await readModelsConfig(modelsJsonPathFor(this.agentDir));
 		const config: ModelsJson = {
 			providers: Object.fromEntries(
 				providers.map((provider): [string, ModelsJsonProvider] => [
@@ -677,7 +677,11 @@ export class DesktopAgentHost {
 					{
 						...(provider.name === undefined ? {} : { name: provider.name }),
 						...(provider.baseUrl === undefined ? {} : { baseUrl: provider.baseUrl }),
-						...(provider.apiKey === undefined ? {} : { apiKey: provider.apiKey }),
+						...(provider.apiKey === undefined
+							? currentConfig.providers[provider.id]?.apiKey === undefined
+								? {}
+								: { apiKey: currentConfig.providers[provider.id].apiKey }
+							: { apiKey: provider.apiKey }),
 						...(provider.api === undefined ? {} : { api: provider.api }),
 						...(provider.models === undefined
 							? {}
@@ -702,8 +706,9 @@ export class DesktopAgentHost {
 		return this.enqueueWorkspaceChange(() => this.rebuildAfterModelsConfigChange());
 	}
 
-	async discoverModels(baseUrl: string, apiKey?: string): Promise<Array<{ id: string }>> {
-		return discoverModelsFromUrl(baseUrl, apiKey);
+	async discoverModels(providerId: string, baseUrl: string, apiKey?: string): Promise<Array<{ id: string }>> {
+		const storedConfig = await readModelsConfig(modelsJsonPathFor(this.agentDir));
+		return discoverModelsFromUrl(baseUrl, apiKey ?? storedConfig.providers[providerId]?.apiKey);
 	}
 
 	async testModel(
@@ -714,9 +719,13 @@ export class DesktopAgentHost {
 		const startedAt = Date.now();
 		try {
 			const modelsPath = join(tempDir, "models.json");
+			const storedConfig = await readModelsConfig(modelsJsonPathFor(this.agentDir));
+			const apiKey = provider.apiKey ?? storedConfig.providers[provider.id]?.apiKey;
 			await writeFile(
 				modelsPath,
-				JSON.stringify({ providers: { [provider.id]: { ...provider, id: undefined, models: [{ ...model }] } } }),
+				JSON.stringify({
+					providers: { [provider.id]: { ...provider, apiKey, id: undefined, models: [{ ...model }] } },
+				}),
 			);
 			const runtime = await ModelRuntime.create({
 				authPath: join(this.agentDir, "auth.json"),
@@ -764,7 +773,11 @@ export class DesktopAgentHost {
 		if (this.session?.isStreaming) {
 			throw new Error("请等待当前智能体任务完成后，再修改技能。");
 		}
-		await setSkillDisableModelInvocation(filePath, disable);
+		const skill = this.session?.resourceLoader
+			.getSkills()
+			.skills.find((candidate) => candidate.filePath === filePath);
+		if (!skill) throw new Error("只能修改当前会话已加载的技能。");
+		await setSkillDisableModelInvocation(skill.filePath, disable);
 		if (this.session) {
 			await this.session.resourceLoader.reload();
 		}
@@ -781,8 +794,14 @@ export class DesktopAgentHost {
 			agentDir: this.agentDir,
 			settingsManager,
 		});
-		await packageManager.installAndPersist(source, { local });
-		return this.reloadSessionResources();
+		try {
+			await packageManager.installAndPersist(source, { local });
+			this.auditLog.write("plugin.install", "succeeded", { source, scope: local ? "project" : "user" });
+			return this.reloadSessionResources();
+		} catch (error) {
+			this.auditLog.write("plugin.install", "failed", { source, scope: local ? "project" : "user" });
+			throw error;
+		}
 	}
 
 	async removePlugin(source: string, local: boolean): Promise<DesktopSnapshot> {
@@ -795,8 +814,14 @@ export class DesktopAgentHost {
 			agentDir: this.agentDir,
 			settingsManager,
 		});
-		await packageManager.removeAndPersist(source, { local });
-		return this.reloadSessionResources();
+		try {
+			await packageManager.removeAndPersist(source, { local });
+			this.auditLog.write("plugin.remove", "succeeded", { source, scope: local ? "project" : "user" });
+			return this.reloadSessionResources();
+		} catch (error) {
+			this.auditLog.write("plugin.remove", "failed", { source, scope: local ? "project" : "user" });
+			throw error;
+		}
 	}
 
 	async getPluginPackages(): Promise<Array<{ source: string; scope: "user" | "project" }>> {

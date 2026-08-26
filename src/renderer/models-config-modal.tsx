@@ -46,7 +46,6 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [saveError, setSaveError] = useState<string>();
-	const [secretVisible, setSecretVisible] = useState(false);
 	const [discovery, setDiscovery] = useState<DiscoveryState>({ phase: "idle" });
 	const [discoveryQuery, setDiscoveryQuery] = useState("");
 	const [selectedDiscovered, setSelectedDiscovered] = useState<string[]>([]);
@@ -161,7 +160,11 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 		setDiscovery({ phase: "loading" });
 		setSelectedDiscovered([]);
 		try {
-			const found = await discoverModels(selectedProvider.baseUrl.trim(), selectedProvider.apiKey);
+			const found = await discoverModels(
+				selectedProvider.id,
+				selectedProvider.baseUrl.trim(),
+				selectedProvider.apiKey,
+			);
 			setDiscovery({ phase: "success", models: found.map((model) => model.id) });
 		} catch (error) {
 			setDiscovery({ phase: "error", message: error instanceof Error ? error.message : String(error) });
@@ -359,25 +362,21 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</label>
 							<label>
 								API Key
-								<div className="secret-input">
-									<input
-										className="mono"
-										type={secretVisible ? "text" : "password"}
-										value={selectedProvider.apiKey ?? ""}
-										placeholder="环境变量名、!shell-command 或密钥"
-										onChange={(event) => {
-											updateProvider(selectedProvider.id, (provider) => ({
-												...provider,
-												apiKey: event.target.value || undefined,
-											}));
-											resetDiscovery();
-										}}
-									/>
-									<button type="button" onClick={() => setSecretVisible((visible) => !visible)}>
-										{secretVisible ? "隐藏" : "显示"}
-									</button>
-								</div>
-								<small>可填写环境变量名；以 ! 开头可执行 shell 命令。</small>
+								<input
+									className="mono"
+									type="password"
+									value={selectedProvider.apiKey ?? ""}
+									placeholder="留空以保留已保存的密钥"
+									autoComplete="new-password"
+									onChange={(event) => {
+										updateProvider(selectedProvider.id, (provider) => ({
+											...provider,
+											apiKey: event.target.value || undefined,
+										}));
+										resetDiscovery();
+									}}
+								/>
+								<small>已保存的密钥不会显示。输入新值会替换它；留空会保留原值。</small>
 							</label>
 							<label>
 								API

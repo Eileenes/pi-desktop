@@ -17,14 +17,27 @@ package from npm and does not depend on Pi source packages in this repository.
 
 ## Development
 
+First install dependencies. Electron's install script must run once so the local desktop runtime is downloaded:
+
 ```sh
-npm install --ignore-scripts
-npm run check
-npm test
+npm install
+```
+
+Then build and open the desktop window:
+
+```sh
 npm run start
 ```
 
-Build artifacts are written to `dist/main` and `dist/renderer`.
+For validation and packaging:
+
+```sh
+npm run check
+npm test
+npm run package
+```
+
+Build artifacts are written to `dist/main` and `dist/renderer`; installers are written to `release/`.
 
 ## Project layout
 

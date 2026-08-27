@@ -125,10 +125,12 @@ export async function submitPrompt(
 	text: string,
 	attachmentIds: string[],
 	streamingBehavior?: "steer" | "followUp",
+	sessionReferenceLabels: string[] = [],
 ): Promise<DesktopSnapshot> {
 	const next = await window.piDesktop.prompt({
 		text,
 		...(attachmentIds.length ? { attachmentIds } : {}),
+		...(sessionReferenceLabels.length ? { sessionReferenceLabels } : {}),
 		...(streamingBehavior === undefined ? {} : { streamingBehavior }),
 	});
 	publish(next);

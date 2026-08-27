@@ -164,8 +164,8 @@ function createWindow(): BrowserWindow {
 	const window = new BrowserWindow({
 		width: 1440,
 		height: 920,
-		minWidth: 980,
-		minHeight: 680,
+		minWidth: 900,
+		minHeight: 600,
 		backgroundColor: "#161615",
 		...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const } : {}),
 		show: false,
@@ -469,7 +469,12 @@ function registerIpc(): void {
 			if (!attachment) throw new Error("所选图片已失效，请重新选择。");
 			return attachment.image;
 		});
-		const snapshot = await getHost().prompt(text, images, value.streamingBehavior);
+		const snapshot = await getHost().prompt(
+			text,
+			images,
+			value.streamingBehavior,
+			value.sessionReferenceLabels ?? [],
+		);
 		await Promise.all(attachmentIds.map((id) => removePendingImageAttachment(id)));
 		return snapshot;
 	});

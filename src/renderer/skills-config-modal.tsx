@@ -535,7 +535,7 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 		<Modal
 			title="技能"
 			subtitle={workspacePath ? shortenPath(workspacePath) : "~"}
-			className="resource-config-modal"
+			className="resource-config-modal skill-config-modal"
 			onClose={onClose}
 		>
 			<div className="resource-config-layout">

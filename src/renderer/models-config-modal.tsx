@@ -256,6 +256,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	const [selectedDiscovered, setSelectedDiscovered] = useState<string[]>([]);
 	const [confirmDiscard, setConfirmDiscard] = useState(false);
 	const [providerPickerOpen, setProviderPickerOpen] = useState(false);
+	const [confirmDisconnectProviderId, setConfirmDisconnectProviderId] = useState<string>();
 	const [providerPickerQuery, setProviderPickerQuery] = useState("");
 	const providerPickerInputRef = useRef<HTMLInputElement>(null);
 	const [authProvider, setAuthProvider] = useState<DesktopApiKeyProvider>();
@@ -622,18 +623,39 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								>
 									{managedProvider.credentialType === "oauth" ? "重新登录" : "更新 API Key"}
 								</button>
-								<button
-									className="danger-button"
-									type="button"
-									onClick={() => {
-										setSaveError(undefined);
-										void logoutProvider(managedProvider.id).catch((error: unknown) =>
-											setSaveError(error instanceof Error ? error.message : String(error)),
-										);
-									}}
-								>
-									断开连接
-								</button>
+								{confirmDisconnectProviderId === managedProvider.id ? (
+									<>
+										<button
+											className="danger-button"
+											type="button"
+											onClick={() => {
+												setSaveError(undefined);
+												void logoutProvider(managedProvider.id)
+													.catch((error: unknown) =>
+														setSaveError(error instanceof Error ? error.message : String(error)),
+													)
+													.finally(() => setConfirmDisconnectProviderId(undefined));
+											}}
+										>
+											确认断开
+										</button>
+										<button
+											type="button"
+											className="outline-button"
+											onClick={() => setConfirmDisconnectProviderId(undefined)}
+										>
+											取消
+										</button>
+									</>
+								) : (
+									<button
+										className="danger-button"
+										type="button"
+										onClick={() => setConfirmDisconnectProviderId(managedProvider.id)}
+									>
+										断开连接
+									</button>
+								)}
 							</div>
 						</div>
 					) : selectedProvider && selection?.type === "provider" ? (

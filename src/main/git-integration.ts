@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -74,6 +74,14 @@ export async function getGitDiff(cwd: string, path: string, untracked: boolean):
 export interface GitWorktree {
 	path: string;
 	branch: string;
+	isMain: boolean;
+}
+
+export interface GitProjectInfo {
+	projectRoot: string;
+	branch?: string;
+	isWorktree: boolean;
+	isTopLevel: boolean;
 }
 
 export interface GitBranches {
@@ -137,7 +145,11 @@ export async function listGitWorktrees(cwd: string): Promise<GitWorktree[]> {
 	for (const line of stdout.split("\n")) {
 		if (line.startsWith("worktree ")) {
 			if (currentPath && !currentPrunable && existsSync(currentPath)) {
-				worktrees.push({ path: currentPath, branch: currentBranch ?? "(detached)" });
+				worktrees.push({
+					path: currentPath,
+					branch: currentBranch ?? "(detached)",
+					isMain: worktrees.length === 0,
+				});
 			}
 			currentPath = line.slice("worktree ".length).trim();
 			currentBranch = undefined;
@@ -149,9 +161,44 @@ export async function listGitWorktrees(cwd: string): Promise<GitWorktree[]> {
 		}
 	}
 	if (currentPath && !currentPrunable && existsSync(currentPath)) {
-		worktrees.push({ path: currentPath, branch: currentBranch ?? "(detached)" });
+		worktrees.push({
+			path: currentPath,
+			branch: currentBranch ?? "(detached)",
+			isMain: worktrees.length === 0,
+		});
 	}
 	return worktrees;
+}
+
+/** Resolves the shared repository root for a linked worktree without changing the caller's cwd. */
+export async function resolveGitProject(cwd: string): Promise<GitProjectInfo> {
+	try {
+		const { stdout } = await execFileAsync(
+			"git",
+			[
+				"rev-parse",
+				"--path-format=absolute",
+				"--git-common-dir",
+				"--git-dir",
+				"--show-toplevel",
+				"--abbrev-ref",
+				"HEAD",
+			],
+			{ cwd },
+		);
+		const [commonDir, gitDir, topLevel, branch] = stdout.split("\n").map((value) => value.trim());
+		if (!commonDir || !gitDir || !topLevel) throw new Error("Git project metadata is incomplete.");
+		const isTopLevel = resolve(topLevel) === resolve(cwd);
+		const isWorktree = isTopLevel && resolve(gitDir) !== resolve(commonDir);
+		return {
+			projectRoot: isWorktree ? dirname(commonDir) : cwd,
+			...(branch && branch !== "HEAD" ? { branch } : {}),
+			isWorktree,
+			isTopLevel,
+		};
+	} catch {
+		return { projectRoot: cwd, isWorktree: false, isTopLevel: false };
+	}
 }
 
 export async function addGitWorktree(cwd: string, branch: string): Promise<GitWorktree> {
@@ -163,7 +210,10 @@ export async function addGitWorktree(cwd: string, branch: string): Promise<GitWo
 	if (!directoryName || directoryName === "." || directoryName === "..") {
 		throw new Error("无效的 Worktree 目录名。");
 	}
-	const targetPath = join(`${cwd}-worktrees`, directoryName);
+	const worktrees = await listGitWorktrees(cwd);
+	const mainWorktree = worktrees.find((worktree) => worktree.isMain);
+	if (!mainWorktree) throw new Error("无法确定主 Worktree。");
+	const targetPath = join(`${mainWorktree.path}-worktrees`, directoryName);
 	const branches = await listGitBranches(cwd);
 	if (branches.local.includes(trimmed)) {
 		await execFileAsync("git", ["worktree", "add", "--", targetPath, trimmed], { cwd });
@@ -172,12 +222,13 @@ export async function addGitWorktree(cwd: string, branch: string): Promise<GitWo
 	} else {
 		await execFileAsync("git", ["worktree", "add", "-b", trimmed, "--", targetPath], { cwd });
 	}
-	return { path: targetPath, branch: trimmed };
+	return { path: targetPath, branch: trimmed, isMain: false };
 }
 
 export async function removeGitWorktree(cwd: string, path: string, force = false): Promise<{ dirty?: boolean }> {
 	const worktrees = await listGitWorktrees(cwd);
-	if (!worktrees.some((worktree) => worktree.path === path) || path === cwd) {
+	const target = worktrees.find((worktree) => resolve(worktree.path) === resolve(path));
+	if (!target || target.isMain) {
 		throw new Error("只能移除当前仓库中的非活动 Worktree。");
 	}
 	try {

@@ -59,6 +59,7 @@ import {
 	listGitWorktrees as gitListWorktrees,
 	removeGitWorktree as gitRemoveWorktree,
 	switchGitBranch as gitSwitchBranch,
+	resolveGitProject,
 } from "./git-integration.ts";
 import {
 	discoverModels as discoverModelsFromUrl,
@@ -224,7 +225,7 @@ export interface DesktopPromptImage {
 }
 
 function toMessageRole(value: unknown): DesktopTranscriptMessage["role"] {
-	if (value === "assistant" || value === "user") return value;
+	if (value === "assistant" || value === "custom" || value === "user") return value;
 	if (value === "toolResult" || value === "bashExecution") return "tool";
 	return "system";
 }
@@ -342,6 +343,11 @@ function toTranscriptMessage(message: unknown, index: number): DesktopTranscript
 		...(typeof value.command === "string" ? { command: value.command } : {}),
 		...(typeof value.exitCode === "number" ? { exitCode: value.exitCode } : {}),
 		...(typeof value.cancelled === "boolean" ? { cancelled: value.cancelled } : {}),
+		...(typeof value.stopReason === "string" ? { stopReason: value.stopReason } : {}),
+		...(typeof value.errorMessage === "string" ? { errorMessage: value.errorMessage } : {}),
+		...(typeof value.customType === "string" ? { customType: value.customType } : {}),
+		...(typeof value.display === "string" ? { display: value.display } : {}),
+		...(typeof value.details === "string" ? { details: value.details } : {}),
 		...(typeof value.truncated === "boolean" ? { truncated: value.truncated } : {}),
 		...(value.truncated === true && typeof value.fullOutputPath === "string" ? { fullOutputAvailable: true } : {}),
 		...(timestamp === undefined ? {} : { timestamp }),
@@ -853,6 +859,7 @@ export class DesktopAgentHost {
 		text: string,
 		images: DesktopPromptImage[] = [],
 		streamingBehavior?: "steer" | "followUp",
+		sessionReferenceLabels: readonly string[] = [],
 	): Promise<DesktopSnapshot> {
 		if (this.providerSetupInProgress) {
 			throw new Error("请先完成当前模型服务商配置，再发送消息。");
@@ -875,11 +882,14 @@ export class DesktopAgentHost {
 		if (session.isStreaming && streamingBehavior === undefined) {
 			throw new Error("智能体运行中，请选择立即引导或排队跟进。");
 		}
+		if (session.isStreaming && images.length > 0) {
+			throw new Error("智能体运行中不能在引导或排队消息中附加图片。");
+		}
 
 		managed.error = undefined;
 		if (this.activeSessionId === managed.id) this.error = undefined;
 		try {
-			await session.prompt(this.resolveSessionReferences(text), {
+			await session.prompt(this.resolveSessionReferences(text, sessionReferenceLabels), {
 				images: images.map((image) => ({ ...image, type: "image" as const })),
 				source: "interactive",
 				...(streamingBehavior === undefined ? {} : { streamingBehavior }),
@@ -892,7 +902,7 @@ export class DesktopAgentHost {
 		return this.publish();
 	}
 
-	private resolveSessionReferences(text: string): string {
+	private resolveSessionReferences(text: string, confirmedLabels: readonly string[]): string {
 		return expandSessionReferences(text, {
 			candidates: this.sessions.map((info) => ({
 				label: info.name ?? info.firstMessage.slice(0, 40),
@@ -918,12 +928,13 @@ export class DesktopAgentHost {
 					return "";
 				}
 			},
+			confirmedLabels,
 		});
 	}
 
 	async abort(): Promise<DesktopSnapshot> {
 		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
-		if (!this.session.isStreaming) return this.getSnapshot();
+		if (!this.session.isStreaming && !this.session.isCompacting) return this.getSnapshot();
 		const managed = this.activeSessionId ? this.managedSessions.get(this.activeSessionId) : undefined;
 		if (managed) this.approvalQueue.cancelGroup(managed.lifecycleId);
 		await this.session.abort();
@@ -1999,14 +2010,24 @@ export class DesktopAgentHost {
 	private async refreshSessions(): Promise<void> {
 		try {
 			const byPath = new Map<string, DesktopSessionInfo>();
-			for (const info of await listIndexedSessions(this.agentDir)) {
+			const indexedSessions = await listIndexedSessions(this.agentDir);
+			const projectInfoByCwd = new Map<string, Awaited<ReturnType<typeof resolveGitProject>>>();
+			await Promise.all(
+				[...new Set(indexedSessions.map((info) => info.cwd))].map(async (cwd) => {
+					projectInfoByCwd.set(cwd, await resolveGitProject(cwd));
+				}),
+			);
+			for (const info of indexedSessions) {
 				if (resolve(info.cwd) === resolve(this.agentDir)) continue;
 				const managed = this.findManagedSessionByPath(info.path);
+				const project = projectInfoByCwd.get(info.cwd);
 				byPath.set(resolve(info.path), {
 					path: info.path,
 					id: info.id,
 					...(info.name === undefined ? {} : { name: info.name }),
 					cwd: info.cwd,
+					...(project && project.projectRoot !== info.cwd ? { projectRoot: project.projectRoot } : {}),
+					...(project?.isWorktree && project.branch ? { worktreeBranch: project.branch } : {}),
 					created: info.created.getTime(),
 					modified: info.modified.getTime(),
 					messageCount: info.messageCount,

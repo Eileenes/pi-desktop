@@ -2712,6 +2712,55 @@ textarea:focus-visible {
 	white-space: pre-wrap;
 }
 
+.message-provider-error,
+.message-custom-body {
+	display: grid;
+	gap: 6px;
+	padding: 10px 12px;
+	border: 1px solid color-mix(in srgb, var(--danger) 46%, transparent);
+	border-radius: 8px;
+	color: var(--text);
+	background: color-mix(in srgb, var(--danger) 10%, transparent);
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.compact-editor-error {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 10px;
+	margin: 0 0 8px;
+	padding: 8px 10px;
+	border: 1px solid color-mix(in srgb, var(--danger) 46%, transparent);
+	border-radius: 7px;
+	color: var(--text);
+	background: color-mix(in srgb, var(--danger) 10%, transparent);
+	font-size: 12px;
+	line-height: 1.45;
+	white-space: pre-wrap;
+}
+
+.compact-editor-error button {
+	padding: 0 3px;
+	border: 0;
+	color: inherit;
+	background: transparent;
+	font-size: 16px;
+}
+
+.message-provider-error strong,
+.message-custom-body strong {
+	font-size: 12px;
+}
+
+.message-custom-body pre {
+	max-height: 220px;
+	margin: 0;
+	overflow: auto;
+	white-space: pre-wrap;
+}
+
 .message-user {
 	display: flex;
 	flex-direction: column;
@@ -5507,7 +5556,7 @@ textarea:focus-visible {
 	position: relative;
 	width: min(860px, 100%);
 	min-height: min(560px, 100%);
-	height: min(680px, 100%);
+	max-height: min(680px, 100%);
 	border-radius: 10px;
 	background: var(--bg);
 	box-shadow: 0 8px 32px rgb(0 0 0 / 18%);
@@ -6385,6 +6434,22 @@ textarea:focus-visible {
 	flex-direction: column;
 	flex-shrink: 0;
 	background: color-mix(in srgb, var(--surface-recessed) 88%, var(--surface-1));
+}
+
+.skill-config-modal {
+	width: min(860px, 100%);
+	height: min(78vh, 760px);
+	border-radius: 10px;
+}
+
+.plugin-config-modal {
+	width: min(860px, 100%);
+	height: min(76vh, 760px);
+	border-radius: 8px;
+}
+
+.plugin-config-modal .resource-config-sidebar {
+	width: 245px;
 }
 
 .resource-config-sidebar-footer {

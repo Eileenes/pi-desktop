@@ -8,12 +8,36 @@ interface DirectoryPickerProps {
 	onClose: () => void;
 	onSelect: (path: string) => void;
 	busy?: boolean;
+	error?: string;
+}
+
+function isWindowsDriveRoot(path: string): boolean {
+	return /^[A-Za-z]:[\\/]?$/u.test(path);
+}
+
+function DriveIcon() {
+	return (
+		<svg
+			aria-hidden="true"
+			fill="none"
+			height="14"
+			stroke="currentColor"
+			strokeWidth="1.3"
+			viewBox="0 0 16 16"
+			width="14"
+		>
+			<rect height="10" rx="1.5" width="12" x="2" y="3" />
+			<path d="M2 9h12" />
+			<circle cx="11.5" cy="11" fill="currentColor" r="0.6" stroke="none" />
+		</svg>
+	);
 }
 
 export const DirectoryPicker = memo(function DirectoryPicker({
 	onClose,
 	onSelect,
 	busy = false,
+	error: selectionError,
 }: DirectoryPickerProps) {
 	const [currentPath, setCurrentPath] = useState("");
 	const [parentPath, setParentPath] = useState<string>();
@@ -46,6 +70,7 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 
 	const hasUncommittedPath = pathInput.trim() !== currentPath;
 	const canSelect = Boolean(currentPath) && !hasUncommittedPath && !loading && !busy;
+	const canNavigateUp = Boolean(parentPath) || isWindowsDriveRoot(currentPath);
 	const displayedEntries = drives ?? directories;
 	const handleClose = busy ? () => undefined : onClose;
 
@@ -67,9 +92,9 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 					<button
 						className="outline-button directory-picker-back"
 						type="button"
-						disabled={loading || busy || !parentPath}
+						disabled={loading || busy || !canNavigateUp}
 						title="返回上一级"
-						onClick={() => void navigateTo(parentPath)}
+						onClick={() => void navigateTo(parentPath ?? undefined)}
 					>
 						↑
 					</button>
@@ -92,11 +117,13 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 				</form>
 				<div className="directory-picker-list" aria-live="polite">
 					{loading ? <p className="modal-empty">正在读取目录…</p> : null}
-					{!loading && error ? <p className="modal-empty is-error">{error}</p> : null}
-					{!loading && !error && displayedEntries.length === 0 ? (
+					{!loading && (error || selectionError) ? (
+						<p className="modal-empty is-error">{error ?? selectionError}</p>
+					) : null}
+					{!loading && !error && !selectionError && displayedEntries.length === 0 ? (
 						<p className="modal-empty">没有可用的子目录。</p>
 					) : null}
-					{!loading && !error
+					{!loading && !error && !selectionError
 						? displayedEntries.map((entry) => (
 								<button
 									className="directory-picker-entry"
@@ -106,7 +133,7 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 									disabled={busy}
 									onClick={() => void navigateTo(entry.path)}
 								>
-									<Icon name="folder" size={14} />
+									{drives ? <DriveIcon /> : <Icon name="folder" size={14} />}
 									<span>{entry.name}</span>
 								</button>
 							))

@@ -6,6 +6,8 @@ export interface SessionReferenceCandidate {
 export interface SessionReferenceExpansionOptions {
 	candidates: SessionReferenceCandidate[];
 	load: (path: string) => string;
+	/** Bare #labels are only trusted after a user selected the candidate from the mention UI. */
+	confirmedLabels?: readonly string[];
 	maxCharacters?: number;
 }
 
@@ -28,6 +30,7 @@ export function expandSessionReferences(text: string, options: SessionReferenceE
 	const maxCharacters = options.maxCharacters ?? 120_000;
 	let remaining = maxCharacters;
 	const byLabel = new Map<string, SessionReferenceCandidate[]>();
+	const confirmed = new Set(options.confirmedLabels?.map((label) => label.trim().toLocaleLowerCase()) ?? []);
 	for (const candidate of options.candidates) {
 		const key = candidate.label.trim().toLocaleLowerCase();
 		if (!key) continue;
@@ -39,6 +42,7 @@ export function expandSessionReferences(text: string, options: SessionReferenceE
 	return text.replace(SESSION_REFERENCE_PATTERN, (original, quoted: string | undefined, plain: string | undefined) => {
 		const label = quoted === undefined ? plain : unescapeQuotedLabel(quoted);
 		if (!label) return original;
+		if (quoted === undefined && !confirmed.has(label.toLocaleLowerCase())) return original;
 		const matches = byLabel.get(label.toLocaleLowerCase());
 		if (matches?.length !== 1 || remaining <= 0) return original;
 		const content = options.load(matches[0].path).slice(0, remaining);

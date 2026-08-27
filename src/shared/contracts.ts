@@ -8,7 +8,7 @@ export type DesktopTranscriptBlock =
 
 export interface DesktopTranscriptMessage {
 	id: string;
-	role: "assistant" | "system" | "tool" | "user";
+	role: "assistant" | "custom" | "system" | "tool" | "user";
 	text: string;
 	blocks?: DesktopTranscriptBlock[];
 	toolName?: string;
@@ -20,6 +20,11 @@ export interface DesktopTranscriptMessage {
 	truncated?: boolean;
 	fullOutputAvailable?: boolean;
 	forkEntryId?: string;
+	stopReason?: string;
+	errorMessage?: string;
+	customType?: string;
+	display?: string;
+	details?: string;
 	timestamp?: number;
 	usage?: {
 		input: number;
@@ -67,6 +72,8 @@ export interface DesktopSessionInfo {
 	id: string;
 	name?: string;
 	cwd: string;
+	projectRoot?: string;
+	worktreeBranch?: string;
 	created: number;
 	modified: number;
 	messageCount: number;
@@ -305,6 +312,7 @@ export interface DesktopGitChange {
 export interface DesktopGitWorktree {
 	path: string;
 	branch: string;
+	isMain: boolean;
 }
 
 export interface DesktopRemoveWorktreeResult {
@@ -392,6 +400,8 @@ export interface DesktopOpenWorkspacePathInput {
 export interface DesktopPromptInput {
 	text: string;
 	attachmentIds?: string[];
+	/** Labels explicitly selected from the session mention menu. */
+	sessionReferenceLabels?: string[];
 	streamingBehavior?: "steer" | "followUp";
 }
 
@@ -614,7 +624,16 @@ export function isDesktopPromptInput(value: unknown): value is DesktopPromptInpu
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
 	const input = value as Record<string, unknown>;
 	const keys = Object.keys(input);
-	if (!keys.every((key) => key === "text" || key === "attachmentIds" || key === "streamingBehavior")) return false;
+	if (
+		!keys.every(
+			(key) =>
+				key === "text" ||
+				key === "attachmentIds" ||
+				key === "sessionReferenceLabels" ||
+				key === "streamingBehavior",
+		)
+	)
+		return false;
 	if (typeof input.text !== "string") return false;
 	if (
 		input.streamingBehavior !== undefined &&
@@ -622,11 +641,20 @@ export function isDesktopPromptInput(value: unknown): value is DesktopPromptInpu
 		input.streamingBehavior !== "followUp"
 	)
 		return false;
-	if (input.attachmentIds === undefined) return true;
+	if (
+		input.attachmentIds !== undefined &&
+		(!Array.isArray(input.attachmentIds) ||
+			input.attachmentIds.length > 10 ||
+			!input.attachmentIds.every((id) => typeof id === "string" && id.length > 0 && id.length <= 200))
+	)
+		return false;
 	return (
-		Array.isArray(input.attachmentIds) &&
-		input.attachmentIds.length <= 10 &&
-		input.attachmentIds.every((id) => typeof id === "string" && id.length > 0 && id.length <= 200)
+		input.sessionReferenceLabels === undefined ||
+		(Array.isArray(input.sessionReferenceLabels) &&
+			input.sessionReferenceLabels.length <= 20 &&
+			input.sessionReferenceLabels.every(
+				(label) => typeof label === "string" && label.length > 0 && label.length <= 200,
+			))
 	);
 }
 

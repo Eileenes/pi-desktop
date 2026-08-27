@@ -95,7 +95,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 			setPackages(next);
 			setSelectedKey((current) => {
 				if (current === "add") return current;
-				if (current === undefined) return undefined;
+				if (current === undefined) return next[0] ? packageKey(next[0]) : "add";
 				if (next.some((pkg) => packageKey(pkg) === current)) return current;
 				const [scope, ...sourceParts] = current.split("\0");
 				const source = sourceParts.join("\0");
@@ -104,7 +104,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 						pkg.scope === scope &&
 						(pkg.source === source || pkg.source.endsWith(source) || source.endsWith(pkg.source)),
 				);
-				return normalized ? packageKey(normalized) : undefined;
+				return normalized ? packageKey(normalized) : next[0] ? packageKey(next[0]) : "add";
 			});
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));

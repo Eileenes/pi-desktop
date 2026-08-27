@@ -119,6 +119,8 @@ type IconName =
 type ConfigModal = "models" | "plugins" | "settings" | "skills";
 
 const DRAFT_STORAGE_PREFIX = "pi-desktop-draft:";
+const DRAFT_INDEX_STORAGE_KEY = "pi-desktop-draft-index";
+const MAX_STORED_DRAFTS = 40;
 const MAX_IMAGE_ATTACHMENTS = 10;
 
 function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
@@ -865,7 +867,7 @@ const TranscriptMessage = memo(function TranscriptMessage({
 	isLastAssistant?: boolean;
 	isStreaming?: boolean;
 	previousTimestamp?: number;
-	onEdit: (text: string) => void;
+	onEdit: (message: DesktopTranscriptMessage) => void;
 	onFork: (entryId: string) => void;
 }) {
 	const [copied, setCopied] = useState(false);
@@ -916,7 +918,9 @@ const TranscriptMessage = memo(function TranscriptMessage({
 	}
 
 	return (
-		<article className={`message message-${message.role}`}>
+		<article
+			className={`message message-${message.role}${message.isError || message.errorMessage ? " is-error" : ""}`}
+		>
 			{isAssistant ? (
 				<div className="assistant-label">
 					<span>{modelLabel ?? "Pi"}</span>
@@ -930,10 +934,22 @@ const TranscriptMessage = memo(function TranscriptMessage({
 				</div>
 			) : null}
 			<div className="message-content">
+				{isAssistant && (message.errorMessage || message.stopReason === "error") ? (
+					<div className="message-provider-error" role="alert">
+						<strong>模型服务商错误</strong>
+						<span>{message.errorMessage ?? "模型响应异常终止。"}</span>
+					</div>
+				) : null}
 				{isAssistant && message.blocks?.length ? (
 					message.blocks.map((block, index) => <TranscriptBlock key={`${block.type}:${index}`} block={block} />)
 				) : isAssistant ? (
 					<MarkdownBody text={message.text || ""} />
+				) : message.role === "custom" ? (
+					<div className="message-custom-body">
+						{message.display ? <strong>{message.display}</strong> : null}
+						{message.text ? <MarkdownBody text={message.text} /> : null}
+						{message.details ? <pre>{message.details}</pre> : null}
+					</div>
 				) : (
 					<UserMessageBody text={message.text} blocks={message.blocks} />
 				)}
@@ -959,7 +975,7 @@ const TranscriptMessage = memo(function TranscriptMessage({
 						{copied ? "已复制" : "复制"}
 					</button>
 					{!isAssistant && message.text ? (
-						<button type="button" onClick={() => onEdit(message.text)}>
+						<button type="button" onClick={() => onEdit(message)}>
 							编辑
 						</button>
 					) : null}
@@ -1375,6 +1391,8 @@ function Inspector({
 	onOpenFile,
 	onRevealFile,
 	onDownload,
+	onCopyPath,
+	onCopyContent,
 	onQuoteLineRange,
 }: {
 	tabs: FileTab[];
@@ -1385,6 +1403,8 @@ function Inspector({
 	onOpenFile: (path: string) => void;
 	onRevealFile: (path: string) => void;
 	onDownload: (path: string) => void;
+	onCopyPath: (path: string) => void;
+	onCopyContent: (content: string) => void;
 	onQuoteLine: (path: string, line: number) => void;
 	onQuoteLineRange: (path: string, line: number, extend: boolean) => void;
 }) {
@@ -1520,6 +1540,26 @@ function Inspector({
 							onClick={() => setWrapLines((current) => !current)}
 						>
 							<Icon name="wrap" size={16} />
+						</button>
+					) : null}
+					{preview ? (
+						<button
+							className="icon-button"
+							type="button"
+							aria-label="复制文件路径"
+							onClick={() => onCopyPath(preview.path)}
+						>
+							<Icon name="copy" size={16} />
+						</button>
+					) : null}
+					{preview?.content ? (
+						<button
+							className="icon-button"
+							type="button"
+							aria-label="复制文件内容"
+							onClick={() => onCopyContent(preview.content)}
+						>
+							<Icon name="copy" size={16} />
 						</button>
 					) : null}
 					{preview ? (
@@ -1667,7 +1707,7 @@ export function App() {
 	const [soundOnComplete, setSoundOnComplete] = useState<boolean>(
 		() => localStorage.getItem("pi-desktop-sound-complete") !== "off",
 	);
-	const [fileTreeOpen, setFileTreeOpen] = useState(true);
+	const [fileTreeOpen, setFileTreeOpen] = useState(() => localStorage.getItem("pi-desktop-file-tree-open") !== "off");
 	const [fileTreeWidth, setFileTreeWidth] = useState(
 		() => Number(localStorage.getItem("pi-desktop-file-tree-width")) || 280,
 	);
@@ -1687,6 +1727,7 @@ export function App() {
 	const [draft, setDraft] = useState("");
 	const [openingWorkspace, setOpeningWorkspace] = useState(false);
 	const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
+	const [directoryPickerError, setDirectoryPickerError] = useState<string>();
 	const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>(() => {
 		try {
 			const value: unknown = JSON.parse(localStorage.getItem("pi-desktop-recent-workspaces") ?? "[]");
@@ -1736,8 +1777,10 @@ export function App() {
 	const [fileExplorerError, setFileExplorerError] = useState<string>();
 	const [loadingFiles, setLoadingFiles] = useState(false);
 	const [loadingFilePath, setLoadingFilePath] = useState<string>();
-	const [inspectorOpen, setInspectorOpen] = useState(false);
-	const [rightPanelMode, setRightPanelMode] = useState<"files" | "source">("files");
+	const [inspectorOpen, setInspectorOpen] = useState(() => localStorage.getItem("pi-desktop-inspector-open") === "on");
+	const [rightPanelMode, setRightPanelMode] = useState<"files" | "source">(
+		() => (localStorage.getItem("pi-desktop-right-panel-mode") as "files" | "source" | null) ?? "files",
+	);
 	const [sidebarOpen, setSidebarOpen] = useState(true);
 	const [isOnline, setIsOnline] = useState(() => navigator.onLine);
 	const [configModal, setConfigModal] = useState<ConfigModal | undefined>();
@@ -1770,6 +1813,7 @@ export function App() {
 		() => (localStorage.getItem("pi-desktop-tool-preset") as "off" | "default" | "full" | null) ?? "default",
 	);
 	const [compacting, setCompacting] = useState(false);
+	const [compactError, setCompactError] = useState<string>();
 	const [suggestionIndex, setSuggestionIndex] = useState(0);
 	const fileRequestId = useRef(0);
 	const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -1779,18 +1823,32 @@ export function App() {
 	const stickToBottomRef = useRef(true);
 	const previousMessageSignatureRef = useRef("");
 	const previousSessionIdRef = useRef<string | undefined>(undefined);
+	const scrollMemoryRef = useRef(new Map<string, { scrollTop: number; visibleItemCount: number }>());
 	const promptRef = useRef<HTMLTextAreaElement>(null);
 	const composingRef = useRef(false);
 	const promptHistoryRef = useRef<string[]>([]);
 	const promptHistoryIndexRef = useRef(-1);
+	const selectedSessionReferenceLabelsRef = useRef(new Set<string>());
 	const draftBeforeHistoryRef = useRef("");
 	const hydratedDraftKeyRef = useRef<string | undefined>(undefined);
 	const extensionEditorRequestRef = useRef<number | undefined>(undefined);
 	const previousPhaseRef = useRef<DesktopSessionPhase | undefined>(undefined);
 	const previousSessionPhasesRef = useRef<Map<string, DesktopSessionPhase | undefined>>(new Map());
+	const restorationAttemptedRef = useRef(false);
 	const apiKeyProviderIds = snapshot.apiKeyProviders.map((provider) => provider.id).join("\u0000");
 	const authenticationPrompt = snapshot.pendingAuthenticationPrompts[0];
 	const session = snapshot.session;
+	const knownWorkspacePaths = useMemo(
+		() =>
+			[
+				...snapshot.sessions
+					.slice()
+					.sort((left, right) => right.modified - left.modified)
+					.map((item) => item.cwd),
+				...recentWorkspaces,
+			].filter((path, index, paths) => paths.indexOf(path) === index),
+		[recentWorkspaces, snapshot.sessions],
+	);
 	const currentSessionPath = snapshot.sessions.find((item) => item.id === session?.id)?.path;
 	const submitting = submittingSessionId === session?.id;
 	const draftKey = `${DRAFT_STORAGE_PREFIX}${session?.id ?? snapshot.workspacePath ?? "new"}`;
@@ -1933,6 +1991,23 @@ export function App() {
 		void startDesktopStore();
 	}, []);
 	useEffect(() => {
+		if (restorationAttemptedRef.current || snapshot.sessions.length === 0) return;
+		restorationAttemptedRef.current = true;
+		const savedSessionPath = localStorage.getItem("pi-desktop-last-session-path");
+		if (savedSessionPath && snapshot.sessions.some((item) => item.path === savedSessionPath)) {
+			void openSession({ sessionPath: savedSessionPath });
+			return;
+		}
+		const savedWorkspace = localStorage.getItem("pi-desktop-last-workspace");
+		if (savedWorkspace && savedWorkspace !== snapshot.workspacePath) void openWorkspacePath(savedWorkspace);
+	}, [snapshot.sessions, snapshot.workspacePath]);
+	useEffect(() => {
+		if (snapshot.workspacePath) localStorage.setItem("pi-desktop-last-workspace", snapshot.workspacePath);
+	}, [snapshot.workspacePath]);
+	useEffect(() => {
+		if (currentSessionPath) localStorage.setItem("pi-desktop-last-session-path", currentSessionPath);
+	}, [currentSessionPath]);
+	useEffect(() => {
 		const handleOnline = () => setIsOnline(true);
 		const handleOffline = () => setIsOnline(false);
 		window.addEventListener("online", handleOnline);
@@ -1973,6 +2048,21 @@ export function App() {
 		const ids = attachments.map((attachment) => attachment.id);
 		if (ids.length) localStorage.setItem(`${draftKey}:attachments`, JSON.stringify(ids));
 		else localStorage.removeItem(`${draftKey}:attachments`);
+		let knownKeys: string[] = [];
+		try {
+			const value: unknown = JSON.parse(localStorage.getItem(DRAFT_INDEX_STORAGE_KEY) ?? "[]");
+			if (Array.isArray(value)) knownKeys = value.filter((key): key is string => typeof key === "string");
+		} catch {
+			// Start a fresh index when older local state is malformed.
+		}
+		const nextKeys = [draftKey, ...knownKeys.filter((key) => key !== draftKey)].slice(0, MAX_STORED_DRAFTS);
+		for (const staleKey of knownKeys.slice(MAX_STORED_DRAFTS - 1)) {
+			if (!nextKeys.includes(staleKey)) {
+				localStorage.removeItem(staleKey);
+				localStorage.removeItem(`${staleKey}:attachments`);
+			}
+		}
+		localStorage.setItem(DRAFT_INDEX_STORAGE_KEY, JSON.stringify(nextKeys));
 	}, [attachments, draft, draftKey]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: resizePrompt 不捕获响应式状态。
 	useEffect(() => {
@@ -2153,13 +2243,25 @@ export function App() {
 		const scroll = chatScrollRef.current;
 		if (!scroll) return;
 		if (previousSessionIdRef.current !== session?.id) {
+			if (previousSessionIdRef.current) {
+				scrollMemoryRef.current.set(previousSessionIdRef.current, {
+					scrollTop: scroll.scrollTop,
+					visibleItemCount,
+				});
+			}
 			previousSessionIdRef.current = session?.id;
 			previousMessageSignatureRef.current = messageSignature;
-			scroll.scrollTop = scroll.scrollHeight;
-			stickToBottomRef.current = true;
-			setAwayFromBottom(false);
+			const remembered = session?.id ? scrollMemoryRef.current.get(session.id) : undefined;
+			setVisibleItemCount(remembered?.visibleItemCount ?? 40);
+			requestAnimationFrame(() => {
+				const currentScroll = chatScrollRef.current;
+				if (!currentScroll) return;
+				currentScroll.scrollTop = remembered?.scrollTop ?? currentScroll.scrollHeight;
+				const isAway = currentScroll.scrollHeight - currentScroll.scrollTop - currentScroll.clientHeight > 80;
+				stickToBottomRef.current = !isAway;
+				setAwayFromBottom(isAway);
+			});
 			setUnseenMessages(0);
-			setVisibleItemCount(40);
 			return;
 		}
 		if (previousMessageSignatureRef.current && previousMessageSignatureRef.current !== messageSignature) {
@@ -2170,7 +2272,7 @@ export function App() {
 			}
 		}
 		previousMessageSignatureRef.current = messageSignature;
-	}, [messageSignature, session?.id, session?.phase]);
+	}, [messageSignature, session?.id, session?.phase, visibleItemCount]);
 	useEffect(
 		() => () => {
 			if (scrollFrameRef.current !== undefined) cancelAnimationFrame(scrollFrameRef.current);
@@ -2233,8 +2335,54 @@ export function App() {
 		setFileTabs([]);
 		setActiveTabPath(undefined);
 		setFileExplorerError(undefined);
-		if (snapshot.projectTrusted && snapshot.workspacePath) void refreshWorkspaceFiles();
+		let active = true;
+		if (snapshot.projectTrusted && snapshot.workspacePath) {
+			void refreshWorkspaceFiles();
+			let savedPaths: string[] = [];
+			try {
+				const value: unknown = JSON.parse(
+					localStorage.getItem(`pi-desktop-file-tabs:${snapshot.workspacePath}`) ?? "[]",
+				);
+				if (Array.isArray(value))
+					savedPaths = value.filter((path): path is string => typeof path === "string").slice(0, 12);
+			} catch {
+				// Ignore malformed persisted file-tab state.
+			}
+			if (savedPaths.length) {
+				void Promise.all(savedPaths.map((path) => readWorkspaceFile(path).catch(() => undefined))).then(
+					(previews) => {
+						if (!active) return;
+						const tabs = previews
+							.filter((preview): preview is DesktopWorkspaceFilePreview => preview !== undefined)
+							.map((preview) => ({ path: preview.path, preview }));
+						setFileTabs(tabs);
+						const savedActive = localStorage.getItem(`pi-desktop-active-file-tab:${snapshot.workspacePath}`);
+						setActiveTabPath(
+							tabs.some((tab) => tab.path === savedActive) ? (savedActive ?? undefined) : tabs[0]?.path,
+						);
+						setInspectorOpen(tabs.length > 0);
+					},
+				);
+			}
+		}
+		return () => {
+			active = false;
+		};
 	}, [refreshWorkspaceFiles, snapshot.projectTrusted, snapshot.workspacePath]);
+	useEffect(() => {
+		if (!snapshot.workspacePath) return;
+		localStorage.setItem(
+			`pi-desktop-file-tabs:${snapshot.workspacePath}`,
+			JSON.stringify(fileTabs.map((tab) => tab.path)),
+		);
+		if (activeTabPath) localStorage.setItem(`pi-desktop-active-file-tab:${snapshot.workspacePath}`, activeTabPath);
+		else localStorage.removeItem(`pi-desktop-active-file-tab:${snapshot.workspacePath}`);
+	}, [activeTabPath, fileTabs, snapshot.workspacePath]);
+	useEffect(() => {
+		localStorage.setItem("pi-desktop-file-tree-open", fileTreeOpen ? "on" : "off");
+		localStorage.setItem("pi-desktop-inspector-open", inspectorOpen ? "on" : "off");
+		localStorage.setItem("pi-desktop-right-panel-mode", rightPanelMode);
+	}, [fileTreeOpen, inspectorOpen, rightPanelMode]);
 	useEffect(() => {
 		if (!snapshot.workspacePath || !snapshot.projectTrusted) {
 			setGitWorktrees([]);
@@ -2296,7 +2444,14 @@ export function App() {
 			setWorkspaceRefreshToken((value) => value + 1);
 			void refreshWorkspaceFiles();
 			if (activeTabPath && changes.some((change) => change.path === activeTabPath)) {
-				setChangedFileHint(true);
+				void readWorkspaceFile(activeTabPath)
+					.then((preview) => {
+						setFileTabs((tabs) =>
+							tabs.map((tab) => (tab.path === preview.path ? { path: preview.path, preview } : tab)),
+						);
+						setChangedFileHint(false);
+					})
+					.catch(() => setChangedFileHint(true));
 			}
 		});
 		return () => {
@@ -2326,6 +2481,9 @@ export function App() {
 				});
 			}
 			const isAway = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 80;
+			if (session?.id) {
+				scrollMemoryRef.current.set(session.id, { scrollTop: scroll.scrollTop, visibleItemCount });
+			}
 			stickToBottomRef.current = !isAway;
 			setAwayFromBottom((current) => (current === isAway ? current : isAway));
 			if (!isAway) setUnseenMessages(0);
@@ -2344,18 +2502,20 @@ export function App() {
 	async function handleChooseWorkspace(): Promise<void> {
 		if (!canChooseWorkspace) return;
 		setActionError(undefined);
+		setDirectoryPickerError(undefined);
 		setDirectoryPickerOpen(true);
 	}
 
 	async function handleDirectorySelect(path: string): Promise<void> {
 		if (!path || openingWorkspace) return;
 		setOpeningWorkspace(true);
+		setDirectoryPickerError(undefined);
 		setActionError(undefined);
 		try {
 			await openWorkspacePath(path);
 			setDirectoryPickerOpen(false);
 		} catch (error) {
-			setActionError(error instanceof Error ? error.message : String(error));
+			setDirectoryPickerError(error instanceof Error ? error.message : String(error));
 		} finally {
 			setOpeningWorkspace(false);
 		}
@@ -2438,6 +2598,7 @@ export function App() {
 			const item = hashSessions[index];
 			if (!item) return;
 			const label = item.name ?? item.firstMessage.slice(0, 40);
+			selectedSessionReferenceLabelsRef.current.add(label);
 			setDraft((current) => current.replace(/#[^\s]*$/u, `${formatSessionReference(label)} `));
 		} else if (atActive) {
 			const entry = atEntries[index];
@@ -2513,6 +2674,10 @@ export function App() {
 			}
 			return;
 		}
+		if (session?.phase === "running" && attachments.length > 0) {
+			setActionError("智能体运行中不能在引导或排队消息中附加图片。");
+			return;
+		}
 		setSubmittingSessionId(submissionSessionId);
 		setActionError(undefined);
 		try {
@@ -2520,6 +2685,7 @@ export function App() {
 				draft,
 				attachments.map((attachment) => attachment.id),
 				session?.phase === "running" ? "followUp" : undefined,
+				[...selectedSessionReferenceLabelsRef.current],
 			);
 			clearSubmittedComposer(submissionSessionId, submissionDraftKey);
 		} catch (error) {
@@ -2531,6 +2697,10 @@ export function App() {
 
 	async function handleSteer(): Promise<void> {
 		if (!canSubmit || session?.phase !== "running") return;
+		if (attachments.length > 0) {
+			setActionError("智能体运行中不能在引导或排队消息中附加图片。");
+			return;
+		}
 		const submissionSessionId = session.id;
 		const submissionDraftKey = draftKey;
 		rememberPrompt(draft);
@@ -2541,6 +2711,7 @@ export function App() {
 				draft,
 				attachments.map((attachment) => attachment.id),
 				"steer",
+				[...selectedSessionReferenceLabelsRef.current],
 			);
 			clearSubmittedComposer(submissionSessionId, submissionDraftKey);
 		} catch (error) {
@@ -2551,7 +2722,7 @@ export function App() {
 	}
 
 	async function handleAbort(): Promise<void> {
-		if (session?.phase !== "running" || aborting) return;
+		if ((session?.phase !== "running" && !compacting) || aborting) return;
 		setAborting(true);
 		setActionError(undefined);
 		try {
@@ -2650,12 +2821,12 @@ export function App() {
 	async function handleCompact(): Promise<void> {
 		if (!session || session.phase === "running" || compacting) return;
 		setCompacting(true);
-		setActionError(undefined);
+		setCompactError(undefined);
 		try {
 			await compactSession();
 			pushNotice("success", "上下文压缩完成。");
 		} catch (error) {
-			setActionError(error instanceof Error ? error.message : String(error));
+			setCompactError(error instanceof Error ? error.message : String(error));
 		} finally {
 			setCompacting(false);
 		}
@@ -2664,12 +2835,12 @@ export function App() {
 	async function handleCompactWithInstructions(instructions: string): Promise<void> {
 		if (!session || session.phase === "running" || compacting) return;
 		setCompacting(true);
-		setActionError(undefined);
+		setCompactError(undefined);
 		try {
 			await compactSession(instructions);
 			pushNotice("success", "上下文压缩完成。");
 		} catch (error) {
-			setActionError(error instanceof Error ? error.message : String(error));
+			setCompactError(error instanceof Error ? error.message : String(error));
 		} finally {
 			setCompacting(false);
 		}
@@ -3034,17 +3205,29 @@ export function App() {
 		}
 	}, []);
 
-	const handleEditMessage = useCallback((text: string): void => {
-		setDraft(text);
-		requestAnimationFrame(() => {
-			const prompt = promptRef.current;
-			if (!prompt) return;
-			prompt.focus();
-			prompt.setSelectionRange(text.length, text.length);
-			prompt.style.height = "0px";
-			prompt.style.height = `${Math.min(prompt.scrollHeight, 180)}px`;
-		});
-	}, []);
+	const handleEditMessage = useCallback(
+		async (message: DesktopTranscriptMessage): Promise<void> => {
+			if (draft.trim() || attachments.length > 0) {
+				setActionError("请先发送或清空当前草稿，再编辑历史消息。");
+				return;
+			}
+			try {
+				if (message.forkEntryId) await navigateTree({ entryId: message.forkEntryId });
+				setDraft(message.text);
+				requestAnimationFrame(() => {
+					const prompt = promptRef.current;
+					if (!prompt) return;
+					prompt.focus();
+					prompt.setSelectionRange(message.text.length, message.text.length);
+					prompt.style.height = "0px";
+					prompt.style.height = `${Math.min(prompt.scrollHeight, 180)}px`;
+				});
+			} catch (error) {
+				setActionError(error instanceof Error ? error.message : String(error));
+			}
+		},
+		[attachments.length, draft],
+	);
 
 	const handleForkFromMessage = useCallback(async (entryId: string): Promise<void> => {
 		setActionError(undefined);
@@ -3177,7 +3360,7 @@ export function App() {
 	function renderSidebar() {
 		const projects = new Map<string, DesktopSessionInfo[]>();
 		for (const item of snapshot.sessions) {
-			const root = item.cwd.replace(/[\\\\/]+$/, "");
+			const root = (item.projectRoot ?? item.cwd).replace(/[\\\\/]+$/, "");
 			const entries = projects.get(root) ?? [];
 			entries.push(item);
 			projects.set(root, entries);
@@ -3200,7 +3383,9 @@ export function App() {
 						const active = items.some((item) => item.id === session?.id);
 						const runningCount = items.filter((item) => item.phase === "running").length;
 						const unreadCount = items.filter((item) => unreadSessionIds.has(item.id)).length;
-						const branch = gitWorktrees.find((tree) => tree.path.replace(/[\\/]+$/u, "") === root)?.branch;
+						const branch =
+							items.find((item) => item.worktreeBranch)?.worktreeBranch ??
+							gitWorktrees.find((tree) => tree.path.replace(/[\\/]+$/u, "") === root)?.branch;
 						const collapsed = collapsedProjects.has(root) && !sessionSearch.trim();
 						const expanded = expandedProjects.has(root);
 						const visibleItems = (() => {
@@ -3546,7 +3731,7 @@ export function App() {
 				{recentWorkspaces.length > 0 ? (
 					<>
 						<div className="project-menu-label">{t("recentProjects")}</div>
-						{recentWorkspaces.length > 7 ? (
+						{knownWorkspacePaths.length > 7 ? (
 							<input
 								className="project-menu-filter"
 								value={projectFilter}
@@ -4033,7 +4218,7 @@ export function App() {
 													}
 													isStreaming={item.message.id === lastMessage?.id && session.phase === "running"}
 													previousTimestamp={previousMessageTimestamps.get(item.message.id)}
-													onEdit={handleEditMessage}
+													onEdit={(message) => void handleEditMessage(message)}
 													onFork={(entryId) => void handleForkFromMessage(entryId)}
 												/>
 											</div>
@@ -4110,6 +4295,14 @@ export function App() {
 					}}
 				>
 					{draggingImages ? <div className="drop-image-overlay">释放以附加图片</div> : null}
+					{compactError ? (
+						<output className="compact-editor-error" role="alert">
+							{compactError}
+							<button type="button" onClick={() => setCompactError(undefined)} aria-label="关闭压缩错误">
+								×
+							</button>
+						</output>
+					) : null}
 					{!session?.messages.length ? (
 						<div className="start-task-copy">
 							<strong>{snapshot.workspacePath ? "Start a task" : "Get started"}</strong>
@@ -4411,12 +4604,16 @@ export function App() {
 									<button
 										className="composer-steer-button"
 										type="button"
-										disabled={!draft.trim() || submitting}
+										disabled={!draft.trim() || submitting || attachments.length > 0}
 										onClick={() => void handleSteer()}
 									>
 										引导
 									</button>
-									<button className="composer-followup-button" type="submit" disabled={!canSubmit}>
+									<button
+										className="composer-followup-button"
+										type="submit"
+										disabled={!canSubmit || attachments.length > 0}
+									>
 										{submitting ? "排队中" : "跟进"}
 									</button>
 								</div>
@@ -4445,7 +4642,7 @@ export function App() {
 									<button
 										className="composer-control-button"
 										type="button"
-										disabled={attachments.length >= MAX_IMAGE_ATTACHMENTS}
+										disabled={attachments.length >= MAX_IMAGE_ATTACHMENTS || session?.phase === "running"}
 										aria-label={t("addImage")}
 										title={t("addImage")}
 										onClick={() => void handleChooseImages()}
@@ -4493,7 +4690,7 @@ export function App() {
 														aria-label={language === "en" ? "Filter projects" : "筛选项目"}
 													/>
 												) : null}
-												{recentWorkspaces
+												{knownWorkspacePaths
 													.filter(
 														(path) =>
 															!projectFilter.trim() ||
@@ -4517,8 +4714,8 @@ export function App() {
 															{formatWorkspace(path)}
 														</button>
 													))}
-												{recentWorkspaces.length > 0 &&
-												recentWorkspaces.every(
+												{knownWorkspacePaths.length > 0 &&
+												knownWorkspacePaths.every(
 													(path) =>
 														!path.toLocaleLowerCase().includes(projectFilter.trim().toLocaleLowerCase()),
 												) ? (
@@ -4567,13 +4764,21 @@ export function App() {
 														<button
 															key={getModelKey(model.provider, model.id)}
 															type="button"
-															className={session?.model?.id === model.id ? "is-current" : ""}
+															className={
+																session?.model?.id === model.id &&
+																session.model.provider === model.provider
+																	? "is-current"
+																	: ""
+															}
 															onClick={() => {
 																setComposerMenu(undefined);
 																void handleChangeModel(getModelKey(model.provider, model.id));
 															}}
 														>
-															{session?.model?.id === model.id ? "✓ " : ""}
+															{session?.model?.id === model.id &&
+															session.model.provider === model.provider
+																? "✓ "
+																: ""}
 															{model.provider} / {model.name}
 														</button>
 													))
@@ -4652,19 +4857,21 @@ export function App() {
 									<button
 										className="composer-control-button"
 										type="button"
-										disabled={!session || session.phase === "running" || compacting}
-										onClick={() => void handleCompact()}
+										disabled={!session || session.phase === "running" || aborting}
+										onClick={() => void (compacting ? handleAbort() : handleCompact())}
 									>
 										<Icon name="compact" size={14} />
-										<span>{compacting ? "压缩中" : "压缩"}</span>
+										<span>{compacting ? "停止压缩" : "压缩"}</span>
 									</button>
 									<button
 										className="composer-control-button"
 										type="button"
 										aria-label="切换完成提示音"
+										aria-pressed={soundOnComplete}
+										title={soundOnComplete ? "完成提示音已开启" : "完成提示音已关闭"}
 										onClick={() => setSoundOnComplete((current) => !current)}
 									>
-										<Icon name="speaker" size={14} />
+										<Icon name={soundOnComplete ? "speaker" : "close"} size={14} />
 									</button>
 								</div>
 								<div className="composer-footer-right">
@@ -4791,6 +4998,18 @@ export function App() {
 								onOpenFile={(path) => void handleOpenFileWithDefaultApp(path)}
 								onRevealFile={(path) => void handleRevealFile(path)}
 								onDownload={(path) => void handleDownloadFile(path)}
+								onCopyPath={(path) => {
+									void navigator.clipboard.writeText(path).then(
+										() => pushNotice("success", "已复制文件路径。"),
+										() => pushNotice("error", "无法复制文件路径。"),
+									);
+								}}
+								onCopyContent={(content) => {
+									void navigator.clipboard.writeText(content).then(
+										() => pushNotice("success", "已复制文件内容。"),
+										() => pushNotice("error", "无法复制文件内容。"),
+									);
+								}}
 								onQuoteLine={handleQuoteLine}
 								onQuoteLineRange={handleQuoteLineRange}
 							/>
@@ -4839,6 +5058,7 @@ export function App() {
 			{directoryPickerOpen ? (
 				<DirectoryPicker
 					busy={openingWorkspace}
+					error={directoryPickerError}
 					onClose={() => {
 						if (!openingWorkspace) setDirectoryPickerOpen(false);
 					}}
@@ -4886,11 +5106,9 @@ export function App() {
 					theme={theme}
 					language={language}
 					notifyOnComplete={notifyOnComplete}
-					soundOnComplete={soundOnComplete}
 					onChangeTheme={setTheme}
 					onChangeLanguage={setLanguage}
 					onToggleNotify={() => setNotifyOnComplete((current) => !current)}
-					onToggleSound={() => setSoundOnComplete((current) => !current)}
 					onClose={() => setConfigModal(undefined)}
 				/>
 			) : null}

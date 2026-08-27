@@ -9,11 +9,14 @@ const MAX_DIRECTORY_DEPTH = 4;
 const MAX_ENTRIES = 600;
 const MAX_SEARCH_ENTRIES = 5_000;
 const MAX_SEARCH_DEPTH = 8;
-const MAX_FILE_BYTES = 200_000;
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_FILE_BYTES = 256 * 1024;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 const IMAGE_MIME_TYPES: Record<string, string> = {
+	avif: "image/avif",
+	bmp: "image/bmp",
 	gif: "image/gif",
+	ico: "image/x-icon",
 	jpeg: "image/jpeg",
 	jpg: "image/jpeg",
 	png: "image/png",
@@ -27,7 +30,11 @@ const AUDIO_MIME_TYPES: Record<string, string> = {
 	m4a: "audio/mp4",
 	mp3: "audio/mpeg",
 	ogg: "audio/ogg",
+	oga: "audio/ogg",
+	opus: "audio/opus",
 	wav: "audio/wav",
+	weba: "audio/webm",
+	webm: "audio/webm",
 };
 
 const AUDIO_MAX_BYTES = 20 * 1024 * 1024;
@@ -200,7 +207,7 @@ export class TrustedWorkspaceBrowser {
 		if (mimeType) {
 			const fileStats = await lstat(resolvedFilePath);
 			if (fileStats.size > MAX_IMAGE_BYTES) {
-				throw new Error("该图片超过了 5 MB 的预览上限。");
+				throw new Error("该图片超过了 10 MB 的预览上限。");
 			}
 			const imageContent = await readFile(resolvedFilePath);
 			return {
@@ -254,7 +261,7 @@ export class TrustedWorkspaceBrowser {
 
 		const fileStats = await lstat(resolvedFilePath);
 		if (fileStats.size > MAX_FILE_BYTES) {
-			throw new Error("该文件超过了 200 KB 的预览上限。");
+			throw new Error("该文件超过了 256 KB 的预览上限。");
 		}
 
 		const content = await readFile(resolvedFilePath);

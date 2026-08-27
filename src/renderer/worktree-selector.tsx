@@ -55,6 +55,20 @@ export const WorktreeSection = memo(function WorktreeSection({
 		void load();
 	}, [load]);
 
+	useEffect(() => {
+		const refreshWhenVisible = () => {
+			if (document.visibilityState === "visible") void load();
+		};
+		const interval = window.setInterval(refreshWhenVisible, 10_000);
+		window.addEventListener("focus", refreshWhenVisible);
+		document.addEventListener("visibilitychange", refreshWhenVisible);
+		return () => {
+			window.clearInterval(interval);
+			window.removeEventListener("focus", refreshWhenVisible);
+			document.removeEventListener("visibilitychange", refreshWhenVisible);
+		};
+	}, [load]);
+
 	// Keep the selector visible with a single worktree so users can create the
 	// first additional worktree instead of discovering the feature only after
 	// one already exists.
@@ -170,10 +184,13 @@ export const WorktreeSection = memo(function WorktreeSection({
 								if (tree.path !== workspacePath) onSwitch(tree.path);
 							}}
 						>
-							<span>⎇ {displayBranch(tree.branch)}</span>
+							<span>
+								⎇ {displayBranch(tree.branch)}
+								{tree.isMain ? " · 主目录" : ""}
+							</span>
 							<small>{tree.path}</small>
 						</button>
-						{tree.path !== workspacePath ? (
+						{!tree.isMain ? (
 							confirmRemovePath === tree.path ? (
 								<div className="worktree-confirm-remove">
 									<button

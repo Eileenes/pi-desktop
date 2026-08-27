@@ -8,11 +8,9 @@ interface AppSettingsModalProps {
 	theme: "dark" | "light";
 	language: AppLanguage;
 	notifyOnComplete: boolean;
-	soundOnComplete: boolean;
 	onChangeTheme: (theme: "dark" | "light") => void;
 	onChangeLanguage: (language: AppLanguage) => void;
 	onToggleNotify: () => void;
-	onToggleSound: () => void;
 	onClose: () => void;
 }
 
@@ -37,11 +35,9 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 	theme,
 	language,
 	notifyOnComplete,
-	soundOnComplete,
 	onChangeTheme,
 	onChangeLanguage,
 	onToggleNotify,
-	onToggleSound,
 	onClose,
 }: AppSettingsModalProps) {
 	const [closeQuits, setCloseQuitsState] = useState<boolean>(
@@ -169,16 +165,9 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 					{cssError ? <p className="sidebar-error">{cssError}</p> : null}
 				</section>
 				<section className="app-settings-card">
-					<strong>提示</strong>
-					<p>任务完成后的桌面提醒行为。</p>
+					<strong>桌面应用</strong>
+					<p>控制关闭窗口和后台任务的行为。</p>
 					<div className="app-settings-options">
-						<label className="toggle-row">
-							<span>
-								<strong>完成提示音</strong>
-								<small>任务完成时播放本地短提示音。</small>
-							</span>
-							<input type="checkbox" checked={soundOnComplete} onChange={onToggleSound} />
-						</label>
 						<label className="toggle-row">
 							<span>
 								<strong>任务完成通知</strong>
@@ -186,12 +175,6 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 							</span>
 							<input type="checkbox" checked={notifyOnComplete} onChange={onToggleNotify} />
 						</label>
-					</div>
-				</section>
-				<section className="app-settings-card">
-					<strong>桌面应用</strong>
-					<p>控制关闭窗口和后台任务的行为。</p>
-					<div className="app-settings-options">
 						<label className="toggle-row">
 							<span>
 								<strong>关闭窗口时退出</strong>

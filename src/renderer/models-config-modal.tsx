@@ -1,6 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { DesktopApiKeyProvider, DesktopProviderConfig, DesktopProviderModelConfig } from "../shared/contracts.ts";
-import { discoverModels, getModelsConfig, logoutProvider, saveModelsConfig, testModel } from "./desktop-store.ts";
+import {
+	discoverModels,
+	getModelsConfig,
+	logoutProvider,
+	lookupModelCatalog,
+	saveModelsConfig,
+	testModel,
+} from "./desktop-store.ts";
 import { Modal } from "./modal.tsx";
 
 interface ModelsConfigModalProps {
@@ -54,6 +61,12 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	const [authProvider, setAuthProvider] = useState<DesktopApiKeyProvider>();
 	const [modelTest, setModelTest] = useState<{ phase: "idle" | "loading" | "success" | "error"; message?: string }>({
 		phase: "idle",
+	});
+	const [catalogFill, setCatalogFill] = useState<{
+		state: "idle" | "loading" | "success" | "error";
+		message?: string;
+	}>({
+		state: "idle",
 	});
 	const hasChanges = JSON.stringify(config) !== JSON.stringify(savedConfig);
 	const requestClose = useCallback(() => {
@@ -213,6 +226,34 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 			);
 		} catch (error) {
 			setModelTest({ phase: "error", message: error instanceof Error ? error.message : String(error) });
+		}
+	}
+
+	async function handleCatalogFill(): Promise<void> {
+		if (!selectedProvider || !selectedModel) return;
+		setCatalogFill({ state: "loading" });
+		try {
+			const entry = await lookupModelCatalog(selectedProvider.id, selectedModel.id);
+			if (!entry) {
+				setCatalogFill({ state: "error", message: "models.dev 没有该模型的记录。" });
+				return;
+			}
+			updateModel((model) => ({
+				...model,
+				name: model.name ?? entry.name,
+				reasoning: model.reasoning ?? entry.reasoning,
+				input: model.input ?? entry.input,
+				contextWindow: model.contextWindow ?? entry.contextWindow,
+				maxTokens: model.maxTokens ?? entry.maxTokens,
+				cost:
+					model.cost ??
+					(entry.cost
+						? { ...entry.cost, cacheRead: entry.cost.cacheRead ?? 0, cacheWrite: entry.cost.cacheWrite ?? 0 }
+						: undefined),
+			}));
+			setCatalogFill({ state: "success" });
+		} catch (error) {
+			setCatalogFill({ state: "error", message: error instanceof Error ? error.message : String(error) });
 		}
 	}
 
@@ -534,7 +575,20 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									/>
 									图片输入
 								</label>
+								<button
+									className="skill-version-button"
+									type="button"
+									disabled={catalogFill.state === "loading"}
+									onClick={() => void handleCatalogFill()}
+								>
+									{catalogFill.state === "loading" ? "查询中…" : "从目录填充"}
+								</button>
 							</div>
+							{catalogFill.state === "success" ? (
+								<p className="model-test-result is-success">已从 models.dev 填充空缺字段。</p>
+							) : catalogFill.state === "error" ? (
+								<p className="model-test-result is-error">{catalogFill.message}</p>
+							) : null}
 							<div className="models-form-grid">
 								<label>
 									上下文窗口（tokens）

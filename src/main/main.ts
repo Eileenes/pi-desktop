@@ -18,6 +18,7 @@ import type { Response as FetchResponse } from "undici-types";
 import {
 	type DesktopImageAttachment,
 	type DesktopSnapshot,
+	type DesktopWorkspaceChange,
 	isDesktopAddWorktreeInput,
 	isDesktopAuthenticationPromptResponseInput,
 	isDesktopDiscoverModelsInput,
@@ -41,6 +42,7 @@ import {
 } from "../shared/contracts.ts";
 import { isNewerVersion } from "../shared/version.ts";
 import { DesktopAgentHost, type DesktopPromptImage } from "./desktop-agent-host.ts";
+import { importDroppedFiles } from "./dropped-file-import.ts";
 
 const currentDirectory = fileURLToPath(new URL(".", import.meta.url));
 let mainWindow: BrowserWindow | undefined;
@@ -64,7 +66,7 @@ function getTrayIcon(): NativeImage {
 	return nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_COLOR_BASE64}`);
 }
 
-const MAX_IMAGE_ATTACHMENTS = 5;
+const MAX_IMAGE_ATTACHMENTS = 10;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 interface PendingImageAttachment {
@@ -87,12 +89,26 @@ function getHost(): DesktopAgentHost {
 function publishSnapshot(snapshot: DesktopSnapshot): void {
 	if (!mainWindow || mainWindow.isDestroyed()) return;
 	mainWindow.webContents.send("pi-desktop:snapshot", snapshot);
+	const folderName = snapshot.workspacePath?.split(/[\\/]/u).filter(Boolean).at(-1);
+	const title = folderName ? `${folderName} - Pi Desktop` : "Pi Desktop";
+	if (mainWindow.getTitle() !== title) mainWindow.setTitle(title);
+}
+
+function sendWorkspaceChanges(changes: DesktopWorkspaceChange[]): void {
+	if (!mainWindow || mainWindow.isDestroyed()) return;
+	mainWindow.webContents.send("pi-desktop:workspace-changed", changes);
 }
 
 function assertMainWindowSender(event: IpcMainInvokeEvent): void {
 	if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
 		throw new Error("Pi 桌面端拒绝了来自未受信任渲染进程的请求。");
 	}
+}
+
+function isExactRecord(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	const actualKeys = Object.keys(value);
+	return actualKeys.length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 }
 
 function getImageMimeType(content: Buffer): string | undefined {
@@ -213,7 +229,6 @@ async function prepareImageAttachments(filePaths: string[]): Promise<DesktopImag
 			image: { data: content.toString("base64"), mimeType },
 		});
 	}
-	pendingImageAttachments.clear();
 	for (const attachment of selected) pendingImageAttachments.set(attachment.id, attachment);
 	return selected.map(({ id, name, mimeType, size }) => ({ id, name, mimeType, size }));
 }
@@ -253,6 +268,23 @@ function registerIpc(): void {
 		}
 		return prepareImageAttachments(value);
 	});
+	ipcMain.handle("pi-desktop:import-dropped-files", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		const host = getHost();
+		if (!host.getSnapshot().projectTrusted) {
+			throw new Error("请先信任当前项目，再导入文件。");
+		}
+		if (
+			!isExactRecord(value, ["paths", "overwriteConflicts"]) ||
+			!Array.isArray(value.paths) ||
+			value.paths.length > 20 ||
+			!value.paths.every((path) => typeof path === "string" && path.length > 0 && path.length <= 4000) ||
+			typeof value.overwriteConflicts !== "boolean"
+		) {
+			throw new Error("无效的拖放文件请求。");
+		}
+		return importDroppedFiles(host.requireWorkspacePath(), value.paths as string[], value.overwriteConflicts);
+	});
 	ipcMain.handle("pi-desktop:prompt", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
 		if (!isDesktopPromptInput(value)) {
@@ -269,7 +301,9 @@ function registerIpc(): void {
 			if (!attachment) throw new Error("所选图片已失效，请重新选择。");
 			return attachment.image;
 		});
-		return getHost().prompt(text, images, value.streamingBehavior);
+		const snapshot = await getHost().prompt(text, images, value.streamingBehavior);
+		for (const id of attachmentIds) pendingImageAttachments.delete(id);
+		return snapshot;
 	});
 	ipcMain.handle("pi-desktop:abort", async (event): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
@@ -300,6 +334,98 @@ function registerIpc(): void {
 	ipcMain.handle("pi-desktop:auto-name-session", async (event): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
 		return getHost().autoNameSession();
+	});
+	ipcMain.handle("pi-desktop:rename-session", async (event, value: unknown): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		if (
+			!isExactRecord(value, ["sessionPath", "name"]) ||
+			typeof value.sessionPath !== "string" ||
+			value.sessionPath.length === 0 ||
+			value.sessionPath.length > 2000 ||
+			typeof value.name !== "string" ||
+			value.name.length > 120
+		) {
+			throw new Error("无效的会话重命名请求。");
+		}
+		return getHost().renameSession(value.sessionPath, value.name);
+	});
+	ipcMain.handle("pi-desktop:delete-session", async (event, value: unknown): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		if (
+			!isExactRecord(value, ["sessionPath"]) ||
+			typeof value.sessionPath !== "string" ||
+			value.sessionPath.length === 0 ||
+			value.sessionPath.length > 2000
+		) {
+			throw new Error("无效的会话删除请求。");
+		}
+		const confirmed = await dialog.showMessageBox(mainWindow!, {
+			type: "warning",
+			title: "删除会话",
+			message: "确定删除这个会话？",
+			detail: "会话历史文件将被永久删除。",
+			buttons: ["取消", "删除"],
+			defaultId: 0,
+			cancelId: 0,
+			noLink: true,
+		});
+		if (confirmed.response !== 1) return getHost().getSnapshot();
+		return getHost().deleteSession(value.sessionPath);
+	});
+	ipcMain.handle("pi-desktop:execute-bash", async (event, value: unknown): Promise<string> => {
+		assertMainWindowSender(event);
+		if (typeof value !== "object" || value === null) throw new Error("无效的命令执行请求。");
+		const input = value as { command?: unknown; excludeFromContext?: unknown };
+		if (typeof input.command !== "string" || input.command.length === 0 || input.command.length > 10_000) {
+			throw new Error("无效的命令内容。");
+		}
+		return getHost().executeBashCommand(input.command, input.excludeFromContext === true);
+	});
+	ipcMain.handle("pi-desktop:read-full-bash-output", async (event, value: unknown): Promise<string> => {
+		assertMainWindowSender(event);
+		if (!isExactRecord(value, ["messageId"]) || typeof value.messageId !== "string") {
+			throw new Error("无效的终端输出请求。");
+		}
+		return getHost().readFullBashOutput(value.messageId);
+	});
+	ipcMain.handle("pi-desktop:save-full-bash-output", async (event, value: unknown): Promise<string> => {
+		assertMainWindowSender(event);
+		if (!isExactRecord(value, ["messageId"]) || typeof value.messageId !== "string") {
+			throw new Error("无效的完整输出保存请求。");
+		}
+		const output = await getHost().readFullBashOutput(value.messageId);
+		const result = await dialog.showSaveDialog(mainWindow!, {
+			title: "保存完整终端输出",
+			defaultPath: `pi-terminal-output-${Date.now()}.txt`,
+			filters: [{ name: "文本文件", extensions: ["txt", "log"] }],
+		});
+		if (result.canceled || !result.filePath) return "";
+		await writeFile(result.filePath, output, { mode: 0o600 });
+		return result.filePath;
+	});
+	ipcMain.handle("pi-desktop:copy-last-answer", async (event): Promise<string> => {
+		assertMainWindowSender(event);
+		return getHost().copyLastAnswer();
+	});
+	ipcMain.handle("pi-desktop:respond-to-extension-dialog", (event, value: unknown): void => {
+		assertMainWindowSender(event);
+		if (!isExactRecord(value, ["id", "value"]) || typeof value.id !== "string" || typeof value.value !== "string") {
+			throw new Error("无效的扩展对话框响应。");
+		}
+		getHost().respondToExtensionDialog(value.id, value.value);
+	});
+	ipcMain.handle("pi-desktop:extension-custom-input", (event, value: unknown): void => {
+		assertMainWindowSender(event);
+		if (
+			!isExactRecord(value, ["id", "data"]) ||
+			typeof value.id !== "string" ||
+			typeof value.data !== "string" ||
+			value.id.length > 128 ||
+			value.data.length > 100_000
+		) {
+			throw new Error("无效的扩展自定义界面输入。");
+		}
+		getHost().sendExtensionCustomInput(value.id, value.data);
 	});
 	ipcMain.handle("pi-desktop:export-session", async (event): Promise<string> => {
 		assertMainWindowSender(event);
@@ -346,9 +472,12 @@ function registerIpc(): void {
 			value as "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
 		);
 	});
-	ipcMain.handle("pi-desktop:compact", async (event): Promise<DesktopSnapshot> => {
+	ipcMain.handle("pi-desktop:compact", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
-		return getHost().compact();
+		if (value !== undefined && (typeof value !== "string" || value.length > 4000)) {
+			throw new Error("无效的压缩指令。");
+		}
+		return getHost().compact(value as string | undefined);
 	});
 	ipcMain.handle("pi-desktop:set-project-trust", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
@@ -387,6 +516,11 @@ function registerIpc(): void {
 		assertMainWindowSender(event);
 		return getHost().listWorkspaceFiles();
 	});
+	ipcMain.handle("pi-desktop:search-workspace-files", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (typeof value !== "string" || value.length > 200) throw new Error("无效的文件搜索请求。");
+		return getHost().searchWorkspaceFiles(value);
+	});
 	ipcMain.handle("pi-desktop:read-workspace-file", async (event, value: unknown) => {
 		assertMainWindowSender(event);
 		if (!isDesktopWorkspaceFileInput(value)) {
@@ -408,6 +542,27 @@ function registerIpc(): void {
 		}
 		await getHost().revealWorkspaceFile(value.path);
 	});
+	ipcMain.handle("pi-desktop:save-workspace-file", async (event, value: unknown): Promise<string> => {
+		assertMainWindowSender(event);
+		if (!isDesktopWorkspaceFileInput(value)) {
+			throw new Error("无效的项目文件请求。");
+		}
+		const preview = await getHost().readWorkspaceFile(value.path);
+		const suggestedName = value.path.split("/").at(-1) ?? "file";
+		const result = await dialog.showSaveDialog({
+			title: "保存文件",
+			defaultPath: join(app.getPath("downloads"), suggestedName),
+		});
+		if (result.canceled || !result.filePath) return "";
+		const binaryDataUrl = preview.binaryDataUrl ?? preview.imageDataUrl;
+		if (binaryDataUrl?.startsWith("data:")) {
+			const base64 = binaryDataUrl.slice(binaryDataUrl.indexOf(",") + 1);
+			await writeFile(result.filePath, Buffer.from(base64, "base64"));
+		} else {
+			await writeFile(result.filePath, preview.content, "utf8");
+		}
+		return result.filePath;
+	});
 	ipcMain.handle("pi-desktop:open-external-url", async (event, value: unknown): Promise<void> => {
 		assertMainWindowSender(event);
 		if (!isDesktopOpenExternalUrlInput(value)) {
@@ -415,11 +570,24 @@ function registerIpc(): void {
 		}
 		await getHost().openExternalUrl(value);
 	});
-	ipcMain.handle("pi-desktop:notify-complete", (event): void => {
+	ipcMain.handle("pi-desktop:notify-complete", (event, value: unknown): void => {
 		assertMainWindowSender(event);
-		if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) return;
+		if (
+			value !== undefined &&
+			(!isExactRecord(value, ["sessionName", "force"]) ||
+				(value.sessionName !== undefined &&
+					(typeof value.sessionName !== "string" || value.sessionName.length > 120)) ||
+				(value.force !== undefined && typeof value.force !== "boolean"))
+		) {
+			throw new Error("无效的完成通知请求。");
+		}
+		const input = value as { sessionName?: string; force?: boolean } | undefined;
+		if (!input?.force && mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) return;
 		if (!Notification.isSupported()) return;
-		new Notification({ title: "Pi 任务完成", body: "智能体已处理完毕。" }).show();
+		new Notification({
+			title: input?.sessionName ? `已完成：${input.sessionName}` : "Pi 任务完成",
+			body: "智能体已处理完毕。",
+		}).show();
 	});
 	ipcMain.handle("pi-desktop:set-close-quits", (event, value: unknown): void => {
 		assertMainWindowSender(event);
@@ -497,6 +665,21 @@ function registerIpc(): void {
 		}
 		return getHost().discoverModels(value.providerId, value.baseUrl, value.apiKey);
 	});
+	ipcMain.handle("pi-desktop:lookup-model-catalog", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (
+			!isExactRecord(value, ["providerId", "modelId"]) ||
+			typeof value.providerId !== "string" ||
+			typeof value.modelId !== "string" ||
+			!value.providerId ||
+			!value.modelId ||
+			value.providerId.length > 200 ||
+			value.modelId.length > 500
+		) {
+			throw new Error("无效的模型目录查询。");
+		}
+		return getHost().lookupModelCatalog(value.providerId, value.modelId);
+	});
 	ipcMain.handle("pi-desktop:test-model", async (event, value: unknown) => {
 		assertMainWindowSender(event);
 		if (!isDesktopModelTestInput(value)) throw new Error("无效的模型测试请求。");
@@ -566,9 +749,72 @@ function registerIpc(): void {
 		}
 		return getHost().removePlugin(value.source, value.local);
 	});
+	ipcMain.handle("pi-desktop:toggle-plugin", async (event, value: unknown): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		if (
+			!isExactRecord(value, ["source", "local", "enabled"]) ||
+			typeof value.source !== "string" ||
+			typeof value.local !== "boolean" ||
+			typeof value.enabled !== "boolean"
+		) {
+			throw new Error("无效的插件启停请求。");
+		}
+		return getHost().togglePlugin(value.source, value.local, value.enabled);
+	});
 	ipcMain.handle("pi-desktop:get-plugin-packages", async (event) => {
 		assertMainWindowSender(event);
 		return getHost().getPluginPackages();
+	});
+	ipcMain.handle("pi-desktop:list-skills-detailed", async (event) => {
+		assertMainWindowSender(event);
+		return getHost().listSkillsDetailed();
+	});
+	ipcMain.handle("pi-desktop:search-skills", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (typeof value !== "string" || !value.trim() || value.length > 200) {
+			throw new Error("无效的技能搜索请求。");
+		}
+		return getHost().searchSkills(value);
+	});
+	ipcMain.handle("pi-desktop:install-skill", async (event, value: unknown): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		if (typeof value !== "object" || value === null) throw new Error("无效的技能安装请求。");
+		const input = value as { pkg?: unknown; scope?: unknown };
+		if (typeof input.pkg !== "string" || !input.pkg.trim() || input.pkg.length > 500) {
+			throw new Error("无效的技能资源包。");
+		}
+		if (input.scope !== "global" && input.scope !== "project") throw new Error("无效的技能安装范围。");
+		const confirmation = await dialog.showMessageBox(mainWindow!, {
+			type: "warning",
+			title: "确认安装技能",
+			message: `安装${input.scope === "project" ? "项目" : "全局"}技能？`,
+			detail: input.pkg,
+			buttons: ["取消", "安装"],
+			defaultId: 0,
+			cancelId: 0,
+			noLink: true,
+		});
+		if (confirmation.response !== 1) return getHost().getSnapshot();
+		return getHost().installSkill(input.pkg, input.scope);
+	});
+	ipcMain.handle("pi-desktop:check-skill-updates", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (value === undefined || value === null) return getHost().checkSkillUpdates();
+		if (typeof value !== "object") throw new Error("无效的技能更新检查请求。");
+		const input = value as { pkg?: unknown; scope?: unknown };
+		if (typeof input.pkg !== "string" || (input.scope !== "global" && input.scope !== "project")) {
+			throw new Error("无效的技能更新检查请求。");
+		}
+		return getHost().checkSkillUpdates({ pkg: input.pkg, scope: input.scope });
+	});
+	ipcMain.handle("pi-desktop:update-skill", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (typeof value !== "object" || value === null) throw new Error("无效的技能更新请求。");
+		const input = value as { pkg?: unknown; scope?: unknown };
+		if (typeof input.pkg !== "string" || (input.scope !== "global" && input.scope !== "project")) {
+			throw new Error("无效的技能更新请求。");
+		}
+		return getHost().updateSkill(input.pkg, input.scope);
 	});
 }
 
@@ -582,6 +828,12 @@ if (!hasSingleInstanceLock) {
 		registerIpc();
 		host = getHost();
 		host.subscribe(publishSnapshot);
+		host.onWorkspaceChanged(sendWorkspaceChanges);
+		host.onExtensionUi((event) => {
+			if (mainWindow && !mainWindow.isDestroyed()) {
+				mainWindow.webContents.send("pi-desktop:extension-ui", event);
+			}
+		});
 		mainWindow = createWindow();
 		createTray();
 

@@ -1,41 +1,78 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import type { DesktopPlugin } from "../shared/contracts.ts";
-import { getPluginPackages, installPlugin, removePlugin } from "./desktop-store.ts";
+import type { DesktopPlugin, DesktopPluginPackage } from "../shared/contracts.ts";
+import { getPluginPackages, installPlugin, removePlugin, togglePlugin } from "./desktop-store.ts";
 import { Modal } from "./modal.tsx";
 
 interface PluginsConfigModalProps {
 	plugins: DesktopPlugin[];
+	workspacePath?: string;
 	onClose: () => void;
 }
-interface InstalledPackage {
-	source: string;
-	scope: "user" | "project";
+
+const SCOPE_LABEL = { user: "GLOBAL", project: "PROJECT" } as const;
+const STATUS_LABEL: Record<DesktopPluginPackage["status"], string> = {
+	disabled: "已禁用",
+	error: "加载错误",
+	installed: "已安装",
+	loaded: "已加载",
+};
+
+function packageKey(pkg: Pick<DesktopPluginPackage, "scope" | "source">): string {
+	return `${pkg.scope}\0${pkg.source}`;
 }
 
-export const PluginsConfigModal = memo(function PluginsConfigModal({ plugins, onClose }: PluginsConfigModalProps) {
-	const [packages, setPackages] = useState<InstalledPackage[]>([]);
+function normalizeInstallSource(input: string): string {
+	return input.trim().replace(/^\$?\s*pi\s+install\s+/iu, "");
+}
+
+function resourceSummary(pkg: DesktopPluginPackage): string {
+	const parts = [
+		[pkg.resources.extensions.length, "ext"],
+		[pkg.resources.skills.length, "sk"],
+		[pkg.resources.prompts.length, "prm"],
+		[pkg.resources.themes.length, "thm"],
+	]
+		.filter(([count]) => Number(count) > 0)
+		.map(([count, label]) => `${count} ${label}`);
+	return parts.length ? parts.join(" · ") : "未发现资源";
+}
+
+export const PluginsConfigModal = memo(function PluginsConfigModal({
+	plugins,
+	workspacePath,
+	onClose,
+}: PluginsConfigModalProps) {
+	const [packages, setPackages] = useState<DesktopPluginPackage[]>([]);
 	const [loading, setLoading] = useState(true);
-	const [selectedKey, setSelectedKey] = useState<string>("add");
+	const [selectedKey, setSelectedKey] = useState("add");
 	const [installSource, setInstallSource] = useState("");
 	const [installScope, setInstallScope] = useState<"user" | "project">("user");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string>();
-	const selected = useMemo(
-		() => packages.find((pkg) => `${pkg.scope}\0${pkg.source}` === selectedKey),
-		[packages, selectedKey],
+	const [success, setSuccess] = useState<string>();
+	const [removeArmed, setRemoveArmed] = useState(false);
+	const selected = useMemo(() => packages.find((pkg) => packageKey(pkg) === selectedKey), [packages, selectedKey]);
+	const projectPackages = packages.filter((pkg) => pkg.scope === "project");
+	const userPackages = packages.filter((pkg) => pkg.scope === "user");
+	const diagnosticCount = packages.reduce((total, pkg) => total + pkg.diagnostics.length, 0);
+	const loadedResourceCount = packages.reduce(
+		(total, pkg) =>
+			total +
+			pkg.resources.extensions.length +
+			pkg.resources.skills.length +
+			pkg.resources.prompts.length +
+			pkg.resources.themes.length,
+		0,
 	);
 
 	const load = useCallback(async () => {
 		setLoading(true);
+		setError(undefined);
 		try {
 			const next = await getPluginPackages();
 			setPackages(next);
 			setSelectedKey((current) =>
-				current === "add"
-					? current
-					: next.some((pkg) => `${pkg.scope}\0${pkg.source}` === current)
-						? current
-						: "add",
+				current === "add" || next.some((pkg) => packageKey(pkg) === current) ? current : "add",
 			);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
@@ -43,74 +80,87 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({ plugins, on
 			setLoading(false);
 		}
 	}, []);
+
+	useEffect(() => void load(), [load]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: 选中包变化时需要重新解除危险删除按钮。
+	useEffect(() => setRemoveArmed(false), [selectedKey]);
 	useEffect(() => {
-		void load();
-	}, [load]);
+		if (!removeArmed) return;
+		const timeout = window.setTimeout(() => setRemoveArmed(false), 4_000);
+		return () => window.clearTimeout(timeout);
+	}, [removeArmed]);
+
+	async function run(action: () => Promise<void>, successMessage: string): Promise<void> {
+		setBusy(true);
+		setError(undefined);
+		setSuccess(undefined);
+		try {
+			await action();
+			await load();
+			setSuccess(successMessage);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
+	}
 
 	async function handleInstall(): Promise<void> {
-		const source = installSource.trim();
+		const source = normalizeInstallSource(installSource);
 		if (!source) return;
-		setBusy(true);
-		setError(undefined);
-		try {
+		await run(async () => {
 			await installPlugin(source, installScope === "project");
 			setInstallSource("");
-			await load();
 			setSelectedKey(`${installScope}\0${source}`);
-		} catch (reason) {
-			setError(reason instanceof Error ? reason.message : String(reason));
-		} finally {
-			setBusy(false);
-		}
-	}
-	async function handleUpdate(pkg: InstalledPackage): Promise<void> {
-		setBusy(true);
-		setError(undefined);
-		try {
-			await installPlugin(pkg.source, pkg.scope === "project");
-			await load();
-		} catch (reason) {
-			setError(reason instanceof Error ? reason.message : String(reason));
-		} finally {
-			setBusy(false);
-		}
+		}, `已安装 ${source}`);
 	}
 
-	async function handleRemove(pkg: InstalledPackage): Promise<void> {
-		setBusy(true);
-		setError(undefined);
-		try {
-			await removePlugin(pkg.source, pkg.scope === "project");
-			setSelectedKey("add");
-			await load();
-		} catch (reason) {
-			setError(reason instanceof Error ? reason.message : String(reason));
-		} finally {
-			setBusy(false);
-		}
+	function renderPackageRow(pkg: DesktopPluginPackage) {
+		return (
+			<button
+				key={packageKey(pkg)}
+				className={`plugin-package-row ${selectedKey === packageKey(pkg) ? "is-active" : ""}`}
+				type="button"
+				title={pkg.source}
+				onClick={() => setSelectedKey(packageKey(pkg))}
+			>
+				<span className={`plugin-status-dot is-${pkg.status}`} />
+				<span className="plugin-package-copy">
+					<strong>{pkg.packageName ?? pkg.source.split("/").at(-1) ?? pkg.source}</strong>
+					<small>{pkg.source}</small>
+					<small>{resourceSummary(pkg)}</small>
+					<small>
+						{[pkg.version ? `v${pkg.version}` : undefined, STATUS_LABEL[pkg.status]].filter(Boolean).join(" · ")}
+					</small>
+				</span>
+			</button>
+		);
 	}
 
 	return (
-		<Modal title="插件" subtitle="项目与用户插件" className="resource-config-modal" onClose={onClose}>
+		<Modal
+			title="插件"
+			subtitle={workspacePath ?? "~/.pi/agent/plugins"}
+			className="resource-config-modal plugin-config-modal"
+			onClose={onClose}
+		>
 			<div className="resource-config-layout">
 				<aside className="resource-config-sidebar">
 					<div className="resource-config-scroll">
-						{loading ? (
-							<p className="modal-empty">正在加载插件…</p>
-						) : (
-							packages.map((pkg) => (
-								<button
-									key={`${pkg.scope}\0${pkg.source}`}
-									className={`resource-config-row ${selectedKey === `${pkg.scope}\0${pkg.source}` ? "is-active" : ""}`}
-									type="button"
-									onClick={() => setSelectedKey(`${pkg.scope}\0${pkg.source}`)}
-								>
-									<span className="resource-status-dot is-on" />
-									<span>{pkg.source}</span>
-									<small>{pkg.scope === "user" ? "用户" : "项目"}</small>
-								</button>
-							))
-						)}
+						{loading ? <p className="modal-empty">正在加载插件…</p> : null}
+						{projectPackages.length ? (
+							<>
+								<div className="settings-group-label">PROJECT</div>
+								{projectPackages.map(renderPackageRow)}
+							</>
+						) : null}
+						{userPackages.length ? (
+							<>
+								<div className="settings-group-label">GLOBAL</div>
+								{userPackages.map(renderPackageRow)}
+							</>
+						) : null}
+						{!loading && packages.length === 0 ? <p className="modal-empty">尚未安装插件。</p> : null}
 					</div>
 					<button
 						className={`resource-config-add ${selectedKey === "add" ? "is-active" : ""}`}
@@ -122,85 +172,186 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({ plugins, on
 				</aside>
 				<section className="resource-config-detail">
 					{selectedKey === "add" ? (
-						<div className="resource-add-panel">
-							<strong>安装插件</strong>
-							<p>支持 npm 包、Git URL 或本地路径。</p>
+						<div className="resource-add-panel plugin-add-panel">
+							<strong>添加插件</strong>
+							<p>支持 npm 包、Git URL、本地路径，也可直接粘贴 `pi install ...` 命令。</p>
+							<a
+								href="https://pi.dev/packages"
+								onClick={(event) => {
+									event.preventDefault();
+									void window.piDesktop.openExternalUrl("https://pi.dev/packages");
+								}}
+							>
+								浏览 pi.dev/packages
+							</a>
 							<label>
 								源
 								<input
+									className="mono"
 									value={installSource}
-									placeholder="npm:@scope/plugin 或 git:https://... 或 /path"
+									placeholder="@scope/plugin、git:https://… 或 /path"
 									onChange={(event) => setInstallSource(event.target.value)}
 								/>
 							</label>
-							<label>
-								范围
-								<select
-									value={installScope}
-									onChange={(event) => setInstallScope(event.target.value as "user" | "project")}
+							<div className="plugin-example-chips">
+								{[
+									"@mariozechner/pi-powerline",
+									"git:https://github.com/user/pi-extension",
+									"./extensions/local.ts",
+								].map((example) => (
+									<button type="button" key={example} onClick={() => setInstallSource(example)}>
+										{example}
+									</button>
+								))}
+							</div>
+							<div className="plugin-scope-picker">
+								<button
+									type="button"
+									className={installScope === "user" ? "is-active" : ""}
+									onClick={() => setInstallScope("user")}
 								>
-									<option value="user">用户</option>
-									<option value="project">项目</option>
-								</select>
-							</label>
+									全局
+								</button>
+								<button
+									type="button"
+									className={installScope === "project" ? "is-active" : ""}
+									disabled={!workspacePath}
+									onClick={() => setInstallScope("project")}
+								>
+									项目
+								</button>
+							</div>
 							<button
 								className="accent-button"
 								type="button"
-								disabled={!installSource.trim() || busy}
+								disabled={!normalizeInstallSource(installSource) || busy}
 								onClick={() => void handleInstall()}
 							>
-								{busy ? "处理中…" : "安装"}
+								{busy ? "安装中…" : "安装插件"}
 							</button>
 						</div>
 					) : selected ? (
-						<>
+						<div className="plugin-detail">
 							<div className="resource-detail-heading">
 								<div>
-									<strong>{selected.source}</strong>
-									<code>{selected.scope === "user" ? "用户范围" : "项目范围"}</code>
+									<span className={`resource-scope-tag ${selected.scope === "project" ? "is-project" : ""}`}>
+										{SCOPE_LABEL[selected.scope]}
+									</span>
+									<h3 className="resource-detail-name">{selected.packageName ?? selected.source}</h3>
 								</div>
-								<div className="resource-detail-actions">
-									<button
-										className="outline-button"
-										type="button"
+								<label className="plugin-toggle">
+									<input
+										type="checkbox"
+										checked={selected.enabled}
 										disabled={busy}
-										onClick={() => void handleUpdate(selected)}
-									>
-										更新 / 重载
-									</button>
-									<button
-										className="danger-button"
-										type="button"
-										disabled={busy}
-										onClick={() => void handleRemove(selected)}
-									>
-										移除
-									</button>
+										onChange={(event) =>
+											void run(
+												() =>
+													togglePlugin(
+														selected.source,
+														selected.scope === "project",
+														event.target.checked,
+													).then(() => undefined),
+												event.target.checked ? "插件已启用" : "插件已禁用",
+											)
+										}
+									/>
+									<span>{selected.enabled ? "启用" : "禁用"}</span>
+								</label>
+							</div>
+							<div className="resource-meta-grid">
+								<span>状态</span>
+								<strong className={`is-${selected.status}`}>{STATUS_LABEL[selected.status]}</strong>
+								<span>版本</span>
+								<strong>{selected.version ?? "—"}</strong>
+								<span>包名</span>
+								<strong className="is-mono">{selected.packageName ?? selected.source}</strong>
+								<span>安装路径</span>
+								<strong className={`is-mono ${selected.installedPath ? "" : "is-error"}`}>
+									{selected.installedPath ?? "安装路径缺失"}
+								</strong>
+								<span>CWD</span>
+								<strong className="is-mono">{workspacePath ?? "—"}</strong>
+							</div>
+							<div className="plugin-resource-browser">
+								{Object.entries(selected.resources).map(([kind, paths]) =>
+									paths.length ? (
+										<details key={kind} open>
+											<summary>
+												{kind.toUpperCase()} <span>{paths.length}</span>
+											</summary>
+											{paths.map((path) => (
+												<code key={path}>{path}</code>
+											))}
+										</details>
+									) : null,
+								)}
+							</div>
+							{selected.diagnostics.length ? (
+								<div className="plugin-diagnostics">
+									{selected.diagnostics.map((diagnostic, index) => (
+										<p className={`is-${diagnostic.type}`} key={`${diagnostic.message}-${index}`}>
+											{diagnostic.message}
+											{diagnostic.path ? <code>{diagnostic.path}</code> : null}
+										</p>
+									))}
 								</div>
+							) : null}
+							<div className="resource-detail-actions">
+								<button
+									className="outline-button"
+									type="button"
+									disabled={busy}
+									onClick={() =>
+										void run(
+											() =>
+												installPlugin(selected.source, selected.scope === "project").then(() => undefined),
+											"插件已更新并重载",
+										)
+									}
+								>
+									更新 / 重载
+								</button>
+								<button
+									className="danger-button"
+									type="button"
+									disabled={busy}
+									onClick={() => {
+										if (!removeArmed) {
+											setRemoveArmed(true);
+											return;
+										}
+										void run(async () => {
+											await removePlugin(selected.source, selected.scope === "project");
+											setSelectedKey("add");
+										}, "插件已移除");
+									}}
+								>
+									{removeArmed ? "再次点击确认移除" : "移除"}
+								</button>
 							</div>
-							<div className="resource-detail-card">
-								<span>已加载资源</span>
-								<p>
-									{plugins.find((plugin) =>
-										plugin.name.includes(selected.source.split("/").at(-1) ?? selected.source),
-									)?.commands.length ?? 0}{" "}
-									个斜杠命令
-								</p>
-							</div>
-						</>
+						</div>
 					) : (
 						<div className="settings-empty-state">选择一个插件查看详情</div>
 					)}
 				</section>
 			</div>
-			<footer className="models-footer">
-				{error ? (
-					<p className="sidebar-error">{error}</p>
-				) : (
-					<span>
-						{packages.length} 个已安装插件 · {plugins.length} 个已加载插件
-					</span>
-				)}
+			<footer className="models-footer plugin-footer">
+				<div>
+					{error ? (
+						<span className="is-error">{error}</span>
+					) : success ? (
+						<span className="is-success">{success}</span>
+					) : (
+						<span>
+							{packages.length} 个包 · {loadedResourceCount} 个资源 · {plugins.length} 个扩展
+						</span>
+					)}
+				</div>
+				{diagnosticCount ? <span className="plugin-diagnostic-count">{diagnosticCount} 条诊断</span> : null}
+				<button className="outline-button" type="button" disabled={loading} onClick={() => void load()}>
+					刷新
+				</button>
 				<button className="outline-button" type="button" onClick={onClose}>
 					关闭
 				</button>

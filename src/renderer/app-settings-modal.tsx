@@ -16,6 +16,22 @@ interface AppSettingsModalProps {
 	onClose: () => void;
 }
 
+const REPOSITORY = "Eileenes/pi-desktop";
+const RELEASES_URL = "https://github.com/Eileenes/pi-desktop/releases";
+
+function ChoiceButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) {
+	return (
+		<button
+			className={`choice-button ${active ? "is-active" : ""}`}
+			type="button"
+			aria-pressed={active}
+			onClick={onClick}
+		>
+			{children}
+		</button>
+	);
+}
+
 export const AppSettingsModal = memo(function AppSettingsModal({
 	theme,
 	language,
@@ -31,7 +47,6 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 		() => localStorage.getItem("pi-desktop-close-quits") === "on",
 	);
 	const [update, setUpdate] = useState<DesktopUpdateInfo>();
-	const [updateError, setUpdateError] = useState<string>();
 	const [checkingUpdate, setCheckingUpdate] = useState(true);
 	const [cssBusy, setCssBusy] = useState(false);
 	const [cssError, setCssError] = useState<string>();
@@ -42,9 +57,7 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 			.then((value) => {
 				if (active) setUpdate(value);
 			})
-			.catch((error: unknown) => {
-				if (active) setUpdateError(error instanceof Error ? error.message : String(error));
-			})
+			.catch(() => {})
 			.finally(() => {
 				if (active) setCheckingUpdate(false);
 			});
@@ -60,84 +73,68 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 		void setCloseQuits(next);
 	}
 
+	const versionText = checkingUpdate ? "正在检查更新…" : (update?.currentVersion ?? "…");
+	const latestText = update?.latestVersion ? `latest ${update.latestVersion}` : undefined;
+	const updateAvailable = update?.updateAvailable === true;
+
 	return (
-		<Modal title="Pi Desktop" className="app-settings-dialog" onClose={onClose}>
-			<div className="app-settings-intro">
-				<strong>Pi 桌面端设置</strong>
-				<p>配置界面外观、桌面行为和任务通知。</p>
-				<div className="settings-version-row">
-					<span>当前 v{update?.currentVersion ?? "…"}</span>
-					<span>
-						{checkingUpdate
-							? "正在检查更新…"
-							: updateError
-								? updateError
-								: update?.updateAvailable
-									? `最新 v${update.latestVersion}`
-									: "已是最新版本"}
-					</span>
-					{update?.updateAvailable ? (
-						<button
-							className="outline-button"
-							type="button"
-							onClick={() => void openExternalUrl(update.releaseUrl)}
-						>
-							查看版本
-						</button>
-					) : null}
-				</div>
+		<Modal title="Pi Desktop" subtitle="本地 AI 编码智能体" className="app-settings-dialog" onClose={onClose}>
+			<div className="settings-meta-row">
+				<button
+					className="settings-meta-chip"
+					type="button"
+					title="打开仓库主页"
+					onClick={() => void openExternalUrl(`https://github.com/${REPOSITORY}`)}
+				>
+					<span>仓库</span>
+					<span className="is-value">{REPOSITORY}</span>
+					<span aria-hidden="true">↗</span>
+				</button>
+				<button
+					className={`settings-meta-chip ${updateAvailable ? "is-emphasized" : ""}`}
+					type="button"
+					title={latestText ? `当前 ${versionText} · ${latestText}` : `当前版本 ${versionText}`}
+					onClick={() => void openExternalUrl(update?.releaseUrl ?? RELEASES_URL)}
+				>
+					<span>{updateAvailable ? `v${versionText} → v${update?.latestVersion}` : `版本 ${versionText}`}</span>
+					{updateAvailable ? <span aria-hidden="true">↗</span> : null}
+				</button>
+				{updateAvailable ? (
+					<button
+						className="accent-button"
+						type="button"
+						onClick={() => void openExternalUrl(update?.releaseUrl ?? RELEASES_URL)}
+					>
+						获取更新
+					</button>
+				) : null}
 			</div>
 			<div className="app-settings-cards">
 				<section className="app-settings-card">
 					<strong>语言</strong>
 					<p>选择应用界面使用的语言。</p>
 					<div className="choice-row">
-						<button
-							type="button"
-							className={`choice-button ${language === "zh-CN" ? "is-active" : ""}`}
-							aria-pressed={language === "zh-CN"}
-							onClick={() => onChangeLanguage("zh-CN")}
-						>
+						<ChoiceButton active={language === "zh-CN"} onClick={() => onChangeLanguage("zh-CN")}>
 							简体中文
-						</button>
-						<button
-							type="button"
-							className={`choice-button ${language === "en" ? "is-active" : ""}`}
-							aria-pressed={language === "en"}
-							onClick={() => onChangeLanguage("en")}
-						>
+						</ChoiceButton>
+						<ChoiceButton active={language === "en"} onClick={() => onChangeLanguage("en")}>
 							English
-						</button>
+						</ChoiceButton>
 					</div>
 				</section>
 				<section className="app-settings-card">
 					<strong>外观</strong>
 					<p>选择适合当前环境的显示主题。</p>
 					<div className="choice-row">
-						<button
-							type="button"
-							className={`choice-button ${theme === "system" ? "is-active" : ""}`}
-							aria-pressed={theme === "system"}
-							onClick={() => onChangeTheme("system")}
-						>
+						<ChoiceButton active={theme === "system"} onClick={() => onChangeTheme("system")}>
 							跟随系统
-						</button>
-						<button
-							type="button"
-							className={`choice-button ${theme === "light" ? "is-active" : ""}`}
-							aria-pressed={theme === "light"}
-							onClick={() => onChangeTheme("light")}
-						>
+						</ChoiceButton>
+						<ChoiceButton active={theme === "light"} onClick={() => onChangeTheme("light")}>
 							浅色
-						</button>
-						<button
-							type="button"
-							className={`choice-button ${theme === "dark" ? "is-active" : ""}`}
-							aria-pressed={theme === "dark"}
-							onClick={() => onChangeTheme("dark")}
-						>
+						</ChoiceButton>
+						<ChoiceButton active={theme === "dark"} onClick={() => onChangeTheme("dark")}>
 							深色
-						</button>
+						</ChoiceButton>
 					</div>
 					<div className="custom-css-row">
 						<span>
@@ -164,16 +161,9 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 					{cssError ? <p className="sidebar-error">{cssError}</p> : null}
 				</section>
 				<section className="app-settings-card">
-					<strong>桌面应用</strong>
-					<p>控制关闭窗口和后台任务的行为。</p>
+					<strong>提示</strong>
+					<p>任务完成后的桌面提醒行为。</p>
 					<div className="app-settings-options">
-						<label className="toggle-row">
-							<span>
-								<strong>关闭窗口时退出</strong>
-								<small>关闭窗口时退出应用；关闭后可通过桌面图标重新启动。</small>
-							</span>
-							<input type="checkbox" checked={closeQuits} onChange={handleToggleCloseQuits} />
-						</label>
 						<label className="toggle-row">
 							<span>
 								<strong>完成提示音</strong>
@@ -187,6 +177,19 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 								<small>窗口处于后台时，在任务完成后发送系统通知。</small>
 							</span>
 							<input type="checkbox" checked={notifyOnComplete} onChange={onToggleNotify} />
+						</label>
+					</div>
+				</section>
+				<section className="app-settings-card">
+					<strong>桌面应用</strong>
+					<p>控制关闭窗口和后台任务的行为。</p>
+					<div className="app-settings-options">
+						<label className="toggle-row">
+							<span>
+								<strong>关闭窗口时退出</strong>
+								<small>关闭窗口时退出应用；关闭后可通过桌面图标重新启动。</small>
+							</span>
+							<input type="checkbox" checked={closeQuits} onChange={handleToggleCloseQuits} />
 						</label>
 						<button className="outline-button settings-quit" type="button" onClick={() => void quitApp()}>
 							退出 Pi

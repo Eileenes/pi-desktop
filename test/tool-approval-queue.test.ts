@@ -36,6 +36,20 @@ describe("ToolApprovalQueue", () => {
 		expect(queue.resolve("approval-2", true)).toBe(false);
 	});
 
+	it("cancels only approvals owned by the disposed background session", async () => {
+		let sequence = 0;
+		const queue = new ToolApprovalQueue({ createId: () => `approval-${++sequence}` });
+		const first = queue.request({ toolCallId: "call-1", toolName: "read", input: {} }, "session-1");
+		const second = queue.request({ toolCallId: "call-2", toolName: "write", input: {} }, "session-2");
+
+		queue.cancelGroup("session-1");
+
+		await expect(first).resolves.toBe(false);
+		expect(queue.getPendingApprovals().map((approval) => approval.id)).toEqual(["approval-2"]);
+		expect(queue.resolve("approval-2", true)).toBe(true);
+		await expect(second).resolves.toBe(true);
+	});
+
 	it("denies approvals that outlive the approval window", async () => {
 		vi.useFakeTimers();
 		try {

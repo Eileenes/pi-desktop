@@ -18,8 +18,16 @@ export interface DesktopTranscriptMessage {
 	exitCode?: number;
 	cancelled?: boolean;
 	truncated?: boolean;
+	fullOutputAvailable?: boolean;
 	forkEntryId?: string;
 	timestamp?: number;
+	usage?: {
+		input: number;
+		output: number;
+		cacheRead: number;
+		cacheWrite: number;
+		cost: number;
+	};
 }
 
 export type DesktopThinkingLevel = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -39,6 +47,17 @@ export interface DesktopSessionSnapshot {
 	thinkingLevel?: DesktopThinkingLevel;
 	availableThinkingLevels?: DesktopThinkingLevel[];
 	isCompacting?: boolean;
+	autoRetry?: {
+		attempt: number;
+		maxAttempts: number;
+		errorMessage: string;
+	};
+	lastCompaction?: {
+		tokensBefore: number;
+		tokensAfter?: number;
+		reason: string;
+	};
+	runningTools?: string[];
 	systemPrompt?: string;
 	messages: DesktopTranscriptMessage[];
 }
@@ -52,6 +71,8 @@ export interface DesktopSessionInfo {
 	modified: number;
 	messageCount: number;
 	firstMessage: string;
+	parentSessionPath?: string;
+	phase?: DesktopSessionPhase;
 }
 
 export interface DesktopToolApproval {
@@ -86,9 +107,62 @@ export interface DesktopSkill {
 	disableModelInvocation: boolean;
 }
 
+export interface DesktopSkillInstallInfo {
+	package: string;
+	scope: "global" | "project";
+	source: string;
+	sourceType?: string;
+	skillsShUrl?: string;
+	skillPath?: string;
+	ref?: string;
+	versionHash?: string;
+	canCheckForUpdates: boolean;
+}
+
+export interface DesktopSkillInfo {
+	name: string;
+	description: string;
+	filePath: string;
+	disableModelInvocation: boolean;
+	scope: "global" | "project";
+	install?: DesktopSkillInstallInfo;
+}
+
+export interface DesktopSkillSearchResult {
+	package: string;
+	installs: string;
+	url: string;
+}
+
+export interface DesktopSkillUpdateResult {
+	package: string;
+	scope: "global" | "project";
+	state: "up-to-date" | "update-available" | "unsupported" | "error";
+	currentVersion?: string;
+	latestVersion?: string;
+	message?: string;
+}
+
 export interface DesktopPlugin {
 	name: string;
 	commands: string[];
+}
+
+export interface DesktopPluginPackage {
+	source: string;
+	scope: "user" | "project";
+	status: "disabled" | "error" | "installed" | "loaded";
+	enabled: boolean;
+	installedPath?: string;
+	packageName?: string;
+	version?: string;
+	resources: {
+		extensions: string[];
+		skills: string[];
+		prompts: string[];
+		themes: string[];
+	};
+	diagnostics: Array<{ type: "error" | "warning"; message: string; path?: string }>;
 }
 
 export interface DesktopImageAttachment {
@@ -125,6 +199,12 @@ export interface DesktopWorkspaceFilePreview {
 	imageDataUrl?: string;
 	/** 音频文件的数据 URL（仅音频文件存在）。 */
 	audioDataUrl?: string;
+	/** PDF 文件的数据 URL（仅 PDF 文件存在）。 */
+	pdfDataUrl?: string;
+	/** DOCX 渲染后的安全 HTML（仅 DOCX 文件存在）。 */
+	docxHtml?: string;
+	/** 二进制文件原始数据 URL，用于保存原文件。 */
+	binaryDataUrl?: string;
 }
 
 export interface DesktopSessionStats {
@@ -153,6 +233,9 @@ export interface DesktopSnapshot {
 	workspacePath?: string;
 	projectTrusted: boolean;
 	userHomeName?: string;
+	extensionStatuses?: DesktopExtensionStatus[];
+	extensionWidgets?: DesktopExtensionWidget[];
+	extensionEditorRequest?: DesktopExtensionEditorRequest;
 	pendingToolApprovals: DesktopToolApproval[];
 	pendingAuthenticationPrompts: DesktopAuthenticationPrompt[];
 	apiKeyProviders: DesktopApiKeyProvider[];
@@ -184,6 +267,8 @@ export interface DesktopGitWorktree {
 
 export interface DesktopProviderModelConfig {
 	id: string;
+	/** Original models.json key used by the main process for lossless renames. */
+	sourceId?: string;
 	name?: string;
 	api?: string;
 	reasoning?: boolean;
@@ -195,6 +280,8 @@ export interface DesktopProviderModelConfig {
 
 export interface DesktopProviderConfig {
 	id: string;
+	/** Original models.json key used by the main process for lossless renames. */
+	sourceId?: string;
 	name?: string;
 	baseUrl?: string;
 	apiKey?: string;
@@ -220,6 +307,10 @@ export interface DesktopToggleSkillInput {
 export interface DesktopPluginSourceInput {
 	source: string;
 	local: boolean;
+}
+
+export interface DesktopTogglePluginInput extends DesktopPluginSourceInput {
+	enabled: boolean;
 }
 
 export interface DesktopGitDiffInput {
@@ -250,6 +341,20 @@ export interface DesktopOpenSessionInput {
 
 export interface DesktopNavigateTreeInput {
 	entryId: string;
+}
+
+export interface DesktopRenameSessionInput {
+	sessionPath: string;
+	name: string;
+}
+
+export interface DesktopNotificationInput {
+	sessionName?: string;
+	force?: boolean;
+}
+
+export interface DesktopDeleteSessionInput {
+	sessionPath: string;
 }
 
 export interface DesktopProjectTrustInput {
@@ -296,8 +401,62 @@ export interface DesktopAuthenticationPromptResponseInput {
 	response: string;
 }
 
+export type DesktopExtensionDialog =
+	| { kind: "select"; id: string; title: string; options: string[] }
+	| { kind: "confirm"; id: string; title: string; message: string }
+	| { kind: "input"; id: string; title: string; placeholder?: string }
+	| { kind: "editor"; id: string; title: string; prefill?: string };
+
+export interface DesktopExtensionWidget {
+	key: string;
+	lines: string[];
+	placement: "aboveEditor" | "belowEditor";
+}
+
+export interface DesktopExtensionEditorRequest {
+	id: number;
+	text: string;
+	mode: "insert" | "replace";
+}
+
+export type DesktopExtensionUiEvent =
+	| { type: "dialog"; sessionId: string; dialog: DesktopExtensionDialog }
+	| { type: "dialogClosed"; sessionId: string; id: string }
+	| { type: "custom"; sessionId: string; id: string; lines: string[]; closed?: boolean };
+
+export interface DesktopExtensionDialogResponseInput {
+	id: string;
+	value: string;
+}
+
+export interface DesktopExtensionCustomInput {
+	id: string;
+	data: string;
+}
+
+export type DesktopExtensionUiListener = (event: DesktopExtensionUiEvent) => void;
+
+export interface DesktopExtensionStatus {
+	key: string;
+	text: string;
+}
+
+export interface DesktopWorkspaceChange {
+	path: string;
+}
+
 export interface DesktopWorkspaceFileInput {
 	path: string;
+}
+
+export interface DesktopBashOutputInput {
+	messageId: string;
+}
+
+export interface DesktopImportedFileResult {
+	name: string;
+	conflict?: boolean;
+	error?: string;
 }
 
 export type DesktopSnapshotListener = (snapshot: DesktopSnapshot) => void;
@@ -308,6 +467,7 @@ export interface DesktopApi {
 	chooseWorkspace(): Promise<DesktopSnapshot>;
 	chooseImages(): Promise<DesktopImageAttachment[]>;
 	attachDroppedImages(files: File[]): Promise<DesktopImageAttachment[]>;
+	importDroppedFiles(files: File[], overwriteConflicts?: boolean): Promise<DesktopImportedFileResult[]>;
 	prompt(input: DesktopPromptInput): Promise<DesktopSnapshot>;
 	abort(): Promise<DesktopSnapshot>;
 	openSession(input: DesktopOpenSessionInput): Promise<DesktopSnapshot>;
@@ -316,20 +476,32 @@ export interface DesktopApi {
 	forkSession(): Promise<DesktopSnapshot>;
 	autoNameSession(): Promise<DesktopSnapshot>;
 	exportSession(): Promise<string>;
+	renameSession(input: DesktopRenameSessionInput): Promise<DesktopSnapshot>;
+	deleteSession(input: DesktopDeleteSessionInput): Promise<DesktopSnapshot>;
+	executeBashCommand(command: string, excludeFromContext: boolean): Promise<string>;
+	readFullBashOutput(input: DesktopBashOutputInput): Promise<string>;
+	saveFullBashOutput(input: DesktopBashOutputInput): Promise<string>;
+	copyLastAnswer(): Promise<string>;
 	setModel(input: DesktopModelSelectionInput): Promise<DesktopSnapshot>;
 	setThinkingLevel(level: DesktopThinkingLevel): Promise<DesktopSnapshot>;
-	compact(): Promise<DesktopSnapshot>;
+	compact(customInstructions?: string): Promise<DesktopSnapshot>;
 	setProjectTrust(input: DesktopProjectTrustInput): Promise<DesktopSnapshot>;
 	decideToolApproval(input: DesktopToolApprovalDecisionInput): Promise<DesktopSnapshot>;
 	startProviderSetup(input: DesktopProviderSetupInput): Promise<DesktopSnapshot>;
 	logoutProvider(input: DesktopProviderLogoutInput): Promise<DesktopSnapshot>;
 	respondToAuthenticationPrompt(input: DesktopAuthenticationPromptResponseInput): Promise<DesktopSnapshot>;
 	listWorkspaceFiles(): Promise<DesktopWorkspaceEntry[]>;
+	searchWorkspaceFiles(query: string): Promise<DesktopWorkspaceEntry[]>;
 	readWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<DesktopWorkspaceFilePreview>;
 	openWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<void>;
 	revealWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<void>;
+	saveWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<string>;
+	respondToExtensionDialog(input: DesktopExtensionDialogResponseInput): Promise<void>;
+	sendExtensionCustomInput(input: DesktopExtensionCustomInput): Promise<void>;
+	onExtensionUi(listener: DesktopExtensionUiListener): Unsubscribe;
+	onWorkspaceChanged(listener: (changes: DesktopWorkspaceChange[]) => void): Unsubscribe;
 	openExternalUrl(url: string): Promise<void>;
-	notifyComplete(): Promise<void>;
+	notifyComplete(input?: DesktopNotificationInput): Promise<void>;
 	listGitChanges(): Promise<DesktopGitChange[]>;
 	getGitDiff(input: DesktopGitDiffInput): Promise<string>;
 	listGitWorktrees(): Promise<DesktopGitWorktree[]>;
@@ -341,13 +513,20 @@ export interface DesktopApi {
 	getModelsConfig(): Promise<DesktopProviderConfig[]>;
 	saveModelsConfig(input: DesktopSaveModelsConfigInput): Promise<DesktopSnapshot>;
 	discoverModels(input: DesktopDiscoverModelsInput): Promise<Array<{ id: string }>>;
+	lookupModelCatalog(input: { providerId: string; modelId: string }): Promise<DesktopProviderModelConfig | undefined>;
 	testModel(input: DesktopModelTestInput): Promise<DesktopModelTestResult>;
 	openCustomCss(): Promise<string>;
 	checkForUpdates(): Promise<DesktopUpdateInfo>;
 	toggleSkill(input: DesktopToggleSkillInput): Promise<DesktopSnapshot>;
 	installPlugin(input: DesktopPluginSourceInput): Promise<DesktopSnapshot>;
 	removePlugin(input: DesktopPluginSourceInput): Promise<DesktopSnapshot>;
-	getPluginPackages(): Promise<Array<{ source: string; scope: "user" | "project" }>>;
+	togglePlugin(input: DesktopTogglePluginInput): Promise<DesktopSnapshot>;
+	getPluginPackages(): Promise<DesktopPluginPackage[]>;
+	listSkillsDetailed(): Promise<DesktopSkillInfo[]>;
+	searchSkills(query: string): Promise<DesktopSkillSearchResult[]>;
+	installSkill(pkg: string, scope: "global" | "project"): Promise<DesktopSnapshot>;
+	checkSkillUpdates(target?: { pkg: string; scope: "global" | "project" }): Promise<DesktopSkillUpdateResult[]>;
+	updateSkill(pkg: string, scope: "global" | "project"): Promise<string>;
 	onSnapshot(listener: DesktopSnapshotListener): Unsubscribe;
 }
 
@@ -377,7 +556,7 @@ export function isDesktopPromptInput(value: unknown): value is DesktopPromptInpu
 	if (input.attachmentIds === undefined) return true;
 	return (
 		Array.isArray(input.attachmentIds) &&
-		input.attachmentIds.length <= 5 &&
+		input.attachmentIds.length <= 10 &&
 		input.attachmentIds.every((id) => typeof id === "string" && id.length > 0 && id.length <= 200)
 	);
 }
@@ -477,14 +656,16 @@ export function isDesktopPluginSourceInput(value: unknown): value is DesktopPlug
 }
 
 export function isDesktopSaveModelsConfigInput(value: unknown): value is DesktopSaveModelsConfigInput {
-	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	if (!isExactRecord(value, ["providers"])) return false;
 	const input = value as Record<string, unknown>;
 	if (!Array.isArray(input.providers) || input.providers.length > 500) return false;
-	return input.providers.every((provider) => {
-		if (typeof provider !== "object" || provider === null || Array.isArray(provider)) return false;
-		const record = provider as Record<string, unknown>;
-		return typeof record.id === "string" && record.id.length > 0 && record.id.length <= 200;
-	});
+	const ids = new Set<string>();
+	for (const provider of input.providers) {
+		if (!isDesktopProviderConfig(provider)) return false;
+		if (ids.has(provider.id)) return false;
+		ids.add(provider.id);
+	}
+	return true;
 }
 
 export function isDesktopModelSelectionInput(value: unknown): value is DesktopModelSelectionInput {
@@ -533,23 +714,42 @@ export function isDesktopProviderLogoutInput(value: unknown): value is DesktopPr
 
 export function isDesktopModelTestInput(value: unknown): value is DesktopModelTestInput {
 	if (!isExactRecord(value, ["provider", "model"])) return false;
-	if (typeof value.provider !== "object" || value.provider === null || Array.isArray(value.provider)) return false;
-	if (typeof value.model !== "object" || value.model === null || Array.isArray(value.model)) return false;
-	const provider = value.provider as Record<string, unknown>;
-	const model = value.model as Record<string, unknown>;
-	const providerKeys = ["id", "name", "baseUrl", "apiKey", "api"];
-	const modelKeys = ["id", "name", "api", "reasoning", "input", "contextWindow", "maxTokens", "cost"];
+	return isDesktopProviderConfig(value.provider) && isDesktopProviderModelConfig(value.model);
+}
+
+function isDesktopProviderConfig(value: unknown): value is DesktopProviderConfig {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	const provider = value as Record<string, unknown>;
+	const providerKeys = ["id", "sourceId", "name", "baseUrl", "apiKey", "api", "models"];
 	if (!Object.keys(provider).every((key) => providerKeys.includes(key))) return false;
-	if (!Object.keys(model).every((key) => modelKeys.includes(key))) return false;
 	if (typeof provider.id !== "string" || provider.id.length === 0 || provider.id.length > 200) return false;
+	if (provider.sourceId !== undefined && (typeof provider.sourceId !== "string" || provider.sourceId.length > 200))
+		return false;
 	if (provider.name !== undefined && (typeof provider.name !== "string" || provider.name.length > 500)) return false;
 	if (provider.baseUrl !== undefined && (typeof provider.baseUrl !== "string" || provider.baseUrl.length > 2000))
 		return false;
 	if (provider.apiKey !== undefined && (typeof provider.apiKey !== "string" || provider.apiKey.length > 2000))
 		return false;
 	if (provider.api !== undefined && (typeof provider.api !== "string" || provider.api.length > 200)) return false;
-	if (provider.models !== undefined && (!Array.isArray(provider.models) || provider.models.length > 500)) return false;
+	if (provider.models === undefined) return true;
+	if (!Array.isArray(provider.models) || provider.models.length > 500) return false;
+	const ids = new Set<string>();
+	for (const model of provider.models) {
+		if (!isDesktopProviderModelConfig(model)) return false;
+		if (ids.has(model.id)) return false;
+		ids.add(model.id);
+	}
+	return true;
+}
+
+function isDesktopProviderModelConfig(value: unknown): value is DesktopProviderModelConfig {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	const model = value as Record<string, unknown>;
+	const modelKeys = ["id", "sourceId", "name", "api", "reasoning", "input", "contextWindow", "maxTokens", "cost"];
+	if (!Object.keys(model).every((key) => modelKeys.includes(key))) return false;
 	if (typeof model.id !== "string" || model.id.length === 0 || model.id.length > 500) return false;
+	if (model.sourceId !== undefined && (typeof model.sourceId !== "string" || model.sourceId.length > 500))
+		return false;
 	if (model.name !== undefined && (typeof model.name !== "string" || model.name.length > 500)) return false;
 	if (model.api !== undefined && (typeof model.api !== "string" || model.api.length > 200)) return false;
 	if (model.reasoning !== undefined && typeof model.reasoning !== "boolean") return false;

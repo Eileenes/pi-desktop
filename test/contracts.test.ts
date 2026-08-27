@@ -8,6 +8,7 @@ import {
 	isDesktopPromptInput,
 	isDesktopProviderSetupInput,
 	isDesktopRemoveWorktreeInput,
+	isDesktopSaveModelsConfigInput,
 	isDesktopToolApprovalDecisionInput,
 	isDesktopWorkspaceFileInput,
 } from "../src/shared/contracts.ts";
@@ -23,12 +24,36 @@ describe("isDesktopPromptInput", () => {
 	it("rejects extra or invalid fields", () => {
 		expect(isDesktopPromptInput({ text: "Inspect this project", cwd: "/tmp" })).toBe(false);
 		expect(isDesktopPromptInput({ text: "Inspect", attachmentIds: [42] })).toBe(false);
-		expect(isDesktopPromptInput({ text: "Inspect", attachmentIds: Array.from({ length: 6 }, () => "image") })).toBe(
+		expect(isDesktopPromptInput({ text: "Inspect", attachmentIds: Array.from({ length: 11 }, () => "image") })).toBe(
 			false,
 		);
 		expect(isDesktopPromptInput({ text: "Inspect", streamingBehavior: "queue" })).toBe(false);
 		expect(isDesktopPromptInput({ text: 42 })).toBe(false);
 		expect(isDesktopPromptInput(null)).toBe(false);
+	});
+});
+
+describe("isDesktopSaveModelsConfigInput", () => {
+	it("accepts bounded editable providers with lossless source ids", () => {
+		expect(
+			isDesktopSaveModelsConfigInput({
+				providers: [
+					{
+						id: "renamed-provider",
+						sourceId: "original-provider",
+						models: [{ id: "renamed-model", sourceId: "original-model", maxTokens: 1024 }],
+					},
+				],
+			}),
+		).toBe(true);
+	});
+
+	it("rejects duplicate ids, unknown fields, and malformed nested models", () => {
+		expect(isDesktopSaveModelsConfigInput({ providers: [{ id: "same" }, { id: "same" }] })).toBe(false);
+		expect(isDesktopSaveModelsConfigInput({ providers: [{ id: "provider", secret: "unexpected" }] })).toBe(false);
+		expect(
+			isDesktopSaveModelsConfigInput({ providers: [{ id: "provider", models: [{ id: "model", maxTokens: 0 }] }] }),
+		).toBe(false);
 	});
 });
 
@@ -95,7 +120,12 @@ describe("isDesktopProviderSetupInput", () => {
 
 describe("isDesktopModelTestInput", () => {
 	it("requires a bounded provider and valid model configuration", () => {
-		expect(isDesktopModelTestInput({ provider: { id: "custom" }, model: { id: "model", maxTokens: 16 } })).toBe(true);
+		expect(
+			isDesktopModelTestInput({
+				provider: { id: "custom", sourceId: "custom-old", models: [] },
+				model: { id: "model", sourceId: "model-old", maxTokens: 16 },
+			}),
+		).toBe(true);
 		expect(isDesktopModelTestInput({ provider: { id: "custom" }, model: { id: "" } })).toBe(false);
 		expect(
 			isDesktopModelTestInput({ provider: { id: "custom", secret: "unexpected" }, model: { id: "model" } }),

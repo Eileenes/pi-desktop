@@ -3,6 +3,7 @@ import type { DesktopToolApproval } from "../shared/contracts.ts";
 
 interface PendingToolApproval {
 	approval: DesktopToolApproval;
+	groupKey: string | undefined;
 	resolve: (approved: boolean) => void;
 	timeout: ReturnType<typeof setTimeout>;
 }
@@ -32,7 +33,7 @@ export class ToolApprovalQueue {
 		return Array.from(this.pending.values(), (pending) => pending.approval);
 	}
 
-	request(input: Omit<DesktopToolApproval, "id" | "requestedAt">): Promise<boolean> {
+	request(input: Omit<DesktopToolApproval, "id" | "requestedAt">, groupKey?: string): Promise<boolean> {
 		const approval: DesktopToolApproval = {
 			...input,
 			id: this.createId(),
@@ -41,7 +42,7 @@ export class ToolApprovalQueue {
 
 		return new Promise((resolve) => {
 			const timeout = setTimeout(() => this.resolve(approval.id, false), this.timeoutMs);
-			this.pending.set(approval.id, { approval, resolve, timeout });
+			this.pending.set(approval.id, { approval, groupKey, resolve, timeout });
 			this.onChange?.();
 		});
 	}
@@ -58,11 +59,19 @@ export class ToolApprovalQueue {
 	}
 
 	cancelAll(): void {
-		if (this.pending.size === 0) return;
+		this.cancelWhere(() => true);
+	}
 
-		const pendingApprovals = Array.from(this.pending.values());
-		this.pending.clear();
-		for (const pending of pendingApprovals) {
+	cancelGroup(groupKey: string): void {
+		this.cancelWhere((pending) => pending.groupKey === groupKey);
+	}
+
+	private cancelWhere(predicate: (pending: PendingToolApproval) => boolean): void {
+		const pendingApprovals = Array.from(this.pending.entries()).filter(([, pending]) => predicate(pending));
+		if (pendingApprovals.length === 0) return;
+
+		for (const [id, pending] of pendingApprovals) {
+			this.pending.delete(id);
 			clearTimeout(pending.timeout);
 			pending.resolve(false);
 		}

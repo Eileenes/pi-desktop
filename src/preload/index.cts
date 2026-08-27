@@ -12,6 +12,7 @@ import type {
 	DesktopGitWorktree,
 	DesktopImageAttachment,
 	DesktopModelSelectionInput,
+	DesktopModelScope,
 	DesktopModelTestInput,
 	DesktopModelTestResult,
 	DesktopNavigateTreeInput,
@@ -60,10 +61,11 @@ const desktopApi: DesktopApi = {
 	restoreImageAttachments: (input: DesktopRestoreImageAttachmentsInput) =>
 		ipcRenderer.invoke("pi-desktop:restore-image-attachments", input) as Promise<DesktopImageAttachment[]>,
 	discardImageAttachment: (id: string) => ipcRenderer.invoke("pi-desktop:discard-image-attachment", id) as Promise<void>,
-	importDroppedFiles: (files: File[], overwriteConflicts = false) =>
+	importDroppedFiles: (files: File[], overwriteConflicts = false, targetDirectory?: string) =>
 		ipcRenderer.invoke("pi-desktop:import-dropped-files", {
 			paths: files.map((file) => webUtils.getPathForFile(file)),
 			overwriteConflicts,
+			...(targetDirectory ? { targetDirectory } : {}),
 		}),
 	prompt: (input: DesktopPromptInput) => ipcRenderer.invoke("pi-desktop:prompt", input) as Promise<DesktopSnapshot>,
 	abort: () => ipcRenderer.invoke("pi-desktop:abort") as Promise<DesktopSnapshot>,
@@ -135,6 +137,9 @@ const desktopApi: DesktopApi = {
 	getModelsConfig: () => ipcRenderer.invoke("pi-desktop:get-models-config") as Promise<DesktopProviderConfig[]>,
 	saveModelsConfig: (input: DesktopSaveModelsConfigInput) =>
 		ipcRenderer.invoke("pi-desktop:save-models-config", input) as Promise<DesktopSnapshot>,
+	getModelScope: () => ipcRenderer.invoke("pi-desktop:get-model-scope") as Promise<DesktopModelScope>,
+	saveModelScope: (patterns: string[]) =>
+		ipcRenderer.invoke("pi-desktop:save-model-scope", { patterns }) as Promise<DesktopModelScope>,
 	discoverModels: (input: DesktopDiscoverModelsInput) =>
 		ipcRenderer.invoke("pi-desktop:discover-models", input) as Promise<Array<{ id: string }>>,
 	lookupModelCatalog: (input: { providerId: string; modelId: string }) =>

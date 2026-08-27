@@ -442,16 +442,29 @@ function registerIpc(): void {
 		if (!host.getSnapshot().projectTrusted) {
 			throw new Error("请先信任当前项目，再导入文件。");
 		}
+		if (typeof value !== "object" || value === null || Array.isArray(value)) {
+			throw new Error("无效的拖放文件请求。");
+		}
+		const importInput = value as { paths?: unknown; overwriteConflicts?: unknown; targetDirectory?: unknown };
 		if (
-			!isExactRecord(value, ["paths", "overwriteConflicts"]) ||
-			!Array.isArray(value.paths) ||
-			value.paths.length > 20 ||
-			!value.paths.every((path) => typeof path === "string" && path.length > 0 && path.length <= 4000) ||
-			typeof value.overwriteConflicts !== "boolean"
+			!Object.keys(importInput).every(
+				(key) => key === "paths" || key === "overwriteConflicts" || key === "targetDirectory",
+			) ||
+			!Array.isArray(importInput.paths) ||
+			importInput.paths.length > 20 ||
+			!importInput.paths.every((path) => typeof path === "string" && path.length > 0 && path.length <= 4000) ||
+			typeof importInput.overwriteConflicts !== "boolean" ||
+			(importInput.targetDirectory !== undefined &&
+				(typeof importInput.targetDirectory !== "string" || importInput.targetDirectory.length > 2000))
 		) {
 			throw new Error("无效的拖放文件请求。");
 		}
-		return importDroppedFiles(host.requireWorkspacePath(), value.paths as string[], value.overwriteConflicts);
+		return importDroppedFiles(
+			host.requireWorkspacePath(),
+			importInput.paths as string[],
+			importInput.overwriteConflicts,
+			typeof importInput.targetDirectory === "string" ? importInput.targetDirectory : "",
+		);
 	});
 	ipcMain.handle("pi-desktop:prompt", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
@@ -849,6 +862,24 @@ function registerIpc(): void {
 			throw new Error("无效的模型配置。");
 		}
 		return getHost().saveModelsConfig(value.providers);
+	});
+	ipcMain.handle("pi-desktop:get-model-scope", async (event) => {
+		assertMainWindowSender(event);
+		return getHost().getModelScope();
+	});
+	ipcMain.handle("pi-desktop:save-model-scope", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (
+			!isExactRecord(value, ["patterns"]) ||
+			!Array.isArray(value.patterns) ||
+			value.patterns.length > 100 ||
+			!value.patterns.every(
+				(pattern) => typeof pattern === "string" && pattern.trim().length > 0 && pattern.length <= 500,
+			)
+		) {
+			throw new Error("无效的可用模型范围。");
+		}
+		return getHost().saveModelScope(value.patterns);
 	});
 	ipcMain.handle("pi-desktop:discover-models", async (event, value: unknown) => {
 		assertMainWindowSender(event);

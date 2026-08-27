@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 export type SecurityAuditEvent =
 	| "credential.configure"
 	| "credential.logout"
+	| "models.scope"
 	| "plugin.install"
 	| "plugin.remove"
 	| "plugin.toggle"

@@ -9,6 +9,7 @@ import {
 	DefaultResourceLoader,
 	ModelRuntime,
 	type PackageSource,
+	resolveModelScopeWithDiagnostics,
 	SessionManager,
 	SettingsManager,
 	Theme,
@@ -26,6 +27,7 @@ import type {
 	DesktopGitChange,
 	DesktopGitWorktree,
 	DesktopModel,
+	DesktopModelScope,
 	DesktopModelTestResult,
 	DesktopPlugin,
 	DesktopPluginPackage,
@@ -661,10 +663,13 @@ export class DesktopAgentHost {
 			],
 		});
 		await resourceLoader.reload();
+		const modelRuntime = await modelRuntimePromise;
+		const modelScope = await this.resolveModelScope(settingsManager, modelRuntime);
 		const created = await createAgentSession({
 			cwd: options.cwd,
 			agentDir: this.agentDir,
-			modelRuntime: await modelRuntimePromise,
+			modelRuntime,
+			...(modelScope.scopedModels.length ? { scopedModels: modelScope.scopedModels } : {}),
 			...(options.projectTrusted ? { tools: [...DESKTOP_TOOL_NAMES] } : { noTools: "all" }),
 			resourceLoader,
 			settingsManager,
@@ -1064,7 +1069,10 @@ export class DesktopAgentHost {
 		if (this.session.isStreaming) throw new Error("请等待当前智能体任务完成后，再切换模型。");
 
 		const modelRuntime = await this.getModelRuntime();
-		const model = modelRuntime.getAvailableSnapshot().find((candidate) => {
+		const selectableModels = this.session.scopedModels.length
+			? this.session.scopedModels.map((scoped) => scoped.model)
+			: modelRuntime.getAvailableSnapshot();
+		const model = selectableModels.find((candidate) => {
 			return candidate.provider === providerId && candidate.id === modelId;
 		});
 		if (!model) throw new Error("该模型不可用。请先检查服务商认证信息。");
@@ -1424,6 +1432,40 @@ export class DesktopAgentHost {
 						})),
 					}),
 		}));
+	}
+
+	async getModelScope(): Promise<DesktopModelScope> {
+		const settingsManager = this.settingsManager ?? SettingsManager.create(this.agentDir, this.agentDir);
+		const scope = await this.resolveModelScope(settingsManager, await this.getModelRuntime());
+		return { patterns: settingsManager.getEnabledModels() ?? [], warnings: scope.warnings };
+	}
+
+	async saveModelScope(patterns: string[]): Promise<DesktopModelScope> {
+		if (this.hasStreamingSession()) {
+			throw new Error("请等待当前智能体任务完成后，再保存可用模型范围。");
+		}
+		const settingsManager = this.settingsManager ?? SettingsManager.create(this.agentDir, this.agentDir);
+		settingsManager.setEnabledModels(patterns.length ? patterns : undefined);
+		await settingsManager.flush();
+		const modelRuntime = await this.getModelRuntime();
+		for (const managed of this.managedSessions.values()) {
+			if (managed.settingsManager !== settingsManager) await managed.settingsManager.reload();
+			const scope = await this.resolveModelScope(managed.settingsManager, modelRuntime);
+			managed.session.setScopedModels(scope.scopedModels);
+			const currentModel = managed.session.model;
+			if (
+				scope.scopedModels.length > 0 &&
+				currentModel &&
+				!scope.scopedModels.some(
+					(scoped) => scoped.model.provider === currentModel.provider && scoped.model.id === currentModel.id,
+				)
+			) {
+				await managed.session.setModel(scope.scopedModels[0].model, { persist: true });
+			}
+		}
+		this.auditLog.write("models.scope", "succeeded", { patternCount: patterns.length });
+		this.publish();
+		return this.getModelScope();
 	}
 
 	async saveModelsConfig(providers: DesktopProviderConfig[]): Promise<DesktopSnapshot> {
@@ -2131,8 +2173,10 @@ export class DesktopAgentHost {
 
 	private getAvailableModels(): DesktopModel[] {
 		if (!this.modelRuntime) return [];
-		return this.modelRuntime
-			.getAvailableSnapshot()
+		const models = this.session?.scopedModels.length
+			? this.session.scopedModels.map((scoped) => scoped.model)
+			: this.modelRuntime.getAvailableSnapshot();
+		return models
 			.map((model) => ({
 				provider: model.provider,
 				id: model.id,
@@ -2143,6 +2187,26 @@ export class DesktopAgentHost {
 				const providerOrder = left.provider.localeCompare(right.provider);
 				return providerOrder === 0 ? left.name.localeCompare(right.name) : providerOrder;
 			});
+	}
+
+	private async resolveModelScope(
+		settingsManager: SettingsManager,
+		modelRuntime: ModelRuntime,
+	): Promise<{
+		scopedModels: Array<AgentSession["scopedModels"][number]>;
+		warnings: string[];
+	}> {
+		const patterns =
+			settingsManager
+				.getEnabledModels()
+				?.map((pattern) => pattern.trim())
+				.filter(Boolean) ?? [];
+		if (patterns.length === 0) return { scopedModels: [], warnings: [] };
+		const resolved = await resolveModelScopeWithDiagnostics(patterns, modelRuntime);
+		return {
+			scopedModels: resolved.scopedModels,
+			warnings: resolved.diagnostics.map((diagnostic) => diagnostic.message),
+		};
 	}
 
 	private getSkills(): DesktopSkillInfo[] {

@@ -8,10 +8,12 @@ import type {
 } from "../shared/contracts.ts";
 import {
 	discoverModels,
+	getModelScope,
 	getModelsConfig,
 	logoutProvider,
 	lookupModelCatalog,
 	openExternalUrl,
+	saveModelScope,
 	saveModelsConfig,
 	testModel,
 } from "./desktop-store.ts";
@@ -40,7 +42,8 @@ interface ModelsConfigModalProps {
 type Selection =
 	| { type: "managed"; providerId: string }
 	| { type: "provider"; providerId: string }
-	| { type: "model"; providerId: string; modelIndex: number };
+	| { type: "model"; providerId: string; modelIndex: number }
+	| { type: "scope" };
 
 type DiscoveryState =
 	| { phase: "idle" }
@@ -271,11 +274,17 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	});
 	const [catalogUndo, setCatalogUndo] = useState<DesktopProviderModelConfig>();
 	const [showProviderApiKey, setShowProviderApiKey] = useState(false);
+	const [modelScopeText, setModelScopeText] = useState("");
+	const [savedModelScopeText, setSavedModelScopeText] = useState("");
+	const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>([]);
+	const [modelScopeSaving, setModelScopeSaving] = useState(false);
+	const [modelScopeError, setModelScopeError] = useState<string>();
 	const hasChanges = JSON.stringify(config) !== JSON.stringify(savedConfig);
+	const hasModelScopeChanges = modelScopeText !== savedModelScopeText;
 	const requestClose = useCallback(() => {
-		if (hasChanges) setConfirmDiscard(true);
+		if (hasChanges || hasModelScopeChanges) setConfirmDiscard(true);
 		else onClose();
-	}, [hasChanges, onClose]);
+	}, [hasChanges, hasModelScopeChanges, onClose]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -297,10 +306,30 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 		};
 	}, []);
 
+	useEffect(() => {
+		let cancelled = false;
+		void getModelScope()
+			.then((scope) => {
+				if (cancelled) return;
+				const text = scope.patterns.join("\n");
+				setModelScopeText(text);
+				setSavedModelScopeText(text);
+				setModelScopeWarnings(scope.warnings);
+			})
+			.catch((error) => {
+				if (!cancelled) setModelScopeError(error instanceof Error ? error.message : String(error));
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
 	const selectionIdentity = selection
 		? selection.type === "model"
 			? `model:${selection.providerId}:${selection.modelIndex}`
-			: `${selection.type}:${selection.providerId}`
+			: selection.type === "scope"
+				? "scope"
+				: `${selection.type}:${selection.providerId}`
 		: "none";
 
 	// Reset transient catalog state whenever the selected provider/model changes.
@@ -320,7 +349,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 			? providers.find((provider) => provider.id === selection.providerId && provider.configured)
 			: undefined;
 	const selectedProvider =
-		selection && selection.type !== "managed"
+		selection && selection.type !== "managed" && selection.type !== "scope"
 			? config.find((provider) => provider.id === selection.providerId)
 			: undefined;
 	const selectedModel = selection?.type === "model" ? selectedProvider?.models?.[selection.modelIndex] : undefined;
@@ -519,6 +548,30 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 		}
 	}
 
+	async function handleSaveModelScope(): Promise<void> {
+		setModelScopeSaving(true);
+		setModelScopeError(undefined);
+		try {
+			const patterns = [
+				...new Set(
+					modelScopeText
+						.split("\n")
+						.map((pattern) => pattern.trim())
+						.filter(Boolean),
+				),
+			];
+			const scope = await saveModelScope(patterns);
+			const text = scope.patterns.join("\n");
+			setModelScopeText(text);
+			setSavedModelScopeText(text);
+			setModelScopeWarnings(scope.warnings);
+		} catch (error) {
+			setModelScopeError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setModelScopeSaving(false);
+		}
+	}
+
 	return (
 		<Modal
 			title="模型"
@@ -529,6 +582,15 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 			<div className="models-layout">
 				<aside className="models-tree">
 					<div className="models-tree-scroll">
+						<button
+							className={`models-tree-item scope ${selection?.type === "scope" ? "is-active" : ""}`}
+							type="button"
+							onClick={() => setSelection({ type: "scope" })}
+						>
+							<span>可用模型范围</span>
+							<small>enabledModels</small>
+						</button>
+						<div className="models-tree-divider" />
 						{providers.map((provider) => (
 							<button
 								key={provider.id}
@@ -589,7 +651,42 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 				</aside>
 
 				<section className="models-detail">
-					{managedProvider ? (
+					{selection?.type === "scope" ? (
+						<div className="models-detail-form models-scope-form">
+							<div className="models-detail-heading">
+								<span>可用模型范围</span>
+								<span className="models-auth-badge">全局设置</span>
+							</div>
+							<p className="models-managed-description">
+								每行一个 Pi 模型规则。支持服务商/模型通配符和 <code>:thinking</code> 后缀，例如
+								<code>anthropic/*:high</code>。留空将显示全部已认证模型。
+							</p>
+							<textarea
+								value={modelScopeText}
+								placeholder={"anthropic/*:high\nopenai/gpt-5*"}
+								spellCheck={false}
+								onChange={(event) => setModelScopeText(event.target.value)}
+							/>
+							{modelScopeWarnings.length ? (
+								<output className="models-scope-warnings">
+									{modelScopeWarnings.map((warning) => (
+										<p key={warning}>{warning}</p>
+									))}
+								</output>
+							) : null}
+							{modelScopeError ? <p className="sidebar-error">{modelScopeError}</p> : null}
+							<button
+								className="accent-button"
+								type="button"
+								disabled={
+									!hasModelScopeChanges || modelScopeSaving || providerSetupInProgress || settingUpProvider
+								}
+								onClick={() => void handleSaveModelScope()}
+							>
+								{modelScopeSaving ? "保存中…" : "保存模型范围"}
+							</button>
+						</div>
+					) : managedProvider ? (
 						<div className="models-detail-form">
 							<div className="models-detail-heading">
 								<span>{managedProvider.name}</span>
@@ -1278,7 +1375,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 				>
 					<div className="models-discard-dialog" role="alertdialog" aria-modal="true">
 						<strong>放弃未保存的更改？</strong>
-						<p>关闭后，本次模型配置修改不会保存。</p>
+						<p>关闭后，本次模型配置和可用范围修改不会保存。</p>
 						<div>
 							<button
 								// biome-ignore lint/a11y/noAutofocus: 确认弹窗打开后先聚焦安全的继续编辑操作

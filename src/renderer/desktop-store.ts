@@ -117,8 +117,8 @@ export function discardImageAttachment(id: string): Promise<void> {
 	return window.piDesktop.discardImageAttachment(id);
 }
 
-export function importDroppedFiles(files: File[], overwriteConflicts = false) {
-	return window.piDesktop.importDroppedFiles(files, overwriteConflicts);
+export function importDroppedFiles(files: File[], overwriteConflicts = false, targetDirectory?: string) {
+	return window.piDesktop.importDroppedFiles(files, overwriteConflicts, targetDirectory);
 }
 
 export async function submitPrompt(
@@ -355,6 +355,14 @@ export async function saveModelsConfig(providers: DesktopProviderConfig[]): Prom
 	const next = await window.piDesktop.saveModelsConfig({ providers });
 	publish(next);
 	return next;
+}
+
+export function getModelScope() {
+	return window.piDesktop.getModelScope();
+}
+
+export function saveModelScope(patterns: string[]) {
+	return window.piDesktop.saveModelScope(patterns);
 }
 
 export function discoverModels(providerId: string, baseUrl: string, apiKey?: string): Promise<Array<{ id: string }>> {

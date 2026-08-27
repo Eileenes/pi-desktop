@@ -1190,7 +1190,7 @@ interface ExplorerProps {
 	onOpenFile: (entry: DesktopWorkspaceEntry) => void;
 	onRefresh: () => void;
 	onTrustProject: () => void;
-	onUpload: (files: File[]) => void;
+	onUpload: (files: File[], targetDirectory: string) => void;
 }
 
 function Explorer({
@@ -1210,9 +1210,11 @@ function Explorer({
 }: ExplorerProps) {
 	const [collapsedDirectories, setCollapsedDirectories] = useState<Set<string>>(new Set());
 	const [searchQuery, setSearchQuery] = useState("");
+	const [uploadDirectory, setUploadDirectory] = useState("");
 	const [gitChanges, setGitChanges] = useState<DesktopGitChange[]>([]);
 
 	useEffect(() => {
+		setUploadDirectory("");
 		if (!workspacePath || !isTrusted) {
 			setGitChanges([]);
 			return;
@@ -1300,15 +1302,27 @@ function Explorer({
 			onDragOver={(event) => event.preventDefault()}
 			onDrop={(event) => {
 				event.preventDefault();
-				onUpload(Array.from(event.dataTransfer.files));
+				onUpload(Array.from(event.dataTransfer.files), uploadDirectory);
 			}}
 		>
 			<div className="sidebar-section-title">
 				<span>文件</span>
-				<label className="file-upload-button" title="上传文件">
+				<label className="file-upload-button" title={`上传到 ${uploadDirectory || "项目根目录"}`}>
 					＋
-					<input type="file" multiple onChange={(event) => onUpload(Array.from(event.target.files ?? []))} />
+					<input
+						type="file"
+						multiple
+						onChange={(event) => onUpload(Array.from(event.target.files ?? []), uploadDirectory)}
+					/>
 				</label>
+				<button
+					className="file-upload-target"
+					type="button"
+					title="上传目标目录"
+					onClick={() => setUploadDirectory("")}
+				>
+					{uploadDirectory || "根目录"}
+				</button>
 				<button className="icon-button compact" type="button" aria-label="刷新文件" onClick={onRefresh}>
 					↻
 				</button>
@@ -1354,11 +1368,24 @@ function Explorer({
 						</div>
 					) : (
 						<button
-							className={`tree-entry directory-entry ${collapsedDirectories.has(entry.path) ? "is-collapsed" : ""}`}
+							className={`tree-entry directory-entry ${collapsedDirectories.has(entry.path) ? "is-collapsed" : ""} ${uploadDirectory === entry.path ? "is-upload-target" : ""}`}
 							key={entry.path}
 							style={{ "--entry-depth": entry.depth } as CSSProperties}
 							type="button"
-							onClick={() => toggleDirectory(entry.path)}
+							onDragOver={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								setUploadDirectory(entry.path);
+							}}
+							onDrop={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								onUpload(Array.from(event.dataTransfer.files), entry.path);
+							}}
+							onClick={() => {
+								setUploadDirectory(entry.path);
+								toggleDirectory(entry.path);
+							}}
 						>
 							<span className="tree-chevron">
 								<Icon name="chevron" size={12} />
@@ -1751,6 +1778,7 @@ export function App() {
 		files: File[];
 		names: string[];
 		mentionAfterImport: boolean;
+		targetDirectory: string;
 	}>();
 	const [selectedProviderId, setSelectedProviderId] = useState("");
 	const [authenticationResponse, setAuthenticationResponse] = useState("");
@@ -2946,6 +2974,7 @@ export function App() {
 						files: others.filter((file) => names.has(file.name)),
 						names: [...names],
 						mentionAfterImport: true,
+						targetDirectory: "",
 					});
 				}
 				for (const item of failed) {
@@ -2960,16 +2989,16 @@ export function App() {
 	}
 
 	const handleImportWorkspaceFiles = useCallback(
-		async (files: File[]): Promise<void> => {
+		async (files: File[], targetDirectory = ""): Promise<void> => {
 			if (!files.length) return;
 			try {
-				const results = await importDroppedFiles(files);
+				const results = await importDroppedFiles(files, false, targetDirectory);
 				const imported = results.filter((item) => !item.error);
 				const conflicts = results.filter((item) => item.conflict);
 				const failed = results.filter((item) => item.error && !item.conflict);
 				if (imported.length) {
 					await refreshWorkspaceFiles();
-					pushNotice("success", `已上传 ${imported.length} 个文件。`);
+					pushNotice("success", `已上传 ${imported.length} 个文件到 ${targetDirectory || "项目根目录"}。`);
 				}
 				if (conflicts.length) {
 					const names = new Set(conflicts.map((item) => item.name));
@@ -2977,6 +3006,7 @@ export function App() {
 						files: files.filter((file) => names.has(file.name)),
 						names: [...names],
 						mentionAfterImport: false,
+						targetDirectory,
 					});
 				}
 				for (const item of failed) pushNotice("warning", `${item.name}：${item.error}`);
@@ -2995,11 +3025,11 @@ export function App() {
 			return;
 		}
 		try {
-			const results = await importDroppedFiles(pending.files, true);
+			const results = await importDroppedFiles(pending.files, true, pending.targetDirectory);
 			const imported = results.filter((item) => !item.error);
 			await refreshWorkspaceFiles();
 			if (pending.mentionAfterImport && imported.length) {
-				const mention = imported.map((item) => `@${item.name}`).join(" ");
+				const mention = imported.map((item) => `@${item.path ?? item.name}`).join(" ");
 				setDraft((current) => (current ? `${current} ${mention}` : `${mention} `));
 				promptRef.current?.focus();
 			}
@@ -5047,7 +5077,9 @@ export function App() {
 										onOpenFile={(entry) => void handleOpenFile(entry)}
 										onRefresh={() => void refreshWorkspaceFiles()}
 										onTrustProject={() => void handleProjectTrust()}
-										onUpload={(files) => void handleImportWorkspaceFiles(files)}
+										onUpload={(files, targetDirectory) =>
+											void handleImportWorkspaceFiles(files, targetDirectory)
+										}
 									/>
 								</div>
 							</>

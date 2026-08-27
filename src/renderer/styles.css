@@ -1529,6 +1529,13 @@ textarea:focus-visible {
 	background: var(--hover);
 }
 
+.directory-entry.is-upload-target {
+	outline: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+	outline-offset: -1px;
+	background: color-mix(in srgb, var(--accent) 12%, var(--hover));
+	color: var(--text);
+}
+
 .directory-entry svg {
 	color: var(--muted);
 }
@@ -1558,6 +1565,29 @@ textarea:focus-visible {
 
 .file-upload-button input {
 	display: none;
+}
+
+.file-upload-target {
+	min-width: 0;
+	max-width: 112px;
+	margin-left: auto;
+	overflow: hidden;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--muted);
+	font: inherit;
+	font-size: 11px;
+	line-height: 22px;
+	text-align: right;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.file-upload-target:hover {
+	color: var(--text);
+	background: var(--hover);
 }
 
 .tree-chevron {
@@ -5625,6 +5655,13 @@ textarea:focus-visible {
 	font-size: 11px;
 }
 
+.models-tree-item.scope small {
+	margin-left: auto;
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 9px;
+}
+
 .models-tree-item:hover {
 	color: var(--text);
 	background: var(--hover);
@@ -5821,7 +5858,8 @@ textarea:focus-visible {
 }
 
 .models-detail-form input,
-.models-detail-form select {
+.models-detail-form select,
+.models-detail-form textarea {
 	width: 100%;
 	min-width: 0;
 	padding: 7px 9px;
@@ -5830,6 +5868,38 @@ textarea:focus-visible {
 	color: var(--text);
 	background: var(--surface-recessed);
 	font-size: 11.5px;
+}
+
+.models-detail-form textarea {
+	min-height: 164px;
+	resize: vertical;
+	font-family: var(--font-mono);
+	line-height: 1.55;
+}
+
+.models-scope-form code {
+	padding: 1px 3px;
+	border-radius: 3px;
+	color: var(--text-dim);
+	background: var(--surface-recessed);
+	font-family: var(--font-mono);
+	font-size: 10px;
+}
+
+.models-scope-warnings {
+	display: grid;
+	gap: 5px;
+	padding: 9px 10px;
+	border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
+	border-radius: var(--radius-s);
+	color: var(--warning);
+	background: color-mix(in srgb, var(--warning) 8%, transparent);
+	font-size: 10.5px;
+	line-height: 1.45;
+}
+
+.models-scope-warnings p {
+	margin: 0;
 }
 
 .models-secret-input {

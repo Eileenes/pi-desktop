@@ -356,6 +356,11 @@ export interface DesktopSaveModelsConfigInput {
 	providers: DesktopProviderConfig[];
 }
 
+export interface DesktopModelScope {
+	patterns: string[];
+	warnings: string[];
+}
+
 export interface DesktopDiscoverModelsInput {
 	providerId: string;
 	baseUrl: string;
@@ -525,6 +530,7 @@ export interface DesktopBashOutputInput {
 
 export interface DesktopImportedFileResult {
 	name: string;
+	path?: string;
 	conflict?: boolean;
 	error?: string;
 }
@@ -541,7 +547,11 @@ export interface DesktopApi {
 	attachDroppedImages(files: File[]): Promise<DesktopImageAttachment[]>;
 	restoreImageAttachments(input: DesktopRestoreImageAttachmentsInput): Promise<DesktopImageAttachment[]>;
 	discardImageAttachment(id: string): Promise<void>;
-	importDroppedFiles(files: File[], overwriteConflicts?: boolean): Promise<DesktopImportedFileResult[]>;
+	importDroppedFiles(
+		files: File[],
+		overwriteConflicts?: boolean,
+		targetDirectory?: string,
+	): Promise<DesktopImportedFileResult[]>;
 	prompt(input: DesktopPromptInput): Promise<DesktopSnapshot>;
 	abort(): Promise<DesktopSnapshot>;
 	openSession(input: DesktopOpenSessionInput): Promise<DesktopSnapshot>;
@@ -590,6 +600,8 @@ export interface DesktopApi {
 	quitApp(): Promise<void>;
 	getModelsConfig(): Promise<DesktopProviderConfig[]>;
 	saveModelsConfig(input: DesktopSaveModelsConfigInput): Promise<DesktopSnapshot>;
+	getModelScope(): Promise<DesktopModelScope>;
+	saveModelScope(patterns: string[]): Promise<DesktopModelScope>;
 	discoverModels(input: DesktopDiscoverModelsInput): Promise<Array<{ id: string }>>;
 	lookupModelCatalog(input: { providerId: string; modelId: string }): Promise<DesktopProviderModelConfig | undefined>;
 	testModel(input: DesktopModelTestInput): Promise<DesktopModelTestResult>;

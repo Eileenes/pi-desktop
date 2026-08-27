@@ -96,6 +96,10 @@ export function attachDroppedImages(files: File[]): Promise<DesktopImageAttachme
 	return window.piDesktop.attachDroppedImages(files);
 }
 
+export function importDroppedFiles(files: File[]): Promise<Array<{ name: string; error?: string }>> {
+	return window.piDesktop.importDroppedFiles(files);
+}
+
 export async function submitPrompt(
 	text: string,
 	attachmentIds: string[],
@@ -196,8 +200,8 @@ export async function setThinkingLevel(
 	return next;
 }
 
-export async function compactSession(): Promise<DesktopSnapshot> {
-	const next = await window.piDesktop.compact();
+export async function compactSession(customInstructions?: string): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.compact(customInstructions);
 	publish(next);
 	return next;
 }

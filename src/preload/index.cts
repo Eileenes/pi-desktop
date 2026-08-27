@@ -46,6 +46,8 @@ const desktopApi: DesktopApi = {
 	chooseImages: () => ipcRenderer.invoke("pi-desktop:choose-images") as Promise<DesktopImageAttachment[]>,
 	attachDroppedImages: (files: File[]) =>
 		ipcRenderer.invoke("pi-desktop:attach-dropped-images", files.map((file) => webUtils.getPathForFile(file))) as Promise<DesktopImageAttachment[]>,
+	importDroppedFiles: (files: File[]) =>
+		ipcRenderer.invoke("pi-desktop:import-dropped-files", files.map((file) => webUtils.getPathForFile(file))) as Promise<Array<{ name: string; error?: string }>>,
 	prompt: (input: DesktopPromptInput) => ipcRenderer.invoke("pi-desktop:prompt", input) as Promise<DesktopSnapshot>,
 	abort: () => ipcRenderer.invoke("pi-desktop:abort") as Promise<DesktopSnapshot>,
 	openSession: (input: DesktopOpenSessionInput) =>
@@ -66,7 +68,8 @@ const desktopApi: DesktopApi = {
 	setModel: (input: DesktopModelSelectionInput) =>
 		ipcRenderer.invoke("pi-desktop:set-model", input) as Promise<DesktopSnapshot>,
 	setThinkingLevel: (level) => ipcRenderer.invoke("pi-desktop:set-thinking-level", level) as Promise<DesktopSnapshot>,
-	compact: () => ipcRenderer.invoke("pi-desktop:compact") as Promise<DesktopSnapshot>,
+	compact: (customInstructions?: string) =>
+		ipcRenderer.invoke("pi-desktop:compact", customInstructions) as Promise<DesktopSnapshot>,
 	setProjectTrust: (input) => ipcRenderer.invoke("pi-desktop:set-project-trust", input) as Promise<DesktopSnapshot>,
 	decideToolApproval: (input) =>
 		ipcRenderer.invoke("pi-desktop:decide-tool-approval", input) as Promise<DesktopSnapshot>,

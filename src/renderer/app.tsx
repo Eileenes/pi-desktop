@@ -30,6 +30,7 @@ import {
 	getDesktopSnapshot,
 	getDesktopStartupError,
 	getGitDiff,
+	importDroppedFiles,
 	listGitChanges,
 	listWorkspaceFiles,
 	navigateTree,
@@ -1129,7 +1130,7 @@ function Inspector({
 	onOpenFile,
 	onRevealFile,
 	onDownload,
-	onQuoteLine,
+	onQuoteLineRange,
 }: {
 	tabs: FileTab[];
 	activeTabPath: string | undefined;
@@ -1140,6 +1141,7 @@ function Inspector({
 	onRevealFile: (path: string) => void;
 	onDownload: (path: string) => void;
 	onQuoteLine: (path: string, line: number) => void;
+	onQuoteLineRange: (path: string, line: number, extend: boolean) => void;
 }) {
 	const [mode, setMode] = useState<"diff" | "preview" | "source">("source");
 	const [contentQuery, setContentQuery] = useState("");
@@ -1350,7 +1352,8 @@ function Inspector({
 								className={`source-line ${sourceLine.match ? "is-match" : ""}`}
 								key={sourceLine.line}
 								type="button"
-								onClick={() => onQuoteLine(preview.path, sourceLine.line)}
+								title="点击引用此行，Shift+点击引用行范围"
+								onClick={(event) => onQuoteLineRange(preview.path, sourceLine.line, event.shiftKey)}
 							>
 								<span className="source-line-number">{sourceLine.line}</span>
 								<code>
@@ -1489,6 +1492,15 @@ export function App() {
 		? (snapshot.workspacePath.split(/[\\/]/u).filter(Boolean).at(-1) ?? snapshot.workspacePath)
 		: (snapshot.userHomeName ?? "Pi");
 	const stats = snapshot.sessionStats;
+	const compactionBanner = (() => {
+		const compaction = session?.lastCompaction;
+		if (!compaction) return undefined;
+		const saved = compaction.tokensAfter !== undefined ? compaction.tokensBefore - compaction.tokensAfter : undefined;
+		const after = compaction.tokensAfter !== undefined ? ` → ${formatCompact(compaction.tokensAfter)}k` : "";
+		return `上下文已压缩（${compaction.reason}）：${formatCompact(compaction.tokensBefore)}k${after} tokens${
+			saved !== undefined && saved > 0 ? `，节省 ${formatCompact(saved)}k` : ""
+		}`;
+	})();
 	const filteredModels = (() => {
 		const query = modelFilter.trim().toLocaleLowerCase();
 		if (!query) return snapshot.availableModels;
@@ -2080,6 +2092,20 @@ export function App() {
 		}
 	}
 
+	async function handleCompactWithInstructions(instructions: string): Promise<void> {
+		if (!session || session.phase === "running" || compacting) return;
+		setCompacting(true);
+		setActionError(undefined);
+		try {
+			await compactSession(instructions);
+			pushNotice("success", "上下文压缩完成。");
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setCompacting(false);
+		}
+	}
+
 	async function handleAutoName(): Promise<void> {
 		if (!session || session.phase === "running" || namingState === "loading") return;
 		setNamingState("loading");
@@ -2138,13 +2164,36 @@ export function App() {
 
 	async function handleDroppedImages(files: File[]): Promise<void> {
 		if (!files.length) return;
-		setActionError(undefined);
-		try {
-			setAttachments(await attachDroppedImages(files));
-		} catch (error) {
-			setActionError(error instanceof Error ? error.message : String(error));
-		} finally {
-			setDraggingImages(false);
+		setDraggingImages(false);
+		const images = files.filter((file) => file.type.startsWith("image/"));
+		const others = files.filter((file) => !file.type.startsWith("image/"));
+		if (images.length) {
+			setActionError(undefined);
+			try {
+				setAttachments(await attachDroppedImages(images));
+			} catch (error) {
+				pushNotice("error", error instanceof Error ? error.message : String(error));
+			}
+		}
+		if (others.length && snapshot.projectTrusted && snapshot.workspacePath) {
+			try {
+				const results = await importDroppedFiles(others);
+				const ok = results.filter((item) => !item.error);
+				const failed = results.filter((item) => item.error);
+				if (ok.length) {
+					const mention = ok.map((item) => `@${item.name}`).join(" ");
+					setDraft((current) => (current ? `${current} ${mention}` : `${mention} `));
+					promptRef.current?.focus();
+					pushNotice("success", `已导入 ${ok.length} 个文件到项目根目录。`);
+				}
+				for (const item of failed) {
+					pushNotice("warning", `${item.name} 导入失败：${item.error}`);
+				}
+			} catch (error) {
+				pushNotice("error", error instanceof Error ? error.message : String(error));
+			}
+		} else if (others.length) {
+			pushNotice("warning", "请先信任项目，再导入非图片文件。");
 		}
 	}
 
@@ -2160,7 +2209,8 @@ export function App() {
 			return true;
 		}
 		if (command === "compact") {
-			await handleCompact();
+			if (argument) await handleCompactWithInstructions(argument);
+			else await handleCompact();
 			return true;
 		}
 		if (command === "name") {
@@ -2330,6 +2380,25 @@ export function App() {
 		setDraft((current) => `${current}${current ? "\n" : ""}@${path}:${line} `);
 		promptRef.current?.focus();
 	}, []);
+
+	const quoteRangeRef = useRef<{ path: string; line: number } | undefined>(undefined);
+
+	const handleQuoteLineRange = useCallback(
+		(path: string, line: number, extend: boolean): void => {
+			if (extend && quoteRangeRef.current?.path === path) {
+				const start = Math.min(quoteRangeRef.current.line, line);
+				const end = Math.max(quoteRangeRef.current.line, line);
+				quoteRangeRef.current = undefined;
+				setDraft((current) => `${current}${current ? "\n" : ""}@${path}:${start}-${end} `);
+			} else {
+				quoteRangeRef.current = { path, line };
+				handleQuoteLine(path, line);
+				return;
+			}
+			promptRef.current?.focus();
+		},
+		[handleQuoteLine],
+	);
 
 	const handleRevealFile = useCallback(async (path: string): Promise<void> => {
 		setActionError(undefined);
@@ -3200,9 +3269,20 @@ export function App() {
 							{session?.phase === "running" ? (
 								<output className="agent-running-status">
 									<span className="status-indicator is-running" />
-									Pi 正在处理…
+									{session.runningTools?.length
+										? `正在运行 ${session.runningTools.slice(0, 3).join("、")}${session.runningTools.length > 3 ? ` 等 ${session.runningTools.length} 个工具` : ""}`
+										: "等待模型响应…"}
 								</output>
 							) : null}
+							{session?.autoRetry ? (
+								<div className="retry-banner">
+									<span className="retry-banner-title">
+										正在自动重试（第 {session.autoRetry.attempt}/{session.autoRetry.maxAttempts} 次）
+									</span>
+									<span className="retry-banner-error">{session.autoRetry.errorMessage}</span>
+								</div>
+							) : null}
+							{compactionBanner ? <div className="compaction-banner">{compactionBanner}</div> : null}
 						</div>
 					</div>
 				</div>
@@ -3722,6 +3802,7 @@ export function App() {
 						onRevealFile={(path) => void handleRevealFile(path)}
 						onDownload={(path) => void handleDownloadFile(path)}
 						onQuoteLine={handleQuoteLine}
+						onQuoteLineRange={handleQuoteLineRange}
 					/>
 				</aside>
 			) : null}

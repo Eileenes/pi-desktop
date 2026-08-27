@@ -88,6 +88,9 @@ function getHost(): DesktopAgentHost {
 function publishSnapshot(snapshot: DesktopSnapshot): void {
 	if (!mainWindow || mainWindow.isDestroyed()) return;
 	mainWindow.webContents.send("pi-desktop:snapshot", snapshot);
+	const folderName = snapshot.workspacePath?.split(/[\\/]/u).filter(Boolean).at(-1);
+	const title = folderName ? `${folderName} - Pi Desktop` : "Pi Desktop";
+	if (mainWindow.getTitle() !== title) mainWindow.setTitle(title);
 }
 
 function sendWorkspaceChanges(changes: DesktopWorkspaceChange[]): void {
@@ -265,6 +268,38 @@ function registerIpc(): void {
 		}
 		return prepareImageAttachments(value);
 	});
+	ipcMain.handle(
+		"pi-desktop:import-dropped-files",
+		async (event, value: unknown): Promise<Array<{ name: string; error?: string }>> => {
+			assertMainWindowSender(event);
+			const host = getHost();
+			if (!host.getSnapshot().projectTrusted) {
+				throw new Error("请先信任当前项目，再导入文件。");
+			}
+			if (
+				!Array.isArray(value) ||
+				value.length > 20 ||
+				!value.every((path) => typeof path === "string" && path.length > 0 && path.length <= 4000)
+			) {
+				throw new Error("无效的拖放文件请求。");
+			}
+			const { copyFile } = await import("node:fs/promises");
+			const results: Array<{ name: string; error?: string }> = [];
+			for (const sourcePath of value as string[]) {
+				const name = sourcePath.split(/[\\/]/u).at(-1) ?? "file";
+				try {
+					await copyFile(sourcePath, join(host.requireWorkspacePath(), name));
+					results.push({ name });
+				} catch (error) {
+					results.push({
+						name,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+			}
+			return results;
+		},
+	);
 	ipcMain.handle("pi-desktop:prompt", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
 		if (!isDesktopPromptInput(value)) {
@@ -408,9 +443,12 @@ function registerIpc(): void {
 			value as "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
 		);
 	});
-	ipcMain.handle("pi-desktop:compact", async (event): Promise<DesktopSnapshot> => {
+	ipcMain.handle("pi-desktop:compact", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
-		return getHost().compact();
+		if (value !== undefined && (typeof value !== "string" || value.length > 4000)) {
+			throw new Error("无效的压缩指令。");
+		}
+		return getHost().compact(value as string | undefined);
 	});
 	ipcMain.handle("pi-desktop:set-project-trust", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);

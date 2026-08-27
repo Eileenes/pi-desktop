@@ -241,6 +241,9 @@ export class DesktopAgentHost {
 	private readonly extensionDialogListeners = new Set<DesktopExtensionDialogListener>();
 	private extensionStatuses: DesktopExtensionStatus[] = [];
 	private extensionNotice: string | undefined;
+	private autoRetryState: { attempt: number; maxAttempts: number; errorMessage: string } | undefined;
+	private lastCompaction: { reason: string; tokensBefore: number; tokensAfter?: number } | undefined;
+	private runningToolNames = new Set<string>();
 	private readonly extensionDialogQueue: ExtensionDialogQueue = new ExtensionDialogQueue((dialog) => {
 		for (const listener of this.extensionDialogListeners) listener(dialog);
 	});
@@ -311,6 +314,9 @@ export class DesktopAgentHost {
 			availableThinkingLevels: this.session.getAvailableThinkingLevels(),
 			isCompacting: this.session.isCompacting,
 			systemPrompt: this.session.systemPrompt,
+			...(this.autoRetryState ? { autoRetry: this.autoRetryState } : {}),
+			...(this.lastCompaction ? { lastCompaction: this.lastCompaction } : {}),
+			...(this.runningToolNames.size ? { runningTools: [...this.runningToolNames].slice(0, 4) } : {}),
 			messages: (() => {
 				const forkPoints = this.session?.getUserMessagesForForking() ?? [];
 				let userIndex = 0;
@@ -542,7 +548,35 @@ export class DesktopAgentHost {
 		this.projectTrusted = options.projectTrusted;
 		this.session = created.session;
 		this.error = created.modelFallbackMessage ? "没有可用模型。请在设置中配置模型服务商。" : undefined;
-		this.unsubscribeSession = this.session.subscribe(() => this.publish());
+		this.autoRetryState = undefined;
+		this.lastCompaction = undefined;
+		this.runningToolNames = new Set<string>();
+		this.unsubscribeSession = this.session.subscribe((event: unknown) => {
+			const typed = event as { type?: string; [key: string]: unknown };
+			if (typed.type === "auto_retry_start") {
+				this.autoRetryState = {
+					attempt: typeof typed.attempt === "number" ? typed.attempt : 0,
+					maxAttempts: typeof typed.maxAttempts === "number" ? typed.maxAttempts : 0,
+					errorMessage: typeof typed.errorMessage === "string" ? typed.errorMessage : "未知错误",
+				};
+			} else if (typed.type === "auto_retry_end") {
+				this.autoRetryState = undefined;
+			} else if (typed.type === "tool_execution_start" && typeof typed.toolName === "string") {
+				this.runningToolNames.add(typed.toolName);
+			} else if (typed.type === "tool_execution_end" && typeof typed.toolName === "string") {
+				this.runningToolNames.delete(typed.toolName);
+			} else if (typed.type === "compaction_end") {
+				const result = typed.result as { tokensBefore?: unknown; estimatedTokensAfter?: unknown } | undefined;
+				this.lastCompaction = {
+					reason: typeof typed.reason === "string" ? typed.reason : "manual",
+					tokensBefore: typeof result?.tokensBefore === "number" ? result.tokensBefore : 0,
+					...(typeof result?.estimatedTokensAfter === "number"
+						? { tokensAfter: result.estimatedTokensAfter }
+						: {}),
+				};
+			}
+			this.publish();
+		});
 		if (options.workspacePath && options.projectTrusted) {
 			this.workspaceWatcher.start(options.workspacePath);
 		} else {
@@ -733,12 +767,12 @@ export class DesktopAgentHost {
 		return this.publish();
 	}
 
-	async compact(): Promise<DesktopSnapshot> {
+	async compact(customInstructions?: string): Promise<DesktopSnapshot> {
 		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
 		if (this.session.isStreaming) throw new Error("请等待当前智能体任务完成后，再压缩上下文。");
 		this.error = undefined;
 		try {
-			await this.session.compact();
+			await this.session.compact(customInstructions?.trim() || undefined);
 		} catch (error) {
 			this.error = error instanceof Error ? error.message : String(error);
 		}
@@ -1289,7 +1323,7 @@ export class DesktopAgentHost {
 		await gitRemoveWorktree(workspacePath, path);
 	}
 
-	private requireWorkspacePath(): string {
+	requireWorkspacePath(): string {
 		if (!this.workspacePath) {
 			throw new Error("请先选择项目。");
 		}

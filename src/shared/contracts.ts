@@ -46,6 +46,17 @@ export interface DesktopSessionSnapshot {
 	thinkingLevel?: DesktopThinkingLevel;
 	availableThinkingLevels?: DesktopThinkingLevel[];
 	isCompacting?: boolean;
+	autoRetry?: {
+		attempt: number;
+		maxAttempts: number;
+		errorMessage: string;
+	};
+	lastCompaction?: {
+		tokensBefore: number;
+		tokensAfter?: number;
+		reason: string;
+	};
+	runningTools?: string[];
 	systemPrompt?: string;
 	messages: DesktopTranscriptMessage[];
 }
@@ -381,6 +392,7 @@ export interface DesktopApi {
 	chooseWorkspace(): Promise<DesktopSnapshot>;
 	chooseImages(): Promise<DesktopImageAttachment[]>;
 	attachDroppedImages(files: File[]): Promise<DesktopImageAttachment[]>;
+	importDroppedFiles(files: File[]): Promise<Array<{ name: string; error?: string }>>;
 	prompt(input: DesktopPromptInput): Promise<DesktopSnapshot>;
 	abort(): Promise<DesktopSnapshot>;
 	openSession(input: DesktopOpenSessionInput): Promise<DesktopSnapshot>;
@@ -395,7 +407,7 @@ export interface DesktopApi {
 	copyLastAnswer(): Promise<string>;
 	setModel(input: DesktopModelSelectionInput): Promise<DesktopSnapshot>;
 	setThinkingLevel(level: DesktopThinkingLevel): Promise<DesktopSnapshot>;
-	compact(): Promise<DesktopSnapshot>;
+	compact(customInstructions?: string): Promise<DesktopSnapshot>;
 	setProjectTrust(input: DesktopProjectTrustInput): Promise<DesktopSnapshot>;
 	decideToolApproval(input: DesktopToolApprovalDecisionInput): Promise<DesktopSnapshot>;
 	startProviderSetup(input: DesktopProviderSetupInput): Promise<DesktopSnapshot>;

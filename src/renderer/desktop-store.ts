@@ -1,12 +1,13 @@
 import type {
 	DesktopAuthenticationPromptResponseInput,
-	DesktopExtensionDialogListener,
+	DesktopExtensionUiListener,
 	DesktopGitChange,
 	DesktopGitWorktree,
 	DesktopImageAttachment,
 	DesktopModelSelectionInput,
 	DesktopNavigateTreeInput,
 	DesktopOpenSessionInput,
+	DesktopPluginPackage,
 	DesktopProviderConfig,
 	DesktopProviderModelConfig,
 	DesktopProviderSetupInput,
@@ -96,8 +97,8 @@ export function attachDroppedImages(files: File[]): Promise<DesktopImageAttachme
 	return window.piDesktop.attachDroppedImages(files);
 }
 
-export function importDroppedFiles(files: File[]): Promise<Array<{ name: string; error?: string }>> {
-	return window.piDesktop.importDroppedFiles(files);
+export function importDroppedFiles(files: File[], overwriteConflicts = false) {
+	return window.piDesktop.importDroppedFiles(files, overwriteConflicts);
 }
 
 export async function submitPrompt(
@@ -154,8 +155,8 @@ export function exportSession(): Promise<string> {
 	return window.piDesktop.exportSession();
 }
 
-export async function renameSession(name: string): Promise<DesktopSnapshot> {
-	const next = await window.piDesktop.renameSession({ name });
+export async function renameSession(sessionPath: string, name: string): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.renameSession({ sessionPath, name });
 	publish(next);
 	return next;
 }
@@ -170,6 +171,14 @@ export function executeBashCommand(command: string, excludeFromContext: boolean)
 	return window.piDesktop.executeBashCommand(command, excludeFromContext);
 }
 
+export function readFullBashOutput(messageId: string): Promise<string> {
+	return window.piDesktop.readFullBashOutput({ messageId });
+}
+
+export function saveFullBashOutput(messageId: string): Promise<string> {
+	return window.piDesktop.saveFullBashOutput({ messageId });
+}
+
 export function copyLastAnswer(): Promise<string> {
 	return window.piDesktop.copyLastAnswer();
 }
@@ -178,8 +187,12 @@ export function respondToExtensionDialog(id: string, value: string): Promise<voi
 	return window.piDesktop.respondToExtensionDialog({ id, value });
 }
 
-export function onExtensionDialog(listener: DesktopExtensionDialogListener): Unsubscribe {
-	return window.piDesktop.onExtensionDialog(listener);
+export function sendExtensionCustomInput(id: string, data: string): Promise<void> {
+	return window.piDesktop.sendExtensionCustomInput({ id, data });
+}
+
+export function onExtensionUi(listener: DesktopExtensionUiListener): Unsubscribe {
+	return window.piDesktop.onExtensionUi(listener);
 }
 
 export function onWorkspaceChanged(listener: (changes: DesktopWorkspaceChange[]) => void): Unsubscribe {
@@ -236,6 +249,10 @@ export function listWorkspaceFiles(): Promise<DesktopWorkspaceEntry[]> {
 	return window.piDesktop.listWorkspaceFiles();
 }
 
+export function searchWorkspaceFiles(query: string): Promise<DesktopWorkspaceEntry[]> {
+	return window.piDesktop.searchWorkspaceFiles(query);
+}
+
 export function readWorkspaceFile(path: string): Promise<DesktopWorkspaceFilePreview> {
 	return window.piDesktop.readWorkspaceFile({ path });
 }
@@ -252,8 +269,8 @@ export function saveWorkspaceFile(path: string): Promise<string> {
 	return window.piDesktop.saveWorkspaceFile({ path });
 }
 
-export function notifyComplete(): Promise<void> {
-	return window.piDesktop.notifyComplete();
+export function notifyComplete(sessionName?: string, force = false): Promise<void> {
+	return window.piDesktop.notifyComplete({ ...(sessionName ? { sessionName } : {}), ...(force ? { force } : {}) });
 }
 
 export function listGitChanges(): Promise<DesktopGitChange[]> {
@@ -346,7 +363,13 @@ export async function removePlugin(source: string, local: boolean): Promise<Desk
 	return next;
 }
 
-export function getPluginPackages(): Promise<Array<{ source: string; scope: "user" | "project" }>> {
+export async function togglePlugin(source: string, local: boolean, enabled: boolean): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.togglePlugin({ source, local, enabled });
+	publish(next);
+	return next;
+}
+
+export function getPluginPackages(): Promise<DesktopPluginPackage[]> {
 	return window.piDesktop.getPluginPackages();
 }
 

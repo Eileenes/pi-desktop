@@ -6,6 +6,7 @@ export type SecurityAuditEvent =
 	| "credential.logout"
 	| "plugin.install"
 	| "plugin.remove"
+	| "plugin.toggle"
 	| "skill.install"
 	| "skill.toggle"
 	| "tool.approval"

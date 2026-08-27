@@ -7,6 +7,10 @@ interface WorktreeSectionProps {
 	onSwitch: (path: string) => void;
 }
 
+function displayBranch(branch: string): string {
+	return branch.replace(/^refs\/(?:heads|remotes)\//u, "");
+}
+
 export const WorktreeSection = memo(function WorktreeSection({ workspacePath, onSwitch }: WorktreeSectionProps) {
 	const [worktrees, setWorktrees] = useState<DesktopGitWorktree[]>([]);
 	const [branchDraft, setBranchDraft] = useState("");
@@ -72,7 +76,7 @@ export const WorktreeSection = memo(function WorktreeSection({ workspacePath, on
 								if (tree.path !== workspacePath) onSwitch(tree.path);
 							}}
 						>
-							<span>⎇ {tree.branch}</span>
+							<span>⎇ {displayBranch(tree.branch)}</span>
 							<small>{tree.path}</small>
 						</button>
 						{tree.path !== workspacePath ? (
@@ -89,7 +93,7 @@ export const WorktreeSection = memo(function WorktreeSection({ workspacePath, on
 								<button
 									className="worktree-remove"
 									type="button"
-									aria-label={`移除 ${tree.branch}`}
+									aria-label={`移除 ${displayBranch(tree.branch)}`}
 									onClick={() => setConfirmRemovePath(tree.path)}
 								>
 									×

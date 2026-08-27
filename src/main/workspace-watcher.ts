@@ -1,9 +1,16 @@
 import { type FSWatcher, watch } from "node:fs";
-import { relative } from "node:path";
 
 export interface WorkspaceChangeEvent {
 	/** 变更文件的相对路径（POSIX 风格），目录事件以 / 结尾。 */
 	path: string;
+}
+
+export function normalizeWorkspaceChangePath(path: string): string | undefined {
+	const normalized = path.replaceAll("\\", "/");
+	if (normalized.startsWith("/") || /^[A-Za-z]:\//u.test(normalized)) return undefined;
+	const parts = normalized.split("/").filter((part) => part !== "" && part !== ".");
+	if (parts.length === 0 || parts.some((part) => part === "..")) return undefined;
+	return parts.join("/");
 }
 
 /**
@@ -50,16 +57,16 @@ export class WorkspaceWatcher {
 	}
 
 	private enqueue(path: string): void {
-		this.pendingPaths.add(path);
+		const normalized = normalizeWorkspaceChangePath(path);
+		if (!normalized) return;
+		this.pendingPaths.add(normalized);
 		if (this.flushTimer) return;
 		this.flushTimer = setTimeout(() => {
 			this.flushTimer = undefined;
 			const changes = [...this.pendingPaths]
 				.sort()
 				.slice(0, 100)
-				.map((changed) => ({
-					path: this.currentRoot ? relative(this.currentRoot, changed).replaceAll("\\", "/") || changed : changed,
-				}));
+				.map((changed) => ({ path: changed }));
 			this.pendingPaths.clear();
 			if (changes.length > 0) this.onChange(changes);
 		}, this.debounceMs);

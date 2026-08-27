@@ -1,10 +1,64 @@
-import { lexer, type Token, type Tokens } from "marked";
+import katex from "katex";
+import "katex/dist/katex.min.css";
+import { Marked, type Token, type TokenizerExtension, type Tokens } from "marked";
 import { memo, type ReactNode, useMemo, useState } from "react";
+import { getDesktopSnapshot } from "./desktop-store.ts";
+import { resolveWorkspaceFileHref } from "./file-links.ts";
+import { MermaidBlock } from "./mermaid-block.tsx";
 import { HighlightedCode } from "./syntax-highlight.tsx";
+
+interface MathToken {
+	type: "mathInline" | "mathDisplay";
+	raw: string;
+	text: string;
+}
+
+const displayMathExtension: TokenizerExtension = {
+	name: "mathDisplay",
+	level: "block",
+	start: (src) => {
+		const dollar = src.search(/^ {0,3}\$\$/mu);
+		const bracket = src.search(/^ {0,3}\\\[/mu);
+		if (dollar < 0) return bracket < 0 ? undefined : bracket;
+		return bracket < 0 ? dollar : Math.min(dollar, bracket);
+	},
+	tokenizer(src) {
+		const dollar = /^( {0,3})\$\$[ \t]*\n?([\s\S]+?)\n?\1\$\$(?:\n|$)/u.exec(src);
+		const bracket = /^( {0,3})\\\[[ \t]*\n?([\s\S]+?)\n?\1\\\](?:\n|$)/u.exec(src);
+		const match = dollar ?? bracket;
+		if (!match) return undefined;
+		return { type: "mathDisplay", raw: match[0], text: match[2]?.trim() ?? "" };
+	},
+};
+
+const inlineMathExtension: TokenizerExtension = {
+	name: "mathInline",
+	level: "inline",
+	start: (src) => {
+		const dollar = src.indexOf("$");
+		const bracket = src.indexOf("\\(");
+		if (dollar < 0) return bracket < 0 ? undefined : bracket;
+		return bracket < 0 ? dollar : Math.min(dollar, bracket);
+	},
+	tokenizer(src) {
+		const bracket = /^\\\(([^\n]+?)\\\)/u.exec(src);
+		const dollar = /^\$(?![\s$])([^$\n]+?)(?<!\s)\$(?!\$)/u.exec(src);
+		const match = bracket ?? dollar;
+		if (!match) return undefined;
+		return { type: "mathInline", raw: match[0], text: match[1] ?? "" };
+	},
+};
+
+const markdownLexer = new Marked({ extensions: [displayMathExtension, inlineMathExtension] });
 
 function safeHref(href: string): string | undefined {
 	const trimmed = href.trim();
-	if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("mailto:")) {
+	if (
+		trimmed.startsWith("http://") ||
+		trimmed.startsWith("https://") ||
+		trimmed.startsWith("mailto:") ||
+		trimmed.startsWith("file:")
+	) {
 		return trimmed;
 	}
 	if (!trimmed.includes(":") && !trimmed.startsWith("//") && !trimmed.startsWith("javascript:")) {
@@ -28,9 +82,12 @@ const CodeBlock = memo(function CodeBlock({ code, language }: { code: string; la
 
 	return (
 		<div className="code-block">
-			<button className="code-copy" type="button" aria-label="复制代码" onClick={() => void handleCopy()}>
-				{copied ? "已复制" : "复制"}
-			</button>
+			<div className="code-block-toolbar">
+				<span>{language || "text"}</span>
+				<button type="button" aria-label="复制代码" onClick={() => void handleCopy()}>
+					{copied ? "已复制" : "复制"}
+				</button>
+			</div>
 			<pre>
 				<HighlightedCode code={code} language={language} />
 			</pre>
@@ -43,6 +100,11 @@ function renderInline(tokens: Token[]): ReactNode[] {
 	for (let index = 0; index < tokens.length; index += 1) {
 		const token = tokens[index];
 		if (!token) continue;
+		if (token.type === "mathInline") {
+			const math = token as unknown as MathToken;
+			children.push(<MathExpression key={index} text={math.text} display={false} />);
+			continue;
+		}
 		switch (token.type) {
 			case "text": {
 				const text = token as Tokens.Text;
@@ -75,13 +137,18 @@ function renderInline(tokens: Token[]): ReactNode[] {
 				const link = token as Tokens.Link;
 				const href = safeHref(link.href);
 				if (href) {
+					const filePath = resolveWorkspaceFileHref(href, getDesktopSnapshot().workspacePath);
 					children.push(
 						<a
 							key={index}
 							href={href}
 							onClick={(event) => {
 								event.preventDefault();
-								void window.piDesktop.openExternalUrl(href);
+								if (filePath) {
+									window.dispatchEvent(new CustomEvent("pi-desktop:open-markdown-file", { detail: filePath }));
+								} else {
+									void window.piDesktop.openExternalUrl(href);
+								}
 							}}
 						>
 							{renderInline(link.tokens)}
@@ -118,6 +185,11 @@ function renderBlock(tokens: Token[]): ReactNode[] {
 	for (let index = 0; index < tokens.length; index += 1) {
 		const token = tokens[index];
 		if (!token) continue;
+		if (token.type === "mathDisplay") {
+			const math = token as unknown as MathToken;
+			children.push(<MathExpression key={index} text={math.text} display />);
+			continue;
+		}
 		switch (token.type) {
 			case "heading": {
 				const heading = token as Tokens.Heading;
@@ -152,7 +224,13 @@ function renderBlock(tokens: Token[]): ReactNode[] {
 				break;
 			case "code": {
 				const code = token as Tokens.Code;
-				children.push(<CodeBlock key={index} code={code.text} language={code.lang} />);
+				children.push(
+					code.lang?.toLowerCase() === "mermaid" ? (
+						<MermaidBlock key={index} code={code.text} />
+					) : (
+						<CodeBlock key={index} code={code.text} language={code.lang} />
+					),
+				);
 				break;
 			}
 			case "blockquote":
@@ -230,6 +308,26 @@ function renderBlock(tokens: Token[]): ReactNode[] {
 }
 
 export const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
-	const tokens = useMemo(() => lexer(text ?? ""), [text]);
+	const tokens = useMemo(() => markdownLexer.lexer(text ?? ""), [text]);
 	return <div className="markdown-body">{renderBlock(tokens)}</div>;
+});
+
+const MathExpression = memo(function MathExpression({ text, display }: { text: string; display: boolean }) {
+	const html = useMemo(
+		() =>
+			katex.renderToString(text, {
+				displayMode: display,
+				throwOnError: false,
+				strict: "warn",
+				trust: false,
+			}),
+		[display, text],
+	);
+	return display ? (
+		// biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX escapes untrusted TeX and trust is explicitly disabled.
+		<div className="math-display" dangerouslySetInnerHTML={{ __html: html }} />
+	) : (
+		// biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX escapes untrusted TeX and trust is explicitly disabled.
+		<span className="math-inline" dangerouslySetInnerHTML={{ __html: html }} />
+	);
 });

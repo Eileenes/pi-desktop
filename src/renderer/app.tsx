@@ -4,6 +4,7 @@ import type {
 	DesktopAuthenticationPrompt,
 	DesktopExtensionDialog,
 	DesktopGitChange,
+	DesktopGitWorktree,
 	DesktopImageAttachment,
 	DesktopSessionInfo,
 	DesktopSessionPhase,
@@ -13,12 +14,15 @@ import type {
 	DesktopWorkspaceEntry,
 	DesktopWorkspaceFilePreview,
 } from "../shared/contracts.ts";
+import { formatSessionReference } from "../shared/session-reference.ts";
+import { flattenSessionTree } from "../shared/session-tree.ts";
 import { AppSettingsModal } from "./app-settings-modal.tsx";
 import { ConversationNavigator } from "./conversation-navigator.tsx";
 import {
 	abortSession,
 	attachDroppedImages,
 	autoNameSession,
+	chooseImages,
 	chooseWorkspace,
 	compactSession,
 	copyLastAnswer,
@@ -32,21 +36,26 @@ import {
 	getGitDiff,
 	importDroppedFiles,
 	listGitChanges,
+	listGitWorktrees,
 	listWorkspaceFiles,
 	navigateTree,
 	newSession,
 	notifyComplete,
-	onExtensionDialog,
+	onExtensionUi,
 	onWorkspaceChanged,
 	openSession,
 	openWorkspaceFile,
 	openWorkspacePath,
+	readFullBashOutput,
 	readWorkspaceFile,
 	renameSession,
 	respondToAuthenticationPrompt,
 	respondToExtensionDialog,
 	revealWorkspaceFile,
+	saveFullBashOutput,
 	saveWorkspaceFile,
+	searchWorkspaceFiles,
+	sendExtensionCustomInput,
 	setModel,
 	setProjectTrust,
 	setThinkingLevel,
@@ -55,6 +64,7 @@ import {
 	submitPrompt,
 	subscribeDesktopSnapshot,
 } from "./desktop-store.ts";
+import { ExtensionCustomPanel, ExtensionWidgetStack } from "./extension-custom-panel.tsx";
 import { ExtensionDialog } from "./extension-dialog.tsx";
 import { type AppLanguage, translate } from "./i18n.ts";
 import { MarkdownBody } from "./markdown.tsx";
@@ -103,6 +113,7 @@ type IconName =
 type ConfigModal = "models" | "plugins" | "settings" | "skills";
 
 const DRAFT_STORAGE_PREFIX = "pi-desktop-draft:";
+const MAX_IMAGE_ATTACHMENTS = 10;
 
 function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 	const shared = {
@@ -441,6 +452,11 @@ function isMarkdownFile(path: string): boolean {
 	return extension === "md" || extension === "markdown" || extension === "mdx";
 }
 
+function isHtmlFile(path: string): boolean {
+	const extension = getFileExtension(path);
+	return extension === "html" || extension === "htm";
+}
+
 function getFileKindLabel(path: string): string {
 	const extension = getFileExtension(path);
 	const labels: Record<string, string> = {
@@ -488,10 +504,31 @@ function formatCompact(value: number): string {
 	return String(value);
 }
 
+function formatGitBranch(branch: string): string {
+	return branch.replace(/^refs\/(?:heads|remotes)\//u, "");
+}
+
 function mentionNameStart(path: string, query: string): number {
 	const matchIndex = path.toLocaleLowerCase().indexOf(query);
 	if (matchIndex < 0) return 0;
 	return path.lastIndexOf("/", matchIndex) + 1;
+}
+
+function fuzzyMatchScore(value: string, query: string): number | undefined {
+	if (!query) return 0;
+	const candidate = value.toLocaleLowerCase();
+	const needle = query.toLocaleLowerCase();
+	const exact = candidate.indexOf(needle);
+	if (exact >= 0) return exact;
+	let position = 0;
+	let gapScore = 0;
+	for (const character of needle) {
+		const next = candidate.indexOf(character, position);
+		if (next < 0) return undefined;
+		gapScore += next - position;
+		position = next + 1;
+	}
+	return 100 + gapScore;
 }
 
 function playCompletionTone(): void {
@@ -629,15 +666,24 @@ const EditDiffView = memo(function EditDiffView({
 	lines: Array<{ kind: "add" | "del" | "ctx"; text: string; oldLine?: number; newLine?: number }>;
 }) {
 	return (
-		// biome-ignore lint/a11y/useSemanticElements: diff 网格非标准表格结构
-		<div className="edit-diff" role="table" aria-label="文件变更">
+		<div className="edit-diff edit-diff-split">
+			<div className="edit-diff-head">
+				<span>旧内容</span>
+				<span>新内容</span>
+			</div>
 			{lines.map((line, index) => (
 				// biome-ignore lint/suspicious/noArrayIndexKey: diff 行顺序固定
-				<div className={`edit-diff-row is-${line.kind}`} key={index}>
-					<span className="edit-diff-num">{line.oldLine ?? ""}</span>
-					<span className="edit-diff-num">{line.newLine ?? ""}</span>
-					<span className="edit-diff-marker">{line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}</span>
-					<code>{line.text || " "}</code>
+				<div className="edit-diff-row" key={index}>
+					<div className={`edit-diff-side ${line.kind === "add" ? "is-empty" : "is-del"}`}>
+						<span className="edit-diff-num">{line.oldLine ?? ""}</span>
+						<span className="edit-diff-marker">{line.kind === "del" ? "−" : " "}</span>
+						<code>{line.kind === "add" ? " " : line.text || " "}</code>
+					</div>
+					<div className={`edit-diff-side ${line.kind === "del" ? "is-empty" : "is-add"}`}>
+						<span className="edit-diff-num">{line.newLine ?? ""}</span>
+						<span className="edit-diff-marker">{line.kind === "add" ? "+" : " "}</span>
+						<code>{line.kind === "del" ? " " : line.text || " "}</code>
+					</div>
 				</div>
 			))}
 		</div>
@@ -657,7 +703,13 @@ function toolCallPreview(input: string): string {
 	return input.replace(/\s+/gu, " ").trim().slice(0, 120);
 }
 
-const TranscriptBlock = memo(function TranscriptBlock({ block }: { block: DesktopTranscriptBlock }) {
+const TranscriptBlock = memo(function TranscriptBlock({
+	block,
+	durationMs,
+}: {
+	block: DesktopTranscriptBlock;
+	durationMs?: number;
+}) {
 	const [expanded, setExpanded] = useState(false);
 	if (block.type === "text") return <MarkdownBody text={block.text} />;
 	if (block.type === "image") return <span className="message-image-label">{block.label}</span>;
@@ -669,7 +721,11 @@ const TranscriptBlock = memo(function TranscriptBlock({ block }: { block: Deskto
 						<Icon name="chevron" size={11} />
 					</span>
 					思考过程
-					<span className="block-dim">{formatCompact(block.text.length)} 字符</span>
+					<span className="block-dim">
+						{durationMs !== undefined
+							? `耗时 ${(durationMs / 1000).toFixed(1)}s`
+							: `${formatCompact(block.text.length)} 字符`}
+					</span>
 				</button>
 				{expanded ? (
 					<pre>
@@ -708,6 +764,13 @@ function formatUsageSummary(usage: NonNullable<DesktopTranscriptMessage["usage"]
 	if (usage.cacheWrite > 0) parts.push(`${formatCompact(usage.cacheWrite)} cache W`);
 	if (usage.cost > 0) parts.push(`$${usage.cost.toFixed(4)}`);
 	return parts.join(" · ");
+}
+
+function speedTone(tokensPerSecond: number): "is-fast" | "is-good" | "is-warm" | "is-slow" {
+	if (tokensPerSecond >= 50) return "is-fast";
+	if (tokensPerSecond >= 30) return "is-good";
+	if (tokensPerSecond >= 15) return "is-warm";
+	return "is-slow";
 }
 
 const COLLAPSE_HEIGHT = 220;
@@ -751,17 +814,59 @@ const TranscriptMessage = memo(function TranscriptMessage({
 	message,
 	modelLabel,
 	isLastAssistant,
+	isStreaming,
+	previousTimestamp,
 	onEdit,
 	onFork,
 }: {
 	message: DesktopTranscriptMessage;
 	modelLabel?: string;
 	isLastAssistant?: boolean;
+	isStreaming?: boolean;
+	previousTimestamp?: number;
 	onEdit: (text: string) => void;
 	onFork: (entryId: string) => void;
 }) {
 	const [copied, setCopied] = useState(false);
+	const [streamTps, setStreamTps] = useState<number>();
+	const streamStartRef = useRef<number | undefined>(undefined);
+	const streamCharacterCountRef = useRef(0);
 	const isAssistant = message.role === "assistant";
+	streamCharacterCountRef.current = message.blocks
+		? message.blocks.reduce(
+				(total, block) =>
+					total +
+					(block.type === "text" || block.type === "thinking"
+						? block.text.length
+						: block.type === "toolCall"
+							? block.input.length
+							: 0),
+				0,
+			)
+		: message.text.length;
+	const durationSeconds =
+		isAssistant && message.timestamp && previousTimestamp && message.timestamp > previousTimestamp
+			? Math.max(1, Math.round((message.timestamp - previousTimestamp) / 1000))
+			: undefined;
+	const completedTps = durationSeconds && message.usage?.output ? message.usage.output / durationSeconds : undefined;
+
+	useEffect(() => {
+		if (!isStreaming) {
+			streamStartRef.current = undefined;
+			setStreamTps(undefined);
+			return;
+		}
+		streamStartRef.current ??= Date.now();
+		const update = (): void => {
+			const elapsed = (Date.now() - (streamStartRef.current ?? Date.now())) / 1000;
+			if (elapsed > 0.5 && streamCharacterCountRef.current > 0) {
+				setStreamTps(streamCharacterCountRef.current / 4 / elapsed);
+			}
+		};
+		const timer = window.setInterval(update, 300);
+		update();
+		return () => window.clearInterval(timer);
+	}, [isStreaming]);
 
 	async function copyMessage(): Promise<void> {
 		await navigator.clipboard.writeText(message.text);
@@ -774,6 +879,12 @@ const TranscriptMessage = memo(function TranscriptMessage({
 			{isAssistant ? (
 				<div className="assistant-label">
 					<span>{modelLabel ?? "Pi"}</span>
+					{isStreaming && streamCharacterCountRef.current > 0 ? (
+						<span className="stream-token-count">↓{Math.round(streamCharacterCountRef.current / 4)}</span>
+					) : null}
+					{streamTps !== undefined ? (
+						<span className={`stream-tps ${speedTone(streamTps)}`}>{streamTps.toFixed(1)} t/s</span>
+					) : null}
 					{message.timestamp && isLastAssistant ? <time>{formatMessageTime(message.timestamp)}</time> : null}
 				</div>
 			) : null}
@@ -786,9 +897,16 @@ const TranscriptMessage = memo(function TranscriptMessage({
 					<UserMessageBody text={message.text || "…"} />
 				)}
 			</div>
+			{!isAssistant && message.timestamp ? (
+				<time className="message-time">{formatMessageTime(message.timestamp)}</time>
+			) : null}
 			{isAssistant && message.usage && (message.usage.input > 0 || message.usage.output > 0) ? (
 				<div className="message-usage">
 					<span>{formatUsageSummary(message.usage)}</span>
+					{durationSeconds ? <span>{durationSeconds}s</span> : null}
+					{completedTps ? (
+						<span className={`message-tps ${speedTone(completedTps)}`}>{completedTps.toFixed(1)} t/s</span>
+					) : null}
 					<button type="button" onClick={() => void copyMessage()}>
 						{copied ? "已复制" : "复制"}
 					</button>
@@ -809,7 +927,6 @@ const TranscriptMessage = memo(function TranscriptMessage({
 							Fork
 						</button>
 					) : null}
-					{!isAssistant && message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
 				</div>
 			)}
 		</article>
@@ -827,22 +944,58 @@ function transcriptDiffLineClass(line: string): string {
 const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 	message,
 	toolCall,
+	previousTimestamp,
 }: {
 	message: DesktopTranscriptMessage;
 	toolCall?: { name: string; input: string };
+	previousTimestamp?: number;
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const [copied, setCopied] = useState(false);
+	const [fullOutput, setFullOutput] = useState<string>();
+	const [loadingFullOutput, setLoadingFullOutput] = useState(false);
+	const [fullOutputError, setFullOutputError] = useState<string>();
+	const [savingFullOutput, setSavingFullOutput] = useState(false);
 	async function copyOutput(): Promise<void> {
-		await navigator.clipboard.writeText(message.text);
+		await navigator.clipboard.writeText(fullOutput ?? message.text);
 		setCopied(true);
 		window.setTimeout(() => setCopied(false), 1200);
 	}
-	const isDiff = message.role === "tool" && /(^|\n)@@ |(^|\n)diff --git |(^|\n)--- /u.test(message.text);
+	const displayedOutput = fullOutput ?? message.text;
+	const isDiff = message.role === "tool" && /(^|\n)@@ |(^|\n)diff --git |(^|\n)--- /u.test(displayedOutput);
+	const durationSeconds =
+		(message.role === "tool" || message.command) &&
+		message.timestamp !== undefined &&
+		previousTimestamp !== undefined &&
+		message.timestamp >= previousTimestamp
+			? ((message.timestamp - previousTimestamp) / 1000).toFixed(1)
+			: undefined;
+	async function loadFullOutput(): Promise<void> {
+		setLoadingFullOutput(true);
+		setFullOutputError(undefined);
+		try {
+			setFullOutput(await readFullBashOutput(message.id));
+		} catch (error) {
+			setFullOutputError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setLoadingFullOutput(false);
+		}
+	}
+	async function downloadFullOutput(): Promise<void> {
+		setSavingFullOutput(true);
+		setFullOutputError(undefined);
+		try {
+			await saveFullBashOutput(message.id);
+		} catch (error) {
+			setFullOutputError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setSavingFullOutput(false);
+		}
+	}
 	return (
 		<article className={`transcript-entry ${expanded ? "is-expanded" : ""}`}>
 			<button
-				className="entry-toggle"
+				className={`entry-toggle ${message.isError ? "is-error" : "is-success"}`}
 				type="button"
 				aria-expanded={expanded}
 				onClick={() => setExpanded((current) => !current)}
@@ -858,6 +1011,7 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 							: "系统消息"}
 				</span>
 				{message.toolCallId ? <code className="tool-call-id">#{message.toolCallId.slice(-6)}</code> : null}
+				{durationSeconds !== undefined ? <small className="entry-duration">{durationSeconds}s</small> : null}
 				{message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
 			</button>
 			{expanded ? (
@@ -870,14 +1024,14 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 					<pre className={`entry-detail ${message.isError ? "is-error" : ""} ${isDiff ? "is-diff" : ""}`}>
 						<code>
 							{isDiff
-								? message.text.split("\n").map((line, index) => (
+								? displayedOutput.split("\n").map((line, index) => (
 										// biome-ignore lint/suspicious/noArrayIndexKey: diff 行顺序固定
 										<span className={transcriptDiffLineClass(line)} key={index}>
 											{line || " "}
 											{"\n"}
 										</span>
 									))
-								: message.text || "…"}
+								: displayedOutput || "…"}
 						</code>
 						{message.command ? (
 							<small>
@@ -887,10 +1041,23 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 						) : null}
 					</pre>
 					<div className="entry-detail-actions">
-						<button type="button" onClick={() => void copyOutput()} disabled={!message.text}>
+						<button type="button" onClick={() => void copyOutput()} disabled={!displayedOutput}>
 							{copied ? "已复制" : "复制输出"}
 						</button>
-						{message.truncated ? <span>输出已截断</span> : null}
+						{message.truncated && message.fullOutputAvailable && fullOutput === undefined ? (
+							<button type="button" disabled={loadingFullOutput} onClick={() => void loadFullOutput()}>
+								{loadingFullOutput ? "正在读取…" : "查看完整输出"}
+							</button>
+						) : message.truncated && fullOutput === undefined ? (
+							<span>输出已截断</span>
+						) : null}
+						{message.fullOutputAvailable ? (
+							<button type="button" disabled={savingFullOutput} onClick={() => void downloadFullOutput()}>
+								{savingFullOutput ? "正在保存…" : "下载完整输出"}
+							</button>
+						) : null}
+						{fullOutput !== undefined ? <span>已显示完整输出</span> : null}
+						{fullOutputError ? <span className="is-error">{fullOutputError}</span> : null}
 					</div>
 				</div>
 			) : null}
@@ -961,9 +1128,12 @@ interface ExplorerProps {
 	selectedPath: string | undefined;
 	workspacePath: string | undefined;
 	onChooseWorkspace: () => void;
+	onDownload: (path: string) => void;
+	onMention: (path: string) => void;
 	onOpenFile: (entry: DesktopWorkspaceEntry) => void;
 	onRefresh: () => void;
 	onTrustProject: () => void;
+	onUpload: (files: File[]) => void;
 }
 
 function Explorer({
@@ -974,9 +1144,12 @@ function Explorer({
 	selectedPath,
 	workspacePath,
 	onChooseWorkspace,
+	onDownload,
+	onMention,
 	onOpenFile,
 	onRefresh,
 	onTrustProject,
+	onUpload,
 }: ExplorerProps) {
 	const [collapsedDirectories, setCollapsedDirectories] = useState<Set<string>>(new Set());
 	const [searchQuery, setSearchQuery] = useState("");
@@ -1005,6 +1178,16 @@ function Explorer({
 		() => new Map(gitChanges.map((change) => [change.path, change.status])),
 		[gitChanges],
 	);
+	const changedDirectories = useMemo(() => {
+		const directories = new Set<string>();
+		for (const change of gitChanges) {
+			const segments = change.path.split("/");
+			for (let index = 1; index < segments.length; index += 1) {
+				directories.add(segments.slice(0, index).join("/"));
+			}
+		}
+		return directories;
+	}, [gitChanges]);
 	const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
 	const visibleEntries = useMemo(() => {
 		if (normalizedSearch) {
@@ -1054,9 +1237,21 @@ function Explorer({
 			</div>
 		);
 	return (
-		<div className="explorer-body">
+		<section
+			className="explorer-body"
+			aria-label="项目文件树和上传区域"
+			onDragOver={(event) => event.preventDefault()}
+			onDrop={(event) => {
+				event.preventDefault();
+				onUpload(Array.from(event.dataTransfer.files));
+			}}
+		>
 			<div className="sidebar-section-title">
 				<span>文件</span>
+				<label className="file-upload-button" title="上传文件">
+					＋
+					<input type="file" multiple onChange={(event) => onUpload(Array.from(event.target.files ?? []))} />
+				</label>
 				<button className="icon-button compact" type="button" aria-label="刷新文件" onClick={onRefresh}>
 					↻
 				</button>
@@ -1075,23 +1270,31 @@ function Explorer({
 			<div className="file-list">
 				{visibleEntries.map((entry) =>
 					isFileEntry(entry) ? (
-						<button
+						<div
 							className={`tree-entry file-entry ${selectedPath === entry.path ? "is-selected" : ""}`}
 							key={entry.path}
 							style={{ "--entry-depth": entry.depth } as CSSProperties}
-							type="button"
-							onClick={() => onOpenFile(entry)}
 						>
-							<span className="tree-file-icon">
-								<Icon name={fileIconFor(entry.path)} size={13} />
-							</span>
-							<span className="tree-entry-name">{normalizedSearch ? entry.path : entry.name}</span>
+							<button className="tree-entry-main" type="button" onClick={() => onOpenFile(entry)}>
+								<span className="tree-file-icon">
+									<Icon name={fileIconFor(entry.path)} size={13} />
+								</span>
+								<span className="tree-entry-name">{normalizedSearch ? entry.path : entry.name}</span>
+							</button>
 							{gitStatusByPath.get(entry.path) ? (
 								<span className={`tree-git-status is-${gitStatusByPath.get(entry.path)}`}>
 									{gitStatusByPath.get(entry.path)?.slice(0, 1).toUpperCase()}
 								</span>
 							) : null}
-						</button>
+							<div className="tree-entry-actions">
+								<button type="button" title={`提及 ${entry.path}`} onClick={() => onMention(entry.path)}>
+									@
+								</button>
+								<button type="button" title={`下载 ${entry.path}`} onClick={() => onDownload(entry.path)}>
+									↓
+								</button>
+							</div>
+						</div>
 					) : (
 						<button
 							className={`tree-entry directory-entry ${collapsedDirectories.has(entry.path) ? "is-collapsed" : ""}`}
@@ -1105,6 +1308,7 @@ function Explorer({
 							</span>
 							<Icon name="folder" size={14} />
 							<span>{entry.name}</span>
+							{changedDirectories.has(entry.path) ? <span className="directory-change-dot" /> : null}
 						</button>
 					),
 				)}
@@ -1112,7 +1316,7 @@ function Explorer({
 					<p className="sidebar-loading">没有匹配的文件。</p>
 				) : null}
 			</div>
-		</div>
+		</section>
 	);
 }
 
@@ -1150,9 +1354,11 @@ function Inspector({
 	const [diffLoading, setDiffLoading] = useState(false);
 	const activeTab = tabs.find((tab) => tab.path === activeTabPath);
 	const preview = activeTab?.preview;
-	const isPreviewable = preview ? isMarkdownFile(preview.path) : false;
 	const isImage = preview ? preview.imageDataUrl !== undefined : false;
 	const isAudio = preview ? preview.audioDataUrl !== undefined : false;
+	const isPdf = preview ? preview.pdfDataUrl !== undefined : false;
+	const isDocx = preview ? preview.docxHtml !== undefined : false;
+	const isPreviewable = preview ? isMarkdownFile(preview.path) || isHtmlFile(preview.path) || isDocx : false;
 	const previewPath = preview?.path;
 
 	const loadDiff = useCallback(async (path: string) => {
@@ -1172,7 +1378,13 @@ function Inspector({
 	}, [loadDiff, mode, previewPath]);
 
 	useEffect(() => {
-		setMode(isMarkdownFile(previewPath ?? "") ? "preview" : "source");
+		setMode(
+			isMarkdownFile(previewPath ?? "") ||
+				isHtmlFile(previewPath ?? "") ||
+				previewPath?.toLocaleLowerCase().endsWith(".docx")
+				? "preview"
+				: "source",
+		);
 	}, [previewPath]);
 
 	useEffect(() => {
@@ -1228,7 +1440,7 @@ function Inspector({
 					)}
 				</div>
 				<div className="inspector-header-actions">
-					{preview && !isImage && !isAudio ? (
+					{preview && !isImage && !isAudio && !isPdf && !isDocx ? (
 						<div className="inspector-segmented" role="tablist" aria-label="显示模式">
 							<button
 								aria-pressed={mode === "source"}
@@ -1258,7 +1470,7 @@ function Inspector({
 							</button>
 						</div>
 					) : null}
-					{preview && !isImage && !isAudio ? (
+					{preview && !isImage && !isAudio && !isPdf && !isDocx ? (
 						<button
 							className={`icon-button ${wrapLines ? "is-active" : ""}`}
 							type="button"
@@ -1304,7 +1516,7 @@ function Inspector({
 					</button>
 				</div>
 			</div>
-			{preview && !isImage && !isAudio && mode === "source" ? (
+			{preview && !isImage && !isAudio && !isPdf && mode === "source" ? (
 				<label className="content-search">
 					<Icon name="search" size={13} />
 					<input
@@ -1325,10 +1537,24 @@ function Inspector({
 						{/* biome-ignore lint/a11y/useMediaCaption: 音频文件预览，无字幕轨可提供 */}
 						<audio controls src={preview.audioDataUrl} aria-label={`音频预览：${preview.path}`} />
 					</div>
-				) : mode === "preview" && isPreviewable ? (
-					<div className="file-preview-rendered">
-						<MarkdownBody text={preview.content} />
+				) : isPdf ? (
+					<div className="file-document-preview">
+						<iframe src={preview.pdfDataUrl} title={`PDF 预览：${preview.path}`} />
 					</div>
+				) : mode === "preview" && isPreviewable ? (
+					isHtmlFile(preview.path) || isDocx ? (
+						<div className="file-document-preview">
+							<iframe
+								sandbox=""
+								srcDoc={isDocx ? preview.docxHtml : preview.content}
+								title={`${isDocx ? "DOCX" : "HTML"} 预览：${preview.path}`}
+							/>
+						</div>
+					) : (
+						<div className="file-preview-rendered">
+							<MarkdownBody text={preview.content} />
+						</div>
+					)
 				) : mode === "diff" ? (
 					diffLoading ? (
 						<p className="inspector-diff-empty">正在读取差异…</p>
@@ -1388,7 +1614,7 @@ export function App() {
 		() => Number(localStorage.getItem("pi-desktop-sidebar-width")) || 260,
 	);
 	const [inspectorWidth, setInspectorWidth] = useState(
-		() => Number(localStorage.getItem("pi-desktop-inspector-width")) || 440,
+		() => Number(localStorage.getItem("pi-desktop-inspector-width")) || 760,
 	);
 	const [notifyOnComplete, setNotifyOnComplete] = useState<boolean>(
 		() => localStorage.getItem("pi-desktop-notify-complete") !== "off",
@@ -1396,16 +1622,20 @@ export function App() {
 	const [soundOnComplete, setSoundOnComplete] = useState<boolean>(
 		() => localStorage.getItem("pi-desktop-sound-complete") !== "off",
 	);
-	const [sidebarView, setSidebarView] = useState<"chats" | "files">(() =>
-		localStorage.getItem("pi-desktop-sidebar-view") === "files" ? "files" : "chats",
+	const [fileTreeOpen, setFileTreeOpen] = useState(true);
+	const [fileTreeWidth, setFileTreeWidth] = useState(
+		() => Number(localStorage.getItem("pi-desktop-file-tree-width")) || 280,
 	);
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
-	const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
+	const [sessionMenuOpen, setSessionMenuOpen] = useState<string>();
+	const [deleteSessionPath, setDeleteSessionPath] = useState<string>();
 	const [moreMenuOpen, setMoreMenuOpen] = useState(false);
 	const [renamingSession, setRenamingSession] = useState<{ path: string; name: string }>();
 	const [modelFilter, setModelFilter] = useState("");
 	const [projectRowMenuOpen, setProjectRowMenuOpen] = useState<string>();
 	const [extensionDialog, setExtensionDialog] = useState<DesktopExtensionDialog>();
+	const [extensionDialogSessionId, setExtensionDialogSessionId] = useState<string>();
+	const [extensionCustomUi, setExtensionCustomUi] = useState<{ sessionId: string; id: string; lines: string[] }>();
 	const [respondingExtension, setRespondingExtension] = useState(false);
 	const [changedFileHint, setChangedFileHint] = useState(false);
 	const [trustDialogOpen, setTrustDialogOpen] = useState(false);
@@ -1421,7 +1651,7 @@ export function App() {
 			return [];
 		}
 	});
-	const [submitting, setSubmitting] = useState(false);
+	const [submittingSessionId, setSubmittingSessionId] = useState<string>();
 	const [aborting, setAborting] = useState(false);
 	const [awayFromBottom, setAwayFromBottom] = useState(false);
 	const [unseenMessages, setUnseenMessages] = useState(0);
@@ -1430,6 +1660,11 @@ export function App() {
 	const [settingModel, setSettingModel] = useState(false);
 	const [draggingImages, setDraggingImages] = useState(false);
 	const [attachments, setAttachments] = useState<DesktopImageAttachment[]>([]);
+	const [pendingFileConflicts, setPendingFileConflicts] = useState<{
+		files: File[];
+		names: string[];
+		mentionAfterImport: boolean;
+	}>();
 	const [selectedProviderId, setSelectedProviderId] = useState("");
 	const [authenticationResponse, setAuthenticationResponse] = useState("");
 	const [respondingToAuthenticationPromptId, setRespondingToAuthenticationPromptId] = useState<string>();
@@ -1447,6 +1682,8 @@ export function App() {
 		}, 5000);
 	}, []);
 	const [workspaceEntries, setWorkspaceEntries] = useState<DesktopWorkspaceEntry[]>([]);
+	const [mentionEntries, setMentionEntries] = useState<DesktopWorkspaceEntry[]>([]);
+	const [gitWorktrees, setGitWorktrees] = useState<DesktopGitWorktree[]>([]);
 	const [fileTabs, setFileTabs] = useState<FileTab[]>([]);
 	const [activeTabPath, setActiveTabPath] = useState<string | undefined>();
 	const [fileExplorerError, setFileExplorerError] = useState<string>();
@@ -1454,12 +1691,29 @@ export function App() {
 	const [loadingFilePath, setLoadingFilePath] = useState<string>();
 	const [inspectorOpen, setInspectorOpen] = useState(false);
 	const [sidebarOpen, setSidebarOpen] = useState(true);
+	const [isOnline, setIsOnline] = useState(() => navigator.onLine);
 	const [configModal, setConfigModal] = useState<ConfigModal | undefined>();
 	const [topPanel, setTopPanel] = useState<"branches" | "session" | "system" | undefined>();
 	const [namingState, setNamingState] = useState<"idle" | "loading" | "success" | "error">("idle");
 	const [sessionSearch, setSessionSearch] = useState("");
 	const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
 	const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+	const [archivedProjectRoots, setArchivedProjectRoots] = useState<Set<string>>(() => {
+		try {
+			const value: unknown = JSON.parse(localStorage.getItem("pi-desktop-archived-projects") ?? "[]");
+			return new Set(Array.isArray(value) ? value.filter((path): path is string => typeof path === "string") : []);
+		} catch {
+			return new Set();
+		}
+	});
+	const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => {
+		try {
+			const stored: unknown = JSON.parse(localStorage.getItem("pi-desktop-unread-sessions") ?? "[]");
+			return new Set(Array.isArray(stored) ? stored.filter((id): id is string => typeof id === "string") : []);
+		} catch {
+			return new Set();
+		}
+	});
 	const [composerMenu, setComposerMenu] = useState<"model" | "thinking" | "tools" | undefined>();
 	const [toolPreset, setToolPreset] = useState<"off" | "default" | "full">(
 		() => (localStorage.getItem("pi-desktop-tool-preset") as "off" | "default" | "full" | null) ?? "default",
@@ -1468,7 +1722,9 @@ export function App() {
 	const [suggestionIndex, setSuggestionIndex] = useState(0);
 	const fileRequestId = useRef(0);
 	const chatScrollRef = useRef<HTMLDivElement>(null);
+	const earlierMessagesSentinelRef = useRef<HTMLDivElement>(null);
 	const scrollFrameRef = useRef<number | undefined>(undefined);
+	const loadingEarlierMessagesRef = useRef(false);
 	const stickToBottomRef = useRef(true);
 	const previousMessageSignatureRef = useRef("");
 	const previousSessionIdRef = useRef<string | undefined>(undefined);
@@ -1477,10 +1733,14 @@ export function App() {
 	const promptHistoryRef = useRef<string[]>([]);
 	const promptHistoryIndexRef = useRef(-1);
 	const draftBeforeHistoryRef = useRef("");
+	const extensionEditorRequestRef = useRef<number | undefined>(undefined);
 	const previousPhaseRef = useRef<DesktopSessionPhase | undefined>(undefined);
+	const previousSessionPhasesRef = useRef<Map<string, DesktopSessionPhase | undefined>>(new Map());
 	const apiKeyProviderIds = snapshot.apiKeyProviders.map((provider) => provider.id).join("\u0000");
 	const authenticationPrompt = snapshot.pendingAuthenticationPrompts[0];
 	const session = snapshot.session;
+	const currentSessionPath = snapshot.sessions.find((item) => item.id === session?.id)?.path;
+	const submitting = submittingSessionId === session?.id;
 	const draftKey = `${DRAFT_STORAGE_PREFIX}${session?.id ?? snapshot.workspacePath ?? "new"}`;
 	const lastMessage = session?.messages.at(-1);
 	const messageSignature = `${session?.id ?? ""}:${session?.messages.length ?? 0}:${lastMessage?.id ?? ""}:${lastMessage?.text.length ?? 0}`;
@@ -1518,6 +1778,19 @@ export function App() {
 	})();
 	const transcriptItems = useMemo(() => partitionTranscript(session?.messages ?? []), [session?.messages]);
 	const conversationTurns = useMemo(() => buildConversationTurns(session?.messages ?? []), [session?.messages]);
+	const conversationTurnIndexes = useMemo(
+		() => new Map(conversationTurns.map((turn, index) => [turn.messageId, index])),
+		[conversationTurns],
+	);
+	const previousMessageTimestamps = useMemo(() => {
+		const result = new Map<string, number>();
+		let previousTimestamp: number | undefined;
+		for (const message of session?.messages ?? []) {
+			if (previousTimestamp !== undefined) result.set(message.id, previousTimestamp);
+			if (message.timestamp !== undefined) previousTimestamp = message.timestamp;
+		}
+		return result;
+	}, [session?.messages]);
 	const canSubmit =
 		!submitting &&
 		!aborting &&
@@ -1543,46 +1816,63 @@ export function App() {
 		!snapshot.providerSetupInProgress &&
 		!!session &&
 		session.phase !== "running";
-	const slashQuery = draft.trimStart().startsWith("/") ? draft.trimStart().slice(1).toLocaleLowerCase() : "";
+	const slashMatch = draft.match(/^\s*\/([^\s]*)$/u);
+	const slashActive = slashMatch !== null;
+	const slashQuery = slashMatch?.[1]?.toLocaleLowerCase() ?? "";
 	const slashCommands = [
-		{ name: "compact", description: "压缩对话上下文，可附加指示" },
-		{ name: "name", description: "重命名当前会话" },
-		{ name: "copy", description: "复制最后一条回答" },
-		{ name: "session", description: "查看会话统计" },
-		{ name: "reload", description: "重新加载扩展与资源" },
-		{ name: "help", description: "显示桌面端可用命令" },
-		{ name: "model", description: "打开具体模型选择" },
-		{ name: "login", description: "配置模型服务商" },
-		{ name: "project", description: "打开项目文件夹" },
-		{ name: "files", description: "打开文件浏览" },
-		{ name: "settings", description: "打开设置" },
-		{ name: "skills", description: "打开技能列表" },
-		{ name: "plugins", description: "打开插件列表" },
-		{ name: "trust", description: "切换当前项目的信任状态" },
-		...snapshot.skills.map((skill) => ({ name: `skill:${skill.name}`, description: skill.description })),
+		{ name: "compact", description: "压缩对话上下文，可附加指示", category: "会话" },
+		{ name: "name", description: "重命名当前会话", category: "会话" },
+		{ name: "copy", description: "复制最后一条回答", category: "会话" },
+		{ name: "session", description: "查看会话统计", category: "会话" },
+		{ name: "reload", description: "重新加载扩展与资源", category: "会话" },
+		{ name: "help", description: "显示桌面端可用命令", category: "帮助" },
+		{ name: "model", description: "打开具体模型选择", category: "模型" },
+		{ name: "login", description: "配置模型服务商", category: "模型" },
+		{ name: "project", description: "打开项目文件夹", category: "项目" },
+		{ name: "files", description: "打开文件浏览", category: "项目" },
+		{ name: "settings", description: "打开设置", category: "设置" },
+		{ name: "skills", description: "打开技能列表", category: "扩展" },
+		{ name: "plugins", description: "打开插件列表", category: "扩展" },
+		{ name: "trust", description: "切换当前项目的信任状态", category: "安全" },
+		...snapshot.skills.map((skill) => ({
+			name: `skill:${skill.name}`,
+			description: skill.description,
+			category: "技能",
+		})),
 		...snapshot.plugins.flatMap((plugin) =>
-			plugin.commands.map((command) => ({ name: command, description: `插件 ${plugin.name}` })),
+			plugin.commands.map((command) => ({ name: command, description: `插件 ${plugin.name}`, category: "插件" })),
 		),
-	].filter((command) => command.name.toLocaleLowerCase().startsWith(slashQuery));
-	const atQuery = draft.trimStart().startsWith("@") ? draft.trimStart().slice(1).toLocaleLowerCase() : "";
-	const atEntries = atQuery
-		? workspaceEntries.filter((entry) => entry.path.toLocaleLowerCase().includes(atQuery)).slice(0, 12)
-		: [];
-	const hashQuery = draft.trimStart().startsWith("#") ? draft.trimStart().slice(1).toLocaleLowerCase() : "";
-	const hashSessions = hashQuery
-		? snapshot.sessions
-				.filter((item) => `${item.name ?? ""} ${item.firstMessage}`.toLocaleLowerCase().includes(hashQuery))
-				.slice(0, 8)
-		: [];
-	const visibleSlashCommands = slashCommands.slice(0, 8);
+	]
+		.map((command) => ({ ...command, score: fuzzyMatchScore(`${command.name} ${command.description}`, slashQuery) }))
+		.filter((command): command is typeof command & { score: number } => command.score !== undefined)
+		.sort((left, right) => left.score - right.score || left.name.localeCompare(right.name));
+	const atMatch = draft.match(/(?:^|\s)@([^\s]*)$/u);
+	const atActive = atMatch !== null;
+	const atQuery = atMatch?.[1]?.toLocaleLowerCase() ?? "";
+	const atEntries = (atQuery ? mentionEntries : workspaceEntries)
+		.map((entry) => ({ entry, score: fuzzyMatchScore(entry.path, atQuery) }))
+		.filter((result): result is typeof result & { score: number } => result.score !== undefined)
+		.sort((left, right) => left.score - right.score || left.entry.path.localeCompare(right.entry.path))
+		.slice(0, 12)
+		.map((result) => result.entry);
+	const hashMatch = draft.match(/(?:^|\s)#([^\s]*)$/u);
+	const hashActive = hashMatch !== null;
+	const hashQuery = hashMatch?.[1]?.toLocaleLowerCase() ?? "";
+	const hashSessions = snapshot.sessions
+		.map((item) => ({ item, score: fuzzyMatchScore(`${item.name ?? ""} ${item.firstMessage}`, hashQuery) }))
+		.filter((result): result is typeof result & { score: number } => result.score !== undefined)
+		.sort((left, right) => left.score - right.score || right.item.modified - left.item.modified)
+		.slice(0, 8)
+		.map((result) => result.item);
+	const visibleSlashCommands = slashCommands.slice(0, 12);
 	const [menusDismissed, setMenusDismissed] = useState(false);
 	const [visibleItemCount, setVisibleItemCount] = useState(40);
 	const suggestionCount = !menusDismissed
-		? slashQuery
+		? slashActive
 			? visibleSlashCommands.length
-			: hashQuery
+			: hashActive
 				? hashSessions.length
-				: atQuery
+				: atActive
 					? atEntries.length
 					: 0
 		: 0;
@@ -1591,16 +1881,70 @@ export function App() {
 		void startDesktopStore();
 	}, []);
 	useEffect(() => {
+		const handleOnline = () => setIsOnline(true);
+		const handleOffline = () => setIsOnline(false);
+		window.addEventListener("online", handleOnline);
+		window.addEventListener("offline", handleOffline);
+		return () => {
+			window.removeEventListener("online", handleOnline);
+			window.removeEventListener("offline", handleOffline);
+		};
+	}, []);
+	useEffect(() => {
 		setDraft(localStorage.getItem(draftKey) ?? "");
 		setAttachments([]);
 	}, [draftKey]);
 	useEffect(() => {
 		localStorage.setItem(draftKey, draft);
 	}, [draft, draftKey]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: resizePrompt 不捕获响应式状态。
+	useEffect(() => {
+		const request = snapshot.extensionEditorRequest;
+		if (!request || extensionEditorRequestRef.current === request.id) return;
+		extensionEditorRequestRef.current = request.id;
+		const textarea = promptRef.current;
+		const start = textarea?.selectionStart ?? draft.length;
+		const end = textarea?.selectionEnd ?? start;
+		const next =
+			request.mode === "replace" ? request.text : `${draft.slice(0, start)}${request.text}${draft.slice(end)}`;
+		setDraft(next);
+		requestAnimationFrame(() => {
+			const prompt = promptRef.current;
+			if (!prompt) return;
+			const cursor = request.mode === "replace" ? request.text.length : start + request.text.length;
+			prompt.focus();
+			prompt.setSelectionRange(cursor, cursor);
+			resizePrompt(prompt);
+		});
+	}, [draft, snapshot.extensionEditorRequest]);
 	function resizePrompt(textarea: HTMLTextAreaElement): void {
 		textarea.style.height = "auto";
 		textarea.style.height = textarea.value ? `${Math.min(textarea.scrollHeight, 180)}px` : "24px";
 	}
+	const shortcutStateRef = useRef({
+		hadTransientUi: false,
+		running: false,
+		newSession: handleNewSession,
+		abort: handleAbort,
+	});
+	shortcutStateRef.current = {
+		hadTransientUi: Boolean(
+			configModal ||
+				(extensionDialog && extensionDialogSessionId === session?.id) ||
+				(extensionCustomUi && extensionCustomUi.sessionId === session?.id) ||
+				trustDialogOpen ||
+				topPanel ||
+				composerMenu ||
+				projectMenuOpen ||
+				sessionMenuOpen ||
+				deleteSessionPath ||
+				moreMenuOpen ||
+				projectRowMenuOpen,
+		),
+		running: session?.phase === "running",
+		newSession: handleNewSession,
+		abort: handleAbort,
+	};
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (!(event.metaKey || event.ctrlKey)) return;
@@ -1609,19 +1953,21 @@ export function App() {
 				promptRef.current?.focus();
 			} else if (event.key.toLowerCase() === "n") {
 				event.preventDefault();
-				void newSession();
+				void shortcutStateRef.current.newSession();
 			}
 		};
 		window.addEventListener("keydown", onKeyDown);
 		const onEscape = (event: KeyboardEvent) => {
 			if (event.key !== "Escape") return;
+			const shortcutState = shortcutStateRef.current;
 			setMenusDismissed(true);
 			setComposerMenu(undefined);
 			setTopPanel(undefined);
 			setProjectMenuOpen(false);
-			setSessionMenuOpen(false);
+			setSessionMenuOpen(undefined);
 			setMoreMenuOpen(false);
 			setProjectRowMenuOpen(undefined);
+			if (!shortcutState.hadTransientUi && shortcutState.running) void shortcutState.abort();
 		};
 		window.addEventListener("keydown", onEscape);
 		return () => {
@@ -1644,15 +1990,13 @@ export function App() {
 		return () => media.removeEventListener("change", apply);
 	}, [theme]);
 	useEffect(() => {
-		localStorage.setItem("pi-desktop-sidebar-view", sidebarView);
-	}, [sidebarView]);
-	useEffect(() => {
 		if (!projectMenuOpen && !sessionMenuOpen && !moreMenuOpen && !projectRowMenuOpen) return;
 		const close = (event: MouseEvent) => {
 			const target = event.target;
 			if (!(target instanceof Element)) {
 				setProjectMenuOpen(false);
-				setSessionMenuOpen(false);
+				setSessionMenuOpen(undefined);
+				setDeleteSessionPath(undefined);
 				setMoreMenuOpen(false);
 				setProjectRowMenuOpen(undefined);
 				return;
@@ -1661,7 +2005,7 @@ export function App() {
 				setProjectMenuOpen(false);
 				setProjectRowMenuOpen(undefined);
 			}
-			if (!target.closest(".session-row-wrap.is-current")) setSessionMenuOpen(false);
+			if (!target.closest(".session-row-wrap")) setSessionMenuOpen(undefined);
 			if (!target.closest(".top-bar-more-wrap")) setMoreMenuOpen(false);
 		};
 		document.addEventListener("mousedown", close);
@@ -1683,13 +2027,44 @@ export function App() {
 		localStorage.setItem("pi-desktop-sound-complete", soundOnComplete ? "on" : "off");
 	}, [notifyOnComplete, soundOnComplete]);
 	useEffect(() => {
+		localStorage.setItem("pi-desktop-unread-sessions", JSON.stringify([...unreadSessionIds]));
+	}, [unreadSessionIds]);
+	useEffect(() => {
+		localStorage.setItem("pi-desktop-archived-projects", JSON.stringify([...archivedProjectRoots]));
+	}, [archivedProjectRoots]);
+	useEffect(() => {
+		const previous = previousSessionPhasesRef.current;
+		const completed: DesktopSessionInfo[] = [];
+		for (const item of snapshot.sessions) {
+			if (previous.get(item.id) === "running" && item.phase === "idle" && item.id !== session?.id) {
+				completed.push(item);
+			}
+			previous.set(item.id, item.phase);
+		}
+		if (completed.length) {
+			setUnreadSessionIds((current) => new Set([...current, ...completed.map((item) => item.id)]));
+			if (notifyOnComplete) {
+				for (const item of completed) void notifyComplete(sessionTitle(item), true);
+			}
+		}
+	}, [notifyOnComplete, session?.id, snapshot.sessions]);
+	useEffect(() => {
+		if (!session?.id) return;
+		setUnreadSessionIds((current) => {
+			if (!current.has(session.id)) return current;
+			const next = new Set(current);
+			next.delete(session.id);
+			return next;
+		});
+	}, [session?.id]);
+	useEffect(() => {
 		const phase = session?.phase;
 		if (previousPhaseRef.current === "running" && phase === "idle") {
 			if (soundOnComplete) playCompletionTone();
-			if (notifyOnComplete && !document.hasFocus()) void notifyComplete();
+			if (notifyOnComplete && !document.hasFocus()) void notifyComplete(session?.name);
 		}
 		previousPhaseRef.current = phase;
-	}, [session?.phase, notifyOnComplete, soundOnComplete]);
+	}, [session?.name, session?.phase, notifyOnComplete, soundOnComplete]);
 	useEffect(() => {
 		const scroll = chatScrollRef.current;
 		if (!scroll) return;
@@ -1718,6 +2093,27 @@ export function App() {
 		},
 		[],
 	);
+	useEffect(() => {
+		const scroll = chatScrollRef.current;
+		const sentinel = earlierMessagesSentinelRef.current;
+		if (!scroll || !sentinel || visibleItemCount >= transcriptItems.length) return;
+		const observer = new IntersectionObserver(
+			([entry]) => {
+				if (!entry?.isIntersecting || loadingEarlierMessagesRef.current) return;
+				loadingEarlierMessagesRef.current = true;
+				const previousHeight = scroll.scrollHeight;
+				setVisibleItemCount((current) => Math.min(current + 60, transcriptItems.length));
+				requestAnimationFrame(() => {
+					const currentScroll = chatScrollRef.current;
+					if (currentScroll) currentScroll.scrollTop += currentScroll.scrollHeight - previousHeight;
+					loadingEarlierMessagesRef.current = false;
+				});
+			},
+			{ root: scroll, rootMargin: "160px 0px 0px" },
+		);
+		observer.observe(sentinel);
+		return () => observer.disconnect();
+	}, [transcriptItems.length, visibleItemCount]);
 	useEffect(() => {
 		const providerIds = apiKeyProviderIds ? apiKeyProviderIds.split("\u0000") : [];
 		if (!providerIds.includes(selectedProviderId)) setSelectedProviderId(providerIds[0] ?? "");
@@ -1756,12 +2152,61 @@ export function App() {
 		if (snapshot.projectTrusted && snapshot.workspacePath) void refreshWorkspaceFiles();
 	}, [refreshWorkspaceFiles, snapshot.projectTrusted, snapshot.workspacePath]);
 	useEffect(() => {
+		if (!snapshot.workspacePath || !snapshot.projectTrusted) {
+			setGitWorktrees([]);
+			return;
+		}
+		let active = true;
+		void listGitWorktrees()
+			.then((items) => {
+				if (active) setGitWorktrees(items);
+			})
+			.catch(() => {
+				if (active) setGitWorktrees([]);
+			});
+		return () => {
+			active = false;
+		};
+	}, [snapshot.projectTrusted, snapshot.workspacePath]);
+	useEffect(() => {
 		if (atQuery && snapshot.projectTrusted && snapshot.workspacePath && workspaceEntries.length === 0) {
 			void refreshWorkspaceFiles();
 		}
 	}, [atQuery, refreshWorkspaceFiles, snapshot.projectTrusted, snapshot.workspacePath, workspaceEntries.length]);
 	useEffect(() => {
-		const unsubscribeDialog = onExtensionDialog((dialog) => setExtensionDialog(dialog));
+		if (!atActive || !atQuery || !snapshot.projectTrusted || !snapshot.workspacePath) {
+			setMentionEntries([]);
+			return;
+		}
+		let active = true;
+		const timer = window.setTimeout(() => {
+			void searchWorkspaceFiles(atQuery)
+				.then((entries) => {
+					if (active) setMentionEntries(entries);
+				})
+				.catch(() => {
+					if (active) setMentionEntries([]);
+				});
+		}, 140);
+		return () => {
+			active = false;
+			window.clearTimeout(timer);
+		};
+	}, [atActive, atQuery, snapshot.projectTrusted, snapshot.workspacePath]);
+	useEffect(() => {
+		const unsubscribeExtensionUi = onExtensionUi((event) => {
+			if (event.type === "dialog") {
+				setExtensionDialog(event.dialog);
+				setExtensionDialogSessionId(event.sessionId);
+			} else if (event.type === "dialogClosed") {
+				setExtensionDialog((current) => (current?.id === event.id ? undefined : current));
+				setExtensionDialogSessionId((current) => (current === event.sessionId ? undefined : current));
+			} else if (event.closed) {
+				setExtensionCustomUi((current) => (current?.id === event.id ? undefined : current));
+			} else {
+				setExtensionCustomUi({ sessionId: event.sessionId, id: event.id, lines: event.lines });
+			}
+		});
 		const unsubscribeChanges = onWorkspaceChanged((changes) => {
 			if (!snapshot.projectTrusted || !snapshot.workspacePath) return;
 			void refreshWorkspaceFiles();
@@ -1770,7 +2215,7 @@ export function App() {
 			}
 		});
 		return () => {
-			unsubscribeDialog();
+			unsubscribeExtensionUi();
 			unsubscribeChanges();
 		};
 	}, [activeTabPath, refreshWorkspaceFiles, snapshot.projectTrusted, snapshot.workspacePath]);
@@ -1781,6 +2226,20 @@ export function App() {
 			scrollFrameRef.current = undefined;
 			const scroll = chatScrollRef.current;
 			if (!scroll) return;
+			if (
+				scroll.scrollTop < 120 &&
+				visibleItemCount < transcriptItems.length &&
+				!loadingEarlierMessagesRef.current
+			) {
+				loadingEarlierMessagesRef.current = true;
+				const previousHeight = scroll.scrollHeight;
+				setVisibleItemCount((current) => Math.min(current + 60, transcriptItems.length));
+				requestAnimationFrame(() => {
+					const currentScroll = chatScrollRef.current;
+					if (currentScroll) currentScroll.scrollTop += currentScroll.scrollHeight - previousHeight;
+					loadingEarlierMessagesRef.current = false;
+				});
+			}
 			const isAway = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 80;
 			stickToBottomRef.current = !isAway;
 			setAwayFromBottom((current) => (current === isAway ? current : isAway));
@@ -1832,6 +2291,22 @@ export function App() {
 		}
 	}
 
+	async function handleNewSessionForProject(path: string): Promise<void> {
+		setActionError(undefined);
+		try {
+			setArchivedProjectRoots((current) => {
+				if (!current.has(path)) return current;
+				const next = new Set(current);
+				next.delete(path);
+				return next;
+			});
+			if (snapshot.workspacePath !== path) await openWorkspacePath(path);
+			await newSession();
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : String(error));
+		}
+	}
+
 	async function handleOpenSession(sessionPath: string): Promise<void> {
 		setActionError(undefined);
 		try {
@@ -1863,15 +2338,16 @@ export function App() {
 
 	function selectComposerSuggestion(index: number): void {
 		setMenusDismissed(false);
-		if (slashQuery) {
+		if (slashActive) {
 			const command = visibleSlashCommands[index];
 			if (!command) return;
 			setDraft(`/${command.name}${command.name === "model" || command.name === "login" ? " " : ""}`);
-		} else if (hashQuery) {
+		} else if (hashActive) {
 			const item = hashSessions[index];
 			if (!item) return;
-			setDraft((current) => current.replace(/#[^\s]*$/u, `#${item.name ?? item.firstMessage.slice(0, 40)} `));
-		} else if (atQuery) {
+			const label = item.name ?? item.firstMessage.slice(0, 40);
+			setDraft((current) => current.replace(/#[^\s]*$/u, `${formatSessionReference(label)} `));
+		} else if (atActive) {
 			const entry = atEntries[index];
 			if (!entry) return;
 			setDraft((current) =>
@@ -1890,9 +2366,20 @@ export function App() {
 		promptHistoryIndexRef.current = -1;
 	}
 
+	function clearSubmittedComposer(submissionSessionId: string | undefined, submissionDraftKey: string): void {
+		localStorage.removeItem(submissionDraftKey);
+		if (getDesktopSnapshot().session?.id !== submissionSessionId) return;
+		startTransition(() => {
+			setAttachments([]);
+			setDraft("");
+		});
+	}
+
 	async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
 		event.preventDefault();
 		if (!canSubmit) return;
+		const submissionSessionId = session?.id;
+		const submissionDraftKey = draftKey;
 		rememberPrompt(draft);
 		if (await handleDesktopSlashCommand(draft)) {
 			startTransition(() => setDraft(""));
@@ -1901,19 +2388,16 @@ export function App() {
 		if (draft.startsWith("!") && !draft.startsWith("!!")) {
 			const command = draft.slice(1).trim();
 			if (command) {
-				setSubmitting(true);
+				setSubmittingSessionId(submissionSessionId);
 				setActionError(undefined);
 				try {
 					const output = await executeBashCommand(command, false);
 					pushNotice("success", output ? output.slice(0, 300) : "命令执行完成。");
-					startTransition(() => {
-						setDraft("");
-						localStorage.removeItem(draftKey);
-					});
+					clearSubmittedComposer(submissionSessionId, submissionDraftKey);
 				} catch (error) {
 					pushNotice("error", error instanceof Error ? error.message : String(error));
 				} finally {
-					setSubmitting(false);
+					setSubmittingSessionId((current) => (current === submissionSessionId ? undefined : current));
 				}
 			}
 			return;
@@ -1921,24 +2405,21 @@ export function App() {
 		if (draft.startsWith("!!")) {
 			const command = draft.slice(2).trim();
 			if (command) {
-				setSubmitting(true);
+				setSubmittingSessionId(submissionSessionId);
 				setActionError(undefined);
 				try {
 					const output = await executeBashCommand(command, true);
 					pushNotice("success", output ? output.slice(0, 300) : "命令执行完成（不进入上下文）。");
-					startTransition(() => {
-						setDraft("");
-						localStorage.removeItem(draftKey);
-					});
+					clearSubmittedComposer(submissionSessionId, submissionDraftKey);
 				} catch (error) {
 					pushNotice("error", error instanceof Error ? error.message : String(error));
 				} finally {
-					setSubmitting(false);
+					setSubmittingSessionId((current) => (current === submissionSessionId ? undefined : current));
 				}
 			}
 			return;
 		}
-		setSubmitting(true);
+		setSubmittingSessionId(submissionSessionId);
 		setActionError(undefined);
 		try {
 			await submitPrompt(
@@ -1946,22 +2427,20 @@ export function App() {
 				attachments.map((attachment) => attachment.id),
 				session?.phase === "running" ? "followUp" : undefined,
 			);
-			startTransition(() => {
-				setAttachments([]);
-				setDraft("");
-				localStorage.removeItem(draftKey);
-			});
+			clearSubmittedComposer(submissionSessionId, submissionDraftKey);
 		} catch (error) {
 			setActionError(error instanceof Error ? error.message : String(error));
 		} finally {
-			setSubmitting(false);
+			setSubmittingSessionId((current) => (current === submissionSessionId ? undefined : current));
 		}
 	}
 
 	async function handleSteer(): Promise<void> {
 		if (!canSubmit || session?.phase !== "running") return;
+		const submissionSessionId = session.id;
+		const submissionDraftKey = draftKey;
 		rememberPrompt(draft);
-		setSubmitting(true);
+		setSubmittingSessionId(submissionSessionId);
 		setActionError(undefined);
 		try {
 			await submitPrompt(
@@ -1969,15 +2448,11 @@ export function App() {
 				attachments.map((attachment) => attachment.id),
 				"steer",
 			);
-			startTransition(() => {
-				setAttachments([]);
-				setDraft("");
-				localStorage.removeItem(draftKey);
-			});
+			clearSubmittedComposer(submissionSessionId, submissionDraftKey);
 		} catch (error) {
 			setActionError(error instanceof Error ? error.message : String(error));
 		} finally {
-			setSubmitting(false);
+			setSubmittingSessionId((current) => (current === submissionSessionId ? undefined : current));
 		}
 	}
 
@@ -2138,7 +2613,7 @@ export function App() {
 			return;
 		}
 		try {
-			await renameSession(name);
+			await renameSession(renamingSession.path, name);
 			pushNotice("success", "会话已重命名。");
 		} catch (error) {
 			pushNotice("error", error instanceof Error ? error.message : String(error));
@@ -2147,9 +2622,14 @@ export function App() {
 		}
 	}
 
-	async function handleDeleteSession(sessionPath: string): Promise<void> {
+	async function handleDeleteSession(sessionPath: string, skipConfirmation = false): Promise<void> {
+		if (!skipConfirmation && deleteSessionPath !== sessionPath) {
+			setDeleteSessionPath(sessionPath);
+			return;
+		}
 		try {
 			await deleteSession(sessionPath);
+			setDeleteSessionPath(undefined);
 			pushNotice("success", "会话已删除。");
 		} catch (error) {
 			pushNotice("error", error instanceof Error ? error.message : String(error));
@@ -2168,23 +2648,40 @@ export function App() {
 		const images = files.filter((file) => file.type.startsWith("image/"));
 		const others = files.filter((file) => !file.type.startsWith("image/"));
 		if (images.length) {
+			const remaining = Math.max(0, MAX_IMAGE_ATTACHMENTS - attachments.length);
+			const selectedImages = images.slice(0, remaining);
+			if (images.length > remaining) {
+				pushNotice("warning", `一次对话最多添加 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
+			}
 			setActionError(undefined);
-			try {
-				setAttachments(await attachDroppedImages(images));
-			} catch (error) {
-				pushNotice("error", error instanceof Error ? error.message : String(error));
+			if (selectedImages.length) {
+				try {
+					const added = await attachDroppedImages(selectedImages);
+					setAttachments((current) => [...current, ...added].slice(0, MAX_IMAGE_ATTACHMENTS));
+				} catch (error) {
+					pushNotice("error", error instanceof Error ? error.message : String(error));
+				}
 			}
 		}
 		if (others.length && snapshot.projectTrusted && snapshot.workspacePath) {
 			try {
 				const results = await importDroppedFiles(others);
 				const ok = results.filter((item) => !item.error);
-				const failed = results.filter((item) => item.error);
+				const conflicts = results.filter((item) => item.conflict);
+				const failed = results.filter((item) => item.error && !item.conflict);
 				if (ok.length) {
 					const mention = ok.map((item) => `@${item.name}`).join(" ");
 					setDraft((current) => (current ? `${current} ${mention}` : `${mention} `));
 					promptRef.current?.focus();
 					pushNotice("success", `已导入 ${ok.length} 个文件到项目根目录。`);
+				}
+				if (conflicts.length) {
+					const names = new Set(conflicts.map((item) => item.name));
+					setPendingFileConflicts({
+						files: others.filter((file) => names.has(file.name)),
+						names: [...names],
+						mentionAfterImport: true,
+					});
 				}
 				for (const item of failed) {
 					pushNotice("warning", `${item.name} 导入失败：${item.error}`);
@@ -2194,6 +2691,77 @@ export function App() {
 			}
 		} else if (others.length) {
 			pushNotice("warning", "请先信任项目，再导入非图片文件。");
+		}
+	}
+
+	const handleImportWorkspaceFiles = useCallback(
+		async (files: File[]): Promise<void> => {
+			if (!files.length) return;
+			try {
+				const results = await importDroppedFiles(files);
+				const imported = results.filter((item) => !item.error);
+				const conflicts = results.filter((item) => item.conflict);
+				const failed = results.filter((item) => item.error && !item.conflict);
+				if (imported.length) {
+					await refreshWorkspaceFiles();
+					pushNotice("success", `已上传 ${imported.length} 个文件。`);
+				}
+				if (conflicts.length) {
+					const names = new Set(conflicts.map((item) => item.name));
+					setPendingFileConflicts({
+						files: files.filter((file) => names.has(file.name)),
+						names: [...names],
+						mentionAfterImport: false,
+					});
+				}
+				for (const item of failed) pushNotice("warning", `${item.name}：${item.error}`);
+			} catch (error) {
+				pushNotice("error", error instanceof Error ? error.message : String(error));
+			}
+		},
+		[pushNotice, refreshWorkspaceFiles],
+	);
+
+	async function handleFileConflictDecision(replace: boolean): Promise<void> {
+		const pending = pendingFileConflicts;
+		setPendingFileConflicts(undefined);
+		if (!pending || !replace) {
+			if (pending) pushNotice("warning", `已跳过 ${pending.names.length} 个同名文件。`);
+			return;
+		}
+		try {
+			const results = await importDroppedFiles(pending.files, true);
+			const imported = results.filter((item) => !item.error);
+			await refreshWorkspaceFiles();
+			if (pending.mentionAfterImport && imported.length) {
+				const mention = imported.map((item) => `@${item.name}`).join(" ");
+				setDraft((current) => (current ? `${current} ${mention}` : `${mention} `));
+				promptRef.current?.focus();
+			}
+			pushNotice("success", `已替换 ${imported.length} 个同名文件。`);
+			for (const item of results.filter((result) => result.error)) {
+				pushNotice("error", `${item.name}：${item.error}`);
+			}
+		} catch (error) {
+			pushNotice("error", error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	async function handleChooseImages(): Promise<void> {
+		const remaining = Math.max(0, MAX_IMAGE_ATTACHMENTS - attachments.length);
+		if (remaining === 0) {
+			pushNotice("warning", `一次对话最多添加 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
+			return;
+		}
+		try {
+			const selected = await chooseImages();
+			if (selected.length > remaining) {
+				pushNotice("warning", `一次对话最多添加 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
+			}
+			setAttachments((current) => [...current, ...selected.slice(0, remaining)]);
+			promptRef.current?.focus();
+		} catch (error) {
+			pushNotice("error", error instanceof Error ? error.message : String(error));
 		}
 	}
 
@@ -2219,8 +2787,12 @@ export function App() {
 				pushNotice("warning", "用法：/name 新名称");
 				return true;
 			}
+			if (!currentSessionPath) {
+				pushNotice("error", "当前会话尚未写入历史文件。");
+				return true;
+			}
 			try {
-				await renameSession(argument);
+				await renameSession(currentSessionPath, argument);
 				pushNotice("success", `会话已重命名为「${argument.slice(0, 40)}」`);
 			} catch (error) {
 				pushNotice("error", error instanceof Error ? error.message : String(error));
@@ -2271,8 +2843,8 @@ export function App() {
 			return true;
 		}
 		if (command === "files") {
-			setSidebarView("files");
 			setInspectorOpen(true);
+			setFileTreeOpen(true);
 			return true;
 		}
 		if (command === "settings" || command === "skills" || command === "plugins") {
@@ -2326,6 +2898,16 @@ export function App() {
 			if (requestId === fileRequestId.current) setLoadingFilePath(undefined);
 		}
 	}, []);
+
+	useEffect(() => {
+		const handleMarkdownFile = (event: Event): void => {
+			if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
+			const path = event.detail;
+			void handleOpenFile({ path, name: path.split(/[\\/]/u).at(-1) ?? path, type: "file", depth: 0 });
+		};
+		window.addEventListener("pi-desktop:open-markdown-file", handleMarkdownFile);
+		return () => window.removeEventListener("pi-desktop:open-markdown-file", handleMarkdownFile);
+	}, [handleOpenFile]);
 
 	const handleCloseTab = useCallback(
 		(path: string): void => {
@@ -2434,23 +3016,35 @@ export function App() {
 		[pushNotice],
 	);
 
-	function beginResize(side: "sidebar" | "inspector", startX: number): void {
-		const startWidth = side === "sidebar" ? sidebarWidth : inspectorWidth;
-		const min = side === "sidebar" ? 220 : 300;
-		const max = side === "sidebar" ? 420 : 760;
-		const variable = side === "sidebar" ? "--sidebar-width" : "--inspector-width";
+	function beginResize(side: "fileTree" | "inspector" | "sidebar", startX: number): void {
+		const startWidth = side === "sidebar" ? sidebarWidth : side === "inspector" ? inspectorWidth : fileTreeWidth;
+		const min = side === "sidebar" ? 180 : side === "inspector" ? 300 : 220;
+		const requestedMax = side === "sidebar" ? 480 : side === "inspector" ? 1200 : 520;
+		const max =
+			side === "inspector"
+				? Math.max(min, Math.min(requestedMax, window.innerWidth - (sidebarOpen ? sidebarWidth : 0) - 420))
+				: requestedMax;
+		const variable =
+			side === "sidebar" ? "--sidebar-width" : side === "inspector" ? "--inspector-width" : "--file-tree-width";
 		const resolveWidth = (clientX: number) =>
 			Math.round(
 				Math.max(min, Math.min(max, startWidth + (side === "sidebar" ? clientX - startX : startX - clientX))),
 			);
 		const handleMove = (event: PointerEvent) =>
-			document.documentElement.style.setProperty(variable, `${resolveWidth(event.clientX)}px`);
+			document
+				.querySelector<HTMLElement>(".app-workbench")
+				?.style.setProperty(variable, `${resolveWidth(event.clientX)}px`);
 		const handleUp = (event: PointerEvent) => {
 			const width = resolveWidth(event.clientX);
 			if (side === "sidebar") setSidebarWidth(width);
-			else setInspectorWidth(width);
+			else if (side === "inspector") setInspectorWidth(width);
+			else setFileTreeWidth(width);
 			localStorage.setItem(
-				side === "sidebar" ? "pi-desktop-sidebar-width" : "pi-desktop-inspector-width",
+				side === "sidebar"
+					? "pi-desktop-sidebar-width"
+					: side === "inspector"
+						? "pi-desktop-inspector-width"
+						: "pi-desktop-file-tree-width",
 				String(width),
 			);
 			window.removeEventListener("pointermove", handleMove);
@@ -2460,17 +3054,23 @@ export function App() {
 		window.addEventListener("pointerup", handleUp);
 	}
 
-	function resizeByKeyboard(side: "sidebar" | "inspector", delta: number): void {
-		const current = side === "sidebar" ? sidebarWidth : inspectorWidth;
-		const min = side === "sidebar" ? 220 : 300;
-		const max = side === "sidebar" ? 420 : 760;
-		const variable = side === "sidebar" ? "--sidebar-width" : "--inspector-width";
+	function resizeByKeyboard(side: "fileTree" | "inspector" | "sidebar", delta: number): void {
+		const current = side === "sidebar" ? sidebarWidth : side === "inspector" ? inspectorWidth : fileTreeWidth;
+		const min = side === "sidebar" ? 180 : side === "inspector" ? 300 : 220;
+		const max = side === "sidebar" ? 480 : side === "inspector" ? 1200 : 520;
+		const variable =
+			side === "sidebar" ? "--sidebar-width" : side === "inspector" ? "--inspector-width" : "--file-tree-width";
 		const width = Math.max(min, Math.min(max, current + delta));
-		document.documentElement.style.setProperty(variable, `${width}px`);
+		document.querySelector<HTMLElement>(".app-workbench")?.style.setProperty(variable, `${width}px`);
 		if (side === "sidebar") setSidebarWidth(width);
-		else setInspectorWidth(width);
+		else if (side === "inspector") setInspectorWidth(width);
+		else setFileTreeWidth(width);
 		localStorage.setItem(
-			side === "sidebar" ? "pi-desktop-sidebar-width" : "pi-desktop-inspector-width",
+			side === "sidebar"
+				? "pi-desktop-sidebar-width"
+				: side === "inspector"
+					? "pi-desktop-inspector-width"
+					: "pi-desktop-file-tree-width",
 			String(width),
 		);
 	}
@@ -2483,10 +3083,12 @@ export function App() {
 			entries.push(item);
 			projects.set(root, entries);
 		}
+		const activeProjects = [...projects.entries()].filter(([root]) => !archivedProjectRoots.has(root));
+		const archivedProjects = [...projects.entries()].filter(([root]) => archivedProjectRoots.has(root));
 		return (
 			<section className="sessions-panel sidebar-project-tree" aria-label={t("sessions")}>
-				{projects.size ? (
-					[...projects.entries()].map(([root, items]) => {
+				{activeProjects.length ? (
+					activeProjects.map(([root, items]) => {
 						const filteredItems = sessionSearch.trim()
 							? items.filter((item) =>
 									`${item.name ?? ""} ${item.firstMessage}`
@@ -2495,10 +3097,20 @@ export function App() {
 								)
 							: items;
 						if (sessionSearch.trim() && filteredItems.length === 0) return null;
+						const flattenedItems = flattenSessionTree(filteredItems);
 						const active = items.some((item) => item.id === session?.id);
+						const runningCount = items.filter((item) => item.phase === "running").length;
+						const unreadCount = items.filter((item) => unreadSessionIds.has(item.id)).length;
+						const branch = gitWorktrees.find((tree) => tree.path.replace(/[\\/]+$/u, "") === root)?.branch;
 						const collapsed = collapsedProjects.has(root) && !sessionSearch.trim();
 						const expanded = expandedProjects.has(root);
-						const visibleItems = expanded || sessionSearch.trim() ? filteredItems : filteredItems.slice(0, 5);
+						const visibleItems = (() => {
+							if (expanded || sessionSearch.trim()) return flattenedItems;
+							const first = flattenedItems.slice(0, 5);
+							const current = flattenedItems.find((item) => item.info.id === session?.id);
+							if (!current || first.some((item) => item.info.id === current.info.id)) return first;
+							return [...first.slice(0, 4), current];
+						})();
 						return (
 							<section className={`sidebar-project-tree-group ${active ? "is-active" : ""}`} key={root}>
 								<div className="sidebar-project-tree-row">
@@ -2517,14 +3129,21 @@ export function App() {
 										aria-expanded={!collapsed}
 									>
 										<Icon name="folder" size={15} />
-										<span className="sidebar-project-tree-name">{formatWorkspace(root)}</span>
-										<span className="sidebar-project-tree-meta">{items.length}</span>
+										<span className="sidebar-project-tree-copy">
+											<span className="sidebar-project-tree-name">{formatWorkspace(root)}</span>
+											{branch ? <small>⎇ {formatGitBranch(branch)}</small> : null}
+										</span>
+										<span className="sidebar-project-badges">
+											{runningCount ? <span className="sidebar-project-running">{runningCount}</span> : null}
+											{unreadCount ? <span className="sidebar-project-unread">{unreadCount}</span> : null}
+											{!runningCount && !unreadCount ? <span>{items.length}</span> : null}
+										</span>
 									</button>
 									<button
 										className="sidebar-project-tree-action"
 										type="button"
 										aria-label="新建会话"
-										onClick={() => void handleNewSession()}
+										onClick={() => void handleNewSessionForProject(root)}
 									>
 										<Icon name="plus" size={13} />
 									</button>
@@ -2544,11 +3163,9 @@ export function App() {
 											<div className="session-more-menu" role="menu">
 												<button
 													type="button"
-													disabled={session?.phase === "running"}
 													onClick={() => {
 														setProjectRowMenuOpen(undefined);
-														if (snapshot.workspacePath !== root) void handleSwitchWorkspacePath(root);
-														else void handleNewSession();
+														void handleNewSessionForProject(root);
 													}}
 												>
 													新建会话
@@ -2562,89 +3179,163 @@ export function App() {
 												>
 													在文件管理器中显示
 												</button>
+												{root !== snapshot.workspacePath &&
+												gitWorktrees.some((tree) => tree.path === root) ? (
+													<button
+														type="button"
+														onClick={() => {
+															setProjectRowMenuOpen(undefined);
+															void handleSwitchWorkspacePath(root);
+														}}
+													>
+														切换到此 Worktree
+													</button>
+												) : null}
+												<button
+													type="button"
+													onClick={() => {
+														setProjectRowMenuOpen(undefined);
+														setArchivedProjectRoots((current) => new Set(current).add(root));
+													}}
+												>
+													归档项目
+												</button>
 											</div>
 										) : null}
 									</div>
 								</div>
 								{!collapsed ? (
 									<div className="sidebar-project-tree-children">
-										{visibleItems.map((item) => {
+										{visibleItems.map(({ info: item, depth }) => {
 											const isCurrent = item.id === session?.id;
+											const isRenaming = renamingSession?.path === item.path;
 											return (
 												<div
-													className={`session-row-wrap ${isCurrent ? "is-current" : ""}`}
+													className={`session-row-wrap ${isCurrent ? "is-current" : ""} ${depth ? "is-forked" : ""}`}
 													key={item.path}
+													style={{ "--session-depth": Math.min(depth, 5) } as CSSProperties}
 												>
-													<button
-														className="session-row"
-														type="button"
-														title={`${sessionTitle(item)} · ${item.messageCount} · ${formatSessionDate(item.modified)}`}
-														disabled={session?.phase === "running"}
-														onClick={() =>
-															isCurrent ? promptRef.current?.focus() : void handleOpenSession(item.path)
-														}
-													>
-														<span
-															className={`session-row-icon ${isCurrent && session?.phase === "running" ? "is-running" : ""}`}
+													{isRenaming ? (
+														<form
+															className="session-inline-rename"
+															onSubmit={(event) => {
+																event.preventDefault();
+																void handleRenameSubmit();
+															}}
 														>
-															<Icon name="chat" size={14} />
-														</span>
-														<span>{sessionTitle(item)}</span>
-													</button>
-													{isCurrent ? (
+															<input
+																// biome-ignore lint/a11y/noAutofocus: 用户刚触发了内联重命名
+																autoFocus
+																aria-label="会话名称"
+																value={renamingSession.name}
+																onChange={(event) =>
+																	setRenamingSession({ ...renamingSession, name: event.target.value })
+																}
+																onKeyDown={(event) => {
+																	if (event.key === "Escape") setRenamingSession(undefined);
+																}}
+															/>
+															<button type="submit">保存</button>
+														</form>
+													) : (
+														<button
+															className="session-row"
+															type="button"
+															title={`${sessionTitle(item)} · ${item.messageCount} · ${formatSessionDate(item.modified)}`}
+															onClick={() =>
+																isCurrent
+																	? promptRef.current?.focus()
+																	: void handleOpenSession(item.path)
+															}
+														>
+															<span
+																className={`session-row-icon ${item.phase === "running" ? "is-running" : ""}`}
+															>
+																<Icon name="chat" size={14} />
+															</span>
+															<span className="session-row-title">{sessionTitle(item)}</span>
+															{unreadSessionIds.has(item.id) ? (
+																<span className="session-unread-dot" />
+															) : null}
+														</button>
+													)}
+													{!isRenaming ? (
 														<button
 															className="session-more"
 															type="button"
 															aria-label="会话操作"
-															aria-expanded={sessionMenuOpen}
-															onClick={() => setSessionMenuOpen((open) => !open)}
+															aria-expanded={sessionMenuOpen === item.path}
+															onClick={() =>
+																setSessionMenuOpen((open) =>
+																	open === item.path ? undefined : item.path,
+																)
+															}
 														>
 															<Icon name="more" size={14} />
 														</button>
 													) : null}
-													{isCurrent && sessionMenuOpen ? (
+													{sessionMenuOpen === item.path ? (
 														<div className="session-more-menu" role="menu">
 															<button
 																type="button"
 																onClick={() => {
-																	setSessionMenuOpen(false);
-																	const current = item.name ?? sessionTitle(item);
-																	setRenamingSession({ path: item.path, name: current });
-																	setSessionMenuOpen(false);
+																	setSessionMenuOpen(undefined);
+																	setRenamingSession({
+																		path: item.path,
+																		name: item.name ?? sessionTitle(item),
+																	});
 																}}
 															>
 																重命名
 															</button>
-															<button
-																type="button"
-																onClick={() => {
-																	setSessionMenuOpen(false);
-																	setTopPanel("session");
-																}}
-															>
-																会话统计
-															</button>
-															<button
-																type="button"
-																disabled={session?.phase === "running"}
-																onClick={() => {
-																	setSessionMenuOpen(false);
-																	void handleForkSession();
-																}}
-															>
-																Fork 为独立会话
-															</button>
+															{isCurrent ? (
+																<button
+																	type="button"
+																	onClick={() => {
+																		setSessionMenuOpen(undefined);
+																		setTopPanel("session");
+																	}}
+																>
+																	会话统计
+																</button>
+															) : null}
+															{isCurrent ? (
+																<button
+																	type="button"
+																	disabled={session?.phase === "running"}
+																	onClick={() => {
+																		setSessionMenuOpen(undefined);
+																		void handleForkSession();
+																	}}
+																>
+																	Fork 为独立会话
+																</button>
+															) : null}
 															<button
 																type="button"
 																className="is-danger"
-																disabled={session?.phase === "running"}
-																onClick={() => {
-																	setSessionMenuOpen(false);
-																	void handleDeleteSession(item.path);
+																disabled={item.phase === "running"}
+																onClick={(event) => {
+																	if (!event.shiftKey && deleteSessionPath !== item.path) {
+																		void handleDeleteSession(item.path);
+																		return;
+																	}
+																	setSessionMenuOpen(undefined);
+																	void handleDeleteSession(item.path, event.shiftKey);
 																}}
 															>
-																删除会话
+																{deleteSessionPath === item.path ? "确认删除" : "删除会话"}
 															</button>
+															{deleteSessionPath === item.path ? (
+																<button type="button" onClick={() => setDeleteSessionPath(undefined)}>
+																	取消
+																</button>
+															) : null}
+															<div className="session-more-meta">
+																<span>{formatSessionDate(item.modified)}</span>
+																<span>{item.messageCount} 条消息</span>
+																<span>{item.parentSessionPath ? "Fork" : "主分支"}</span>
+															</div>
 														</div>
 													) : null}
 												</div>
@@ -2705,11 +3396,32 @@ export function App() {
 						{projectMenuOpen ? renderProjectMenu() : null}
 					</div>
 				)}
+				{archivedProjects.length ? (
+					<div className="archived-projects">
+						<div className="settings-group-label">已归档项目</div>
+						{archivedProjects.map(([root]) => (
+							<div className="archived-project-row" key={root}>
+								<span title={root}>{formatWorkspace(root)}</span>
+								<button
+									type="button"
+									onClick={() =>
+										setArchivedProjectRoots((current) => {
+											const next = new Set(current);
+											next.delete(root);
+											return next;
+										})
+									}
+								>
+									恢复
+								</button>
+							</div>
+						))}
+					</div>
+				) : null}
 			</section>
 		);
 	}
 
-	const effectiveSidebarView = snapshot.workspacePath ? sidebarView : "chats";
 	const bashMode = !attachments.length && draft.startsWith("!");
 	const macOSClassName = navigator.userAgent.includes("Macintosh") ? "is-macos" : "";
 
@@ -2770,6 +3482,7 @@ export function App() {
 				{
 					"--sidebar-width": `${sidebarWidth}px`,
 					"--inspector-width": `${inspectorWidth}px`,
+					"--file-tree-width": `${fileTreeWidth}px`,
 				} as CSSProperties
 			}
 		>
@@ -2842,63 +3555,22 @@ export function App() {
 							{projectMenuOpen ? renderProjectMenu() : null}
 						</div>
 					) : null}
-					{snapshot.workspacePath ? (
-						<div className="sidebar-segments" role="tablist" aria-label="侧栏视图">
-							<button
-								type="button"
-								role="tab"
-								aria-selected={sidebarView === "chats"}
-								className={sidebarView === "chats" ? "is-active" : ""}
-								onClick={() => setSidebarView("chats")}
-							>
-								{t("chats")}
-							</button>
-							<button
-								type="button"
-								role="tab"
-								aria-selected={sidebarView === "files"}
-								className={sidebarView === "files" ? "is-active" : ""}
-								onClick={() => setSidebarView("files")}
-							>
-								{t("files")}
-							</button>
-						</div>
-					) : null}
-					{effectiveSidebarView === "chats" ? (
-						<div className="sidebar-search-wrap">
-							<Icon name="search" size={13} />
-							<input
-								aria-label="搜索会话"
-								placeholder={t("searchSessions")}
-								value={sessionSearch}
-								onChange={(event) => setSessionSearch(event.target.value)}
-							/>
-							{sessionSearch ? (
-								<button type="button" aria-label="清除搜索" onClick={() => setSessionSearch("")}>
-									×
-								</button>
-							) : null}
-						</div>
-					) : null}
-				</header>
-				<div className="sidebar-content">
-					{effectiveSidebarView === "chats" ? (
-						renderSidebar()
-					) : (
-						<Explorer
-							entries={workspaceEntries}
-							error={fileExplorerError}
-							isLoading={loadingFiles || loadingFilePath !== undefined}
-							isTrusted={snapshot.projectTrusted}
-							selectedPath={activeTabPath}
-							workspacePath={snapshot.workspacePath}
-							onChooseWorkspace={() => void handleChooseWorkspace()}
-							onOpenFile={(entry) => void handleOpenFile(entry)}
-							onRefresh={() => void refreshWorkspaceFiles()}
-							onTrustProject={() => void handleProjectTrust()}
+					<div className="sidebar-search-wrap">
+						<Icon name="search" size={13} />
+						<input
+							aria-label="搜索会话"
+							placeholder={t("searchSessions")}
+							value={sessionSearch}
+							onChange={(event) => setSessionSearch(event.target.value)}
 						/>
-					)}
-				</div>
+						{sessionSearch ? (
+							<button type="button" aria-label="清除搜索" onClick={() => setSessionSearch("")}>
+								×
+							</button>
+						) : null}
+					</div>
+				</header>
+				<div className="sidebar-content">{renderSidebar()}</div>
 				<footer className="sidebar-footer">
 					<button className="footer-button" type="button" onClick={() => setConfigModal("models")}>
 						<Icon name="model" size={15} />
@@ -2927,8 +3599,8 @@ export function App() {
 					className="column-resizer sidebar-resizer"
 					aria-label="调整会话栏宽度"
 					aria-orientation="vertical"
-					aria-valuemin={220}
-					aria-valuemax={420}
+					aria-valuemin={180}
+					aria-valuemax={480}
 					aria-valuenow={sidebarWidth}
 					tabIndex={0}
 					onPointerDown={(event) => beginResize("sidebar", event.clientX)}
@@ -2979,16 +3651,22 @@ export function App() {
 						{topPanel === "branches" ? (
 							<div className="branch-popover" role="menu" aria-label="分支">
 								<div className="branch-popover-header">
-									<strong>分支到消息</strong>
+									<strong>会话分支树</strong>
+									<small>选择任一用户消息，后续对话将从该节点继续</small>
 								</div>
 								<div className="branch-list">
-									{snapshot.branchPoints?.map((point) => (
+									{snapshot.branchPoints?.map((point, index) => (
 										<button
 											key={point.entryId}
 											type="button"
 											onClick={() => void handleNavigateTree(point.entryId)}
 										>
-											<span>{point.text || "（空消息）"}</span>
+											<i aria-hidden="true" />
+											<span>
+												<small>用户消息 {index + 1}</small>
+												<strong>{point.text || "（空消息）"}</strong>
+											</span>
+											<em>从这里继续</em>
 										</button>
 									))}
 								</div>
@@ -3109,6 +3787,17 @@ export function App() {
 						) : null}
 					</div>
 				</header>
+				{!isOnline || startupError ? (
+					<output className="offline-banner">
+						<span className="offline-banner-dot" />
+						<span>
+							{isOnline ? "Pi Desktop 初始化失败，部分功能暂不可用。" : "当前处于离线状态，模型请求将无法发送。"}
+						</span>
+						<button type="button" onClick={() => void startDesktopStore()}>
+							重试
+						</button>
+					</output>
+				) : null}
 				<div className="chat-scroll" ref={chatScrollRef} onScroll={handleChatScroll}>
 					<ConversationNavigator
 						turns={conversationTurns}
@@ -3167,6 +3856,9 @@ export function App() {
 						) : null}
 						<div className="transcript">
 							{visibleItemCount < transcriptItems.length ? (
+								<div className="load-earlier-sentinel" ref={earlierMessagesSentinelRef} aria-hidden="true" />
+							) : null}
+							{visibleItemCount < transcriptItems.length ? (
 								<button
 									className="load-earlier"
 									type="button"
@@ -3185,12 +3877,30 @@ export function App() {
 												>
 													<details>
 														<summary className="process-details-trigger">
-															{t("processDetails")} · {item.messageCount}
-															{item.toolCallCount > 0 ? ` · ${item.toolCallCount}` : ""}
+															<span>{t("processDetails")}</span>
+															<small>{item.messageCount} 条记录</small>
+															{item.toolCallCount > 0 ? (
+																<small>{item.toolCallCount} 次工具调用</small>
+															) : null}
+															{item.durationMs !== undefined ? (
+																<small>{(item.durationMs / 1000).toFixed(1)}s</small>
+															) : null}
 														</summary>
 														<div className="process-details-content">
 															{item.blocks.map((block, blockIndex) => (
-																<TranscriptBlock key={`${block.type}:${blockIndex}`} block={block} />
+																<TranscriptBlock
+																	key={`${block.type}:${blockIndex}`}
+																	block={block}
+																	durationMs={
+																		block.type === "thinking" &&
+																		blockIndex ===
+																			item.blocks.findIndex(
+																				(candidate) => candidate.type === "thinking",
+																			)
+																			? item.durationMs
+																			: undefined
+																	}
+																/>
 															))}
 															{item.messages.map((message) => {
 																const call = message.toolCallId
@@ -3204,6 +3914,7 @@ export function App() {
 																	<CollapsibleTranscriptEntry
 																		key={message.id}
 																		message={message}
+																		previousTimestamp={previousMessageTimestamps.get(message.id)}
 																		toolCall={
 																			call?.type === "toolCall"
 																				? { name: call.name, input: call.input }
@@ -3217,9 +3928,7 @@ export function App() {
 												</div>
 											);
 										}
-										const turnIndex = conversationTurns.findIndex(
-											(turn) => turn.messageId === item.message.id,
-										);
+										const turnIndex = conversationTurnIndexes.get(item.message.id) ?? -1;
 										return (
 											<div
 												data-conversation-turn={turnIndex >= 0 ? turnIndex : undefined}
@@ -3232,6 +3941,8 @@ export function App() {
 													isLastAssistant={
 														item.message.id === lastMessage?.id && item.message.role === "assistant"
 													}
+													isStreaming={item.message.id === lastMessage?.id && session.phase === "running"}
+													previousTimestamp={previousMessageTimestamps.get(item.message.id)}
 													onEdit={handleEditMessage}
 													onFork={(entryId) => void handleForkFromMessage(entryId)}
 												/>
@@ -3309,34 +4020,46 @@ export function App() {
 					}}
 				>
 					{draggingImages ? <div className="drop-image-overlay">释放以附加图片</div> : null}
+					{!session?.messages.length ? (
+						<div className="start-task-copy">
+							<strong>{snapshot.workspacePath ? "Start a task" : "Get started"}</strong>
+							{!snapshot.workspacePath ? <span>1. 打开项目文件夹　2. 描述你想完成的任务</span> : null}
+						</div>
+					) : null}
+					<ExtensionWidgetStack
+						widgets={(snapshot.extensionWidgets ?? []).filter((widget) => widget.placement === "aboveEditor")}
+					/>
 					<div className="composer-inner">
-						{slashQuery ? (
+						{slashActive ? (
 							<div className="slash-menu" role="listbox" aria-label="斜杠命令">
 								<div className="slash-menu-header">
 									<span>{visibleSlashCommands.length} 个命令</span>
 									<small>Tab ↹ / Enter 选择 · Esc 关闭</small>
 								</div>
-								{slashCommands.length ? (
-									visibleSlashCommands.map((command, index) => (
-										<button
-											aria-selected={suggestionIndex === index}
-											className={`slash-command ${suggestionIndex === index ? "is-selected" : ""}`}
-											key={command.name}
-											role="option"
-											type="button"
-											onMouseDown={(event) => event.preventDefault()}
-											onClick={() => selectComposerSuggestion(index)}
-										>
-											<code>/{command.name}</code>
-											<span>{command.description}</span>
-										</button>
-									))
+								{visibleSlashCommands.length ? (
+									<div className="slash-command-grid">
+										{visibleSlashCommands.map((command, index) => (
+											<button
+												aria-selected={suggestionIndex === index}
+												className={`slash-command ${suggestionIndex === index ? "is-selected" : ""}`}
+												key={command.name}
+												role="option"
+												type="button"
+												onMouseDown={(event) => event.preventDefault()}
+												onClick={() => selectComposerSuggestion(index)}
+											>
+												<code>/{command.name}</code>
+												<span>{command.description}</span>
+												<small>{command.category}</small>
+											</button>
+										))}
+									</div>
 								) : (
 									<p className="slash-empty">没有匹配的桌面端命令，可直接发送给已加载的插件。</p>
 								)}
 							</div>
 						) : null}
-						{hashQuery ? (
+						{hashActive ? (
 							<div className="slash-menu" role="listbox" aria-label="会话提及">
 								<div className="slash-menu-header">
 									<span>会话</span>
@@ -3362,7 +4085,7 @@ export function App() {
 								)}
 							</div>
 						) : null}
-						{atQuery ? (
+						{atActive ? (
 							<div className="slash-menu" role="listbox" aria-label="文件提及">
 								<div className="slash-menu-header">
 									<span>项目文件</span>
@@ -3547,177 +4270,202 @@ export function App() {
 								</button>
 							)}
 						</div>
-					</div>
-					<div className="composer-footer">
-						<div className="composer-footer-left">
-							{snapshot.extensionStatuses?.length ? (
-								<div
-									className="extension-status-bar"
-									title={snapshot.extensionStatuses
-										.map((status) => `${status.key}: ${status.text}`)
-										.join("\n")}
-								>
-									{snapshot.extensionStatuses.slice(0, 3).map((status) => (
-										<span key={status.key}>{status.text}</span>
-									))}
-								</div>
-							) : null}
-							<div className="composer-control-group">
-								<button
-									className="composer-control-button chat-project-context"
-									type="button"
-									disabled={!canChooseWorkspace}
-									title={snapshot.workspacePath ?? "选择项目文件夹"}
-									onClick={() => void handleChooseWorkspace()}
-								>
-									<Icon name="folder" size={15} />
-									<span>
-										{snapshot.workspacePath
-											? (snapshot.workspacePath.split(/[\\/]/u).filter(Boolean).at(-1) ??
-												snapshot.workspacePath)
-											: "选择项目"}
-									</span>
-								</button>
-								<div className="composer-control-anchor">
-									<button
-										className="composer-control-button"
-										type="button"
-										disabled={!canSetModel || settingModel}
-										onClick={() => setComposerMenu((current) => (current === "model" ? undefined : "model"))}
+						<div className="composer-footer">
+							<div className="composer-footer-left">
+								{snapshot.extensionStatuses?.length ? (
+									<div
+										className="extension-status-bar"
+										title={snapshot.extensionStatuses
+											.map((status) => `${status.key}: ${status.text}`)
+											.join("\n")}
 									>
-										<Icon name="model" size={15} />
-										<span>{session?.model?.id ?? "模型"}</span>
-									</button>
-									{composerMenu === "model" ? (
-										<div className="composer-popover" role="menu">
-											{snapshot.availableModels.length > 8 ? (
-												<input
-													// biome-ignore lint/a11y/noAutofocus: 打开菜单即筛选，参考项目行为
-													autoFocus
-													className="composer-popover-filter"
-													placeholder="筛选模型"
-													value={modelFilter}
-													onChange={(event) => setModelFilter(event.target.value)}
-													onKeyDown={(event) => {
-														if (event.key === "Escape") {
-															event.stopPropagation();
-															setModelFilter("");
-															setComposerMenu(undefined);
-														}
-													}}
-												/>
-											) : null}
-											{filteredModels.length === 0 ? (
-												<p className="composer-popover-empty">没有匹配的模型。</p>
-											) : (
-												filteredModels.map((model) => (
-													<button
-														key={getModelKey(model.provider, model.id)}
-														type="button"
-														className={session?.model?.id === model.id ? "is-current" : ""}
-														onClick={() => {
-															setComposerMenu(undefined);
-															void handleChangeModel(getModelKey(model.provider, model.id));
-														}}
-													>
-														{session?.model?.id === model.id ? "✓ " : ""}
-														{model.provider} / {model.name}
-													</button>
-												))
-											)}
-										</div>
-									) : null}
-								</div>
-								<ContextUsageRing
-									stats={snapshot.sessionStats}
-									onToggle={() => setTopPanel((current) => (current === "session" ? undefined : "session"))}
-								/>
-							</div>
-							<div className="composer-control-group composer-control-group-right">
-								<div className="composer-control-anchor">
-									<button
-										className="composer-control-button"
-										type="button"
-										disabled={!session || session.phase === "running"}
-										onClick={() =>
-											setComposerMenu((current) => (current === "thinking" ? undefined : "thinking"))
-										}
-									>
-										<Icon name="bulb" size={14} />
-										<span>{session?.thinkingLevel ?? "auto"}</span>
-									</button>
-									{composerMenu === "thinking" ? (
-										<div className="composer-popover" role="menu">
-											{(
-												session?.availableThinkingLevels ?? [
-													"auto",
-													"off",
-													"minimal",
-													"low",
-													"medium",
-													"high",
-													"xhigh",
-													"max",
-												]
-											).map((level) => (
-												<button key={level} type="button" onClick={() => void handleChangeThinking(level)}>
-													{level}
-												</button>
-											))}
-										</div>
-									) : null}
-								</div>
-								<div className="composer-control-anchor">
-									<button
-										className="composer-control-button"
-										type="button"
-										onClick={() => setComposerMenu((current) => (current === "tools" ? undefined : "tools"))}
-									>
-										<Icon name="wrench" size={14} />
-										<span>{toolPreset}</span>
-									</button>
-									{composerMenu === "tools" ? (
-										<div className="composer-popover" role="menu">
-											{(["off", "default", "full"] as const).map((preset) => (
-												<button key={preset} type="button" onClick={() => handleToolPresetChange(preset)}>
-													{preset}
-												</button>
-											))}
-										</div>
-									) : null}
-								</div>
-								<button
-									className="composer-control-button"
-									type="button"
-									disabled={!session || session.phase === "running" || compacting}
-									onClick={() => void handleCompact()}
-								>
-									<Icon name="compact" size={14} />
-									<span>{compacting ? "压缩中" : "压缩"}</span>
-								</button>
-								<button
-									className="composer-control-button"
-									type="button"
-									aria-label="切换完成提示音"
-									onClick={() => setSoundOnComplete((current) => !current)}
-								>
-									<Icon name="speaker" size={14} />
-								</button>
-							</div>
-							<div className="composer-footer-right">
-								{session?.phase === "running" ? (
-									<button
-										className="stop-button"
-										type="button"
-										disabled={aborting}
-										onClick={() => void handleAbort()}
-									>
-										{aborting ? "停止中" : "停止"}
-									</button>
+										{snapshot.extensionStatuses.slice(0, 3).map((status) => (
+											<span key={status.key}>{status.text}</span>
+										))}
+									</div>
 								) : null}
+								<div className="composer-control-group">
+									<button
+										className="composer-control-button"
+										type="button"
+										disabled={attachments.length >= MAX_IMAGE_ATTACHMENTS}
+										aria-label={t("addImage")}
+										title={t("addImage")}
+										onClick={() => void handleChooseImages()}
+									>
+										<Icon name="image" size={15} />
+									</button>
+									<button
+										className="composer-control-button chat-project-context"
+										type="button"
+										disabled={!canChooseWorkspace}
+										title={snapshot.workspacePath ?? "选择项目文件夹"}
+										onClick={() => void handleChooseWorkspace()}
+									>
+										<Icon name="folder" size={15} />
+										<span>
+											{snapshot.workspacePath
+												? (snapshot.workspacePath.split(/[\\/]/u).filter(Boolean).at(-1) ??
+													snapshot.workspacePath)
+												: "选择项目"}
+										</span>
+									</button>
+									<div className="composer-control-anchor">
+										<button
+											className="composer-control-button"
+											type="button"
+											disabled={!canSetModel || settingModel}
+											onClick={() =>
+												setComposerMenu((current) => (current === "model" ? undefined : "model"))
+											}
+										>
+											<Icon name="model" size={15} />
+											<span>{session?.model?.id ?? "模型"}</span>
+										</button>
+										{composerMenu === "model" ? (
+											<div className="composer-popover" role="menu">
+												{snapshot.availableModels.length > 8 ? (
+													<input
+														// biome-ignore lint/a11y/noAutofocus: 打开菜单即筛选，参考项目行为
+														autoFocus
+														className="composer-popover-filter"
+														placeholder="筛选模型"
+														value={modelFilter}
+														onChange={(event) => setModelFilter(event.target.value)}
+														onKeyDown={(event) => {
+															if (event.key === "Escape") {
+																event.stopPropagation();
+																setModelFilter("");
+																setComposerMenu(undefined);
+															}
+														}}
+													/>
+												) : null}
+												{filteredModels.length === 0 ? (
+													<p className="composer-popover-empty">没有匹配的模型。</p>
+												) : (
+													filteredModels.map((model) => (
+														<button
+															key={getModelKey(model.provider, model.id)}
+															type="button"
+															className={session?.model?.id === model.id ? "is-current" : ""}
+															onClick={() => {
+																setComposerMenu(undefined);
+																void handleChangeModel(getModelKey(model.provider, model.id));
+															}}
+														>
+															{session?.model?.id === model.id ? "✓ " : ""}
+															{model.provider} / {model.name}
+														</button>
+													))
+												)}
+											</div>
+										) : null}
+									</div>
+									<ContextUsageRing
+										stats={snapshot.sessionStats}
+										onToggle={() => setTopPanel((current) => (current === "session" ? undefined : "session"))}
+									/>
+								</div>
+								<div className="composer-control-group composer-control-group-right">
+									<div className="composer-control-anchor">
+										<button
+											className="composer-control-button"
+											type="button"
+											disabled={!session || session.phase === "running"}
+											onClick={() =>
+												setComposerMenu((current) => (current === "thinking" ? undefined : "thinking"))
+											}
+										>
+											<Icon name="bulb" size={14} />
+											<span>{session?.thinkingLevel ?? "auto"}</span>
+										</button>
+										{composerMenu === "thinking" ? (
+											<div className="composer-popover" role="menu">
+												{(
+													session?.availableThinkingLevels ?? [
+														"auto",
+														"off",
+														"minimal",
+														"low",
+														"medium",
+														"high",
+														"xhigh",
+														"max",
+													]
+												).map((level) => (
+													<button
+														key={level}
+														type="button"
+														onClick={() => void handleChangeThinking(level)}
+													>
+														{level}
+													</button>
+												))}
+											</div>
+										) : null}
+									</div>
+									<div className="composer-control-anchor">
+										<button
+											className="composer-control-button"
+											type="button"
+											onClick={() =>
+												setComposerMenu((current) => (current === "tools" ? undefined : "tools"))
+											}
+										>
+											<Icon name="wrench" size={14} />
+											<span>{toolPreset}</span>
+										</button>
+										{composerMenu === "tools" ? (
+											<div className="composer-popover" role="menu">
+												{(["off", "default", "full"] as const).map((preset) => (
+													<button
+														key={preset}
+														type="button"
+														onClick={() => handleToolPresetChange(preset)}
+													>
+														{preset}
+													</button>
+												))}
+											</div>
+										) : null}
+									</div>
+									<button
+										className="composer-control-button"
+										type="button"
+										disabled={!session || session.phase === "running" || compacting}
+										onClick={() => void handleCompact()}
+									>
+										<Icon name="compact" size={14} />
+										<span>{compacting ? "压缩中" : "压缩"}</span>
+									</button>
+									<button
+										className="composer-control-button"
+										type="button"
+										aria-label="切换完成提示音"
+										onClick={() => setSoundOnComplete((current) => !current)}
+									>
+										<Icon name="speaker" size={14} />
+									</button>
+								</div>
+								<div className="composer-footer-right">
+									{session?.phase === "running" ? (
+										<button
+											className="stop-button"
+											type="button"
+											disabled={aborting}
+											onClick={() => void handleAbort()}
+										>
+											{aborting ? "停止中" : "停止"}
+										</button>
+									) : null}
+								</div>
 							</div>
 						</div>
 					</div>
+					<ExtensionWidgetStack
+						widgets={(snapshot.extensionWidgets ?? []).filter((widget) => widget.placement === "belowEditor")}
+					/>
 				</form>
 			</section>
 			{inspectorOpen ? (
@@ -3726,7 +4474,7 @@ export function App() {
 					aria-label="调整检查器宽度"
 					aria-orientation="vertical"
 					aria-valuemin={300}
-					aria-valuemax={760}
+					aria-valuemax={1200}
 					aria-valuenow={inspectorWidth}
 					tabIndex={0}
 					onPointerDown={(event) => beginResize("inspector", event.clientX)}
@@ -3780,6 +4528,14 @@ export function App() {
 						</div>
 						<div className="file-workbench-actions">
 							<button
+								className={`icon-button ${fileTreeOpen ? "is-active" : ""}`}
+								type="button"
+								aria-label={fileTreeOpen ? "隐藏文件树" : "显示文件树"}
+								onClick={() => setFileTreeOpen((open) => !open)}
+							>
+								<Icon name="files" size={15} />
+							</button>
+							<button
 								className="icon-button"
 								type="button"
 								aria-label="关闭右侧面板"
@@ -3789,21 +4545,61 @@ export function App() {
 							</button>
 						</div>
 					</header>
-					<Inspector
-						changedHint={changedFileHint}
-						onReloadChanged={() => {
-							setChangedFileHint(false);
-							if (activeTabPath) void handleReloadActiveTab(activeTabPath);
-						}}
-						tabs={fileTabs}
-						activeTabPath={activeTabPath}
-						onClose={() => setInspectorOpen(false)}
-						onOpenFile={(path) => void handleOpenFileWithDefaultApp(path)}
-						onRevealFile={(path) => void handleRevealFile(path)}
-						onDownload={(path) => void handleDownloadFile(path)}
-						onQuoteLine={handleQuoteLine}
-						onQuoteLineRange={handleQuoteLineRange}
-					/>
+					<div className="right-panel-body">
+						<Inspector
+							changedHint={changedFileHint}
+							onReloadChanged={() => {
+								setChangedFileHint(false);
+								if (activeTabPath) void handleReloadActiveTab(activeTabPath);
+							}}
+							tabs={fileTabs}
+							activeTabPath={activeTabPath}
+							onClose={() => setInspectorOpen(false)}
+							onOpenFile={(path) => void handleOpenFileWithDefaultApp(path)}
+							onRevealFile={(path) => void handleRevealFile(path)}
+							onDownload={(path) => void handleDownloadFile(path)}
+							onQuoteLine={handleQuoteLine}
+							onQuoteLineRange={handleQuoteLineRange}
+						/>
+						{fileTreeOpen ? (
+							<>
+								<hr
+									className="file-tree-resizer"
+									aria-label="调整文件树宽度"
+									aria-orientation="vertical"
+									aria-valuemin={220}
+									aria-valuemax={520}
+									aria-valuenow={fileTreeWidth}
+									tabIndex={0}
+									onPointerDown={(event) => beginResize("fileTree", event.clientX)}
+									onKeyDown={(event) => {
+										if (event.key === "ArrowLeft" || event.key === "ArrowRight")
+											resizeByKeyboard("fileTree", event.key === "ArrowLeft" ? 16 : -16);
+									}}
+								/>
+								<div className="right-file-tree">
+									<Explorer
+										entries={workspaceEntries}
+										error={fileExplorerError}
+										isLoading={loadingFiles || loadingFilePath !== undefined}
+										isTrusted={snapshot.projectTrusted}
+										selectedPath={activeTabPath}
+										workspacePath={snapshot.workspacePath}
+										onChooseWorkspace={() => void handleChooseWorkspace()}
+										onDownload={(path) => void handleDownloadFile(path)}
+										onMention={(path) => {
+											setDraft((current) => `${current}${current ? " " : ""}@${path} `);
+											promptRef.current?.focus();
+										}}
+										onOpenFile={(entry) => void handleOpenFile(entry)}
+										onRefresh={() => void refreshWorkspaceFiles()}
+										onTrustProject={() => void handleProjectTrust()}
+										onUpload={(files) => void handleImportWorkspaceFiles(files)}
+									/>
+								</div>
+							</>
+						) : null}
+					</div>
 				</aside>
 			) : null}
 			{configModal === "models" ? (
@@ -3856,7 +4652,7 @@ export function App() {
 					onConfirm={() => void confirmProjectTrust()}
 				/>
 			) : null}
-			{extensionDialog ? (
+			{extensionDialog && extensionDialogSessionId === session?.id ? (
 				<ExtensionDialog
 					dialog={extensionDialog}
 					busy={respondingExtension}
@@ -3867,36 +4663,41 @@ export function App() {
 							.finally(() => {
 								setRespondingExtension(false);
 								setExtensionDialog(undefined);
+								setExtensionDialogSessionId(undefined);
 							});
 					}}
 				/>
 			) : null}
-			{renamingSession ? (
-				// biome-ignore lint/a11y/noStaticElementInteractions: 点击遮罩关闭对话框
-				<div
-					className="modal-backdrop"
-					onMouseDown={(event) => {
-						if (event.target === event.currentTarget) setRenamingSession(undefined);
-					}}
-				>
-					<div className="models-discard-dialog" role="dialog" aria-modal="true" aria-label="重命名会话">
-						<strong>重命名会话</strong>
-						<input
-							// biome-ignore lint/a11y/noAutofocus: 对话框打开即聚焦输入
-							autoFocus
-							value={renamingSession.name}
-							onChange={(event) => setRenamingSession({ ...renamingSession, name: event.target.value })}
-							onKeyDown={(event) => {
-								if (event.key === "Enter") void handleRenameSubmit();
-								if (event.key === "Escape") setRenamingSession(undefined);
-							}}
-						/>
+			{extensionCustomUi && extensionCustomUi.sessionId === session?.id ? (
+				<ExtensionCustomPanel
+					id={extensionCustomUi.id}
+					lines={extensionCustomUi.lines}
+					onInput={(id, data) => void sendExtensionCustomInput(id, data).catch(() => {})}
+				/>
+			) : null}
+			{pendingFileConflicts ? (
+				<div className="modal-backdrop">
+					<div className="models-discard-dialog" role="dialog" aria-modal="true" aria-label="处理同名文件">
+						<strong>项目中已有同名文件</strong>
+						<p>
+							{pendingFileConflicts.names.slice(0, 4).join("、")}
+							{pendingFileConflicts.names.length > 4 ? ` 等 ${pendingFileConflicts.names.length} 个文件` : ""}
+						</p>
+						<p>替换会覆盖项目中的现有内容；跳过则保留现有文件。</p>
 						<div>
-							<button className="outline-button" type="button" onClick={() => setRenamingSession(undefined)}>
-								取消
+							<button
+								className="outline-button"
+								type="button"
+								onClick={() => void handleFileConflictDecision(false)}
+							>
+								全部跳过
 							</button>
-							<button className="accent-button" type="button" onClick={() => void handleRenameSubmit()}>
-								保存
+							<button
+								className="accent-button"
+								type="button"
+								onClick={() => void handleFileConflictDecision(true)}
+							>
+								全部替换
 							</button>
 						</div>
 					</div>

@@ -1,28 +1,34 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm, unlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { basename, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import {
 	type AgentSession,
 	createAgentSession,
 	DefaultPackageManager,
 	DefaultResourceLoader,
 	ModelRuntime,
+	type PackageSource,
 	SessionManager,
 	SettingsManager,
+	Theme,
 } from "@earendil-works/pi-coding-agent";
+import { KeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { shell } from "electron";
 import type {
 	DesktopApiKeyProvider,
 	DesktopAuthenticationPrompt,
 	DesktopBranchPoint,
-	DesktopExtensionDialog,
-	DesktopExtensionDialogListener,
+	DesktopExtensionEditorRequest,
 	DesktopExtensionStatus,
+	DesktopExtensionUiListener,
+	DesktopExtensionWidget,
 	DesktopGitChange,
 	DesktopGitWorktree,
 	DesktopModel,
 	DesktopModelTestResult,
 	DesktopPlugin,
+	DesktopPluginPackage,
 	DesktopProviderConfig,
 	DesktopProviderModelConfig,
 	DesktopSessionInfo,
@@ -39,7 +45,9 @@ import type {
 	DesktopWorkspaceEntry,
 	DesktopWorkspaceFilePreview,
 } from "../shared/contracts.ts";
+import { expandSessionReferences } from "../shared/session-reference.ts";
 import { AuthenticationPromptQueue } from "./authentication-prompt-queue.ts";
+import { ExtensionCustomUiController, ExtensionDialogQueue } from "./extension-ui-controller.ts";
 import {
 	addGitWorktree as gitAddWorktree,
 	getGitDiff as gitGetDiff,
@@ -50,13 +58,13 @@ import {
 import {
 	discoverModels as discoverModelsFromUrl,
 	lookupModelCatalog,
-	type ModelsJson,
-	type ModelsJsonProvider,
+	mergeModelsConfig,
 	modelsJsonPathFor,
 	readModelsConfig,
 	writeModelsConfig,
 } from "./models-config-store.ts";
 import { SecurityAuditLog } from "./security-audit-log.ts";
+import { listIndexedSessions } from "./session-index.ts";
 import {
 	checkSkillUpdate,
 	installSkill,
@@ -72,42 +80,79 @@ import { WorkspaceWatcher } from "./workspace-watcher.ts";
 
 type SnapshotListener = (snapshot: DesktopSnapshot) => void;
 
-class ExtensionDialogQueue {
-	private pending = new Map<string, (value: string) => void>();
-	private sequence = 0;
-	private readonly emit: (dialog: DesktopExtensionDialog) => void;
+interface ExtensionDialogOptions {
+	signal?: AbortSignal;
+	timeout?: number;
+}
 
-	constructor(emit: (dialog: DesktopExtensionDialog) => void) {
-		this.emit = emit;
+interface ManagedSession {
+	id: string;
+	lifecycleId: string;
+	session: AgentSession;
+	settingsManager: SettingsManager;
+	cwd: string;
+	workspacePath?: string;
+	sessionDirectory: string;
+	projectTrusted: boolean;
+	unsubscribe: () => void;
+	error?: string;
+	extensionStatuses: DesktopExtensionStatus[];
+	extensionWidgets: DesktopExtensionWidget[];
+	extensionCustomUi: ExtensionCustomUiController;
+	extensionEditorRequest?: DesktopExtensionEditorRequest;
+	extensionNotice?: string;
+	autoRetryState?: { attempt: number; maxAttempts: number; errorMessage: string };
+	lastCompaction?: { reason: string; tokensBefore: number; tokensAfter?: number };
+	runningToolNames: Set<string>;
+	lastUsedAt: number;
+}
+
+class PlainTextTheme extends Theme {
+	constructor() {
+		super(
+			{ thinkingXhigh: "", text: "" } as ConstructorParameters<typeof Theme>[0],
+			{ selectedBg: "" } as ConstructorParameters<typeof Theme>[1],
+			"truecolor",
+		);
 	}
 
-	request(
-		dialog:
-			| { kind: "select"; title: string; options: string[] }
-			| { kind: "confirm"; title: string; message: string }
-			| { kind: "input"; title: string; placeholder?: string },
-	): Promise<string> {
-		const id = `ext-dialog-${++this.sequence}`;
-		return new Promise((resolvePromise) => {
-			this.pending.set(id, resolvePromise);
-			this.emit({ ...dialog, id } as DesktopExtensionDialog);
-			setTimeout(() => {
-				if (this.pending.has(id)) {
-					this.pending.delete(id);
-					resolvePromise("");
-				}
-			}, 120_000);
-		});
+	override fg(...[, text]: Parameters<Theme["fg"]>): string {
+		return text;
 	}
-
-	resolve(id: string, value: string): boolean {
-		const resolver = this.pending.get(id);
-		if (!resolver) return false;
-		this.pending.delete(id);
-		resolver(value);
-		return true;
+	override bg(...[, text]: Parameters<Theme["bg"]>): string {
+		return text;
+	}
+	override bold(text: string): string {
+		return text;
+	}
+	override italic(text: string): string {
+		return text;
+	}
+	override underline(text: string): string {
+		return text;
+	}
+	override inverse(text: string): string {
+		return text;
+	}
+	override strikethrough(text: string): string {
+		return text;
+	}
+	override getFgAnsi(): string {
+		return "";
+	}
+	override getBgAnsi(): string {
+		return "";
+	}
+	override getThinkingBorderColor(): (text: string) => string {
+		return (text) => text;
+	}
+	override getBashModeBorderColor(): (text: string) => string {
+		return (text) => text;
 	}
 }
+
+const PLAIN_TEXT_THEME = new PlainTextTheme();
+const CUSTOM_UI_KEYBINDINGS = new KeybindingsManager(TUI_KEYBINDINGS);
 
 const DESKTOP_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
@@ -203,6 +248,7 @@ function toTranscriptMessage(message: unknown, index: number): DesktopTranscript
 		...(typeof value.exitCode === "number" ? { exitCode: value.exitCode } : {}),
 		...(typeof value.cancelled === "boolean" ? { cancelled: value.cancelled } : {}),
 		...(typeof value.truncated === "boolean" ? { truncated: value.truncated } : {}),
+		...(value.truncated === true && typeof value.fullOutputPath === "string" ? { fullOutputAvailable: true } : {}),
 		...(timestamp === undefined ? {} : { timestamp }),
 		...(usage ? { usage } : {}),
 	};
@@ -220,6 +266,8 @@ export class DesktopAgentHost {
 	private readonly trustStore: WorkspaceTrustStore;
 	private readonly auditLog: SecurityAuditLog;
 	private workspaceChangeQueue: Promise<void> = Promise.resolve();
+	private readonly managedSessions = new Map<string, ManagedSession>();
+	private activeSessionId: string | undefined;
 	private session: AgentSession | undefined;
 	private modelRuntime: ModelRuntime | undefined;
 	private modelRuntimeInitialization: Promise<ModelRuntime> | undefined;
@@ -228,24 +276,30 @@ export class DesktopAgentHost {
 	private sessionDirectory: string | undefined;
 	private projectTrusted = false;
 	private sessions: DesktopSessionInfo[] = [];
+	private workspaceSearchCache:
+		| { workspacePath: string; query: string; expiresAt: number; entries: DesktopWorkspaceEntry[] }
+		| undefined;
 	private providerSetupInProgress = false;
 	private authenticationController: AbortController | undefined;
 	private authenticationNotice: string | undefined;
 	private error: string | undefined;
-	private unsubscribeSession: (() => void) | undefined;
 	private readonly listeners = new Set<SnapshotListener>();
 	private readonly workspaceWatcher = new WorkspaceWatcher((changes) => {
 		for (const listener of this.workspaceChangeListeners) listener(changes);
 	});
 	private readonly workspaceChangeListeners = new Set<(changes: DesktopWorkspaceChange[]) => void>();
-	private readonly extensionDialogListeners = new Set<DesktopExtensionDialogListener>();
+	private readonly extensionUiListeners = new Set<DesktopExtensionUiListener>();
 	private extensionStatuses: DesktopExtensionStatus[] = [];
+	private extensionWidgets: DesktopExtensionWidget[] = [];
+	private extensionEditorRequest: DesktopExtensionEditorRequest | undefined;
+	private extensionEditorSequence = 0;
 	private extensionNotice: string | undefined;
 	private autoRetryState: { attempt: number; maxAttempts: number; errorMessage: string } | undefined;
 	private lastCompaction: { reason: string; tokensBefore: number; tokensAfter?: number } | undefined;
 	private runningToolNames = new Set<string>();
-	private readonly extensionDialogQueue: ExtensionDialogQueue = new ExtensionDialogQueue((dialog) => {
-		for (const listener of this.extensionDialogListeners) listener(dialog);
+	private readonly extensionDialogQueue: ExtensionDialogQueue = new ExtensionDialogQueue((event) => {
+		if (event.sessionId !== this.activeSessionId) return;
+		for (const listener of this.extensionUiListeners) listener(event);
 	});
 
 	constructor(agentDir: string) {
@@ -279,6 +333,8 @@ export class DesktopAgentHost {
 			pendingToolApprovals: this.approvalQueue.getPendingApprovals(),
 			pendingAuthenticationPrompts: this.authenticationPromptQueue.getPendingPrompts(),
 			...(this.extensionStatuses.length ? { extensionStatuses: this.extensionStatuses } : {}),
+			...(this.extensionWidgets.length ? { extensionWidgets: this.extensionWidgets } : {}),
+			...(this.extensionEditorRequest ? { extensionEditorRequest: this.extensionEditorRequest } : {}),
 			apiKeyProviders: this.getApiKeyProviders(),
 			availableModels: this.getAvailableModels(),
 			skills: this.getSkills(),
@@ -340,7 +396,7 @@ export class DesktopAgentHost {
 		if (!this.session) return [];
 		return this.session.getUserMessagesForForking().map((point) => ({
 			entryId: point.entryId,
-			text: point.text.length > 50 ? `${point.text.slice(0, 50)}…` : point.text,
+			text: point.text,
 		}));
 	}
 
@@ -395,9 +451,14 @@ export class DesktopAgentHost {
 		return this.extensionDialogQueue.resolve(id, value);
 	}
 
-	onExtensionDialog(listener: DesktopExtensionDialogListener): () => void {
-		this.extensionDialogListeners.add(listener);
-		return () => this.extensionDialogListeners.delete(listener);
+	sendExtensionCustomInput(id: string, data: string): boolean {
+		if (!this.activeSessionId) return false;
+		return this.managedSessions.get(this.activeSessionId)?.extensionCustomUi.input(id, data) ?? false;
+	}
+
+	onExtensionUi(listener: DesktopExtensionUiListener): () => void {
+		this.extensionUiListeners.add(listener);
+		return () => this.extensionUiListeners.delete(listener);
 	}
 
 	onWorkspaceChanged(listener: (changes: DesktopWorkspaceChange[]) => void): () => void {
@@ -413,10 +474,17 @@ export class DesktopAgentHost {
 	}
 
 	private async openWorkspaceInternal(cwd: string): Promise<DesktopSnapshot> {
-		await this.disposeSession();
-
 		try {
 			const projectTrusted = await this.trustStore.isTrusted(cwd);
+			const existing = [...this.managedSessions.values()]
+				.filter((managed) => managed.workspacePath === cwd && managed.projectTrusted === projectTrusted)
+				.sort((left, right) => right.lastUsedAt - left.lastUsedAt)[0];
+			if (existing) {
+				this.activateManagedSession(existing);
+				await this.refreshSessions();
+				return this.publish();
+			}
+			this.deactivateActiveSession();
 			const workspaceKey = getWorkspaceKey(cwd);
 			await this.createSession({
 				cwd,
@@ -442,6 +510,7 @@ export class DesktopAgentHost {
 		resumeRecent?: boolean;
 	}): Promise<void> {
 		const modelRuntimePromise = this.getModelRuntime();
+		const lifecycleId = randomUUID();
 		const sessionManager = options.sessionFile
 			? SessionManager.open(options.sessionFile, options.sessionDirectory)
 			: options.resumeRecent
@@ -450,7 +519,6 @@ export class DesktopAgentHost {
 		const settingsManager = SettingsManager.create(options.cwd, this.agentDir, {
 			projectTrusted: options.projectTrusted,
 		});
-		this.settingsManager = settingsManager;
 		const resourceLoader = new DefaultResourceLoader({
 			cwd: options.cwd,
 			agentDir: this.agentDir,
@@ -466,11 +534,14 @@ export class DesktopAgentHost {
 					hidden: true,
 					factory: (pi) => {
 						pi.on("tool_call", async (event) => {
-							const approved = await this.approvalQueue.request({
-								toolCallId: event.toolCallId,
-								toolName: event.toolName,
-								input: event.input,
-							});
+							const approved = await this.approvalQueue.request(
+								{
+									toolCallId: event.toolCallId,
+									toolName: event.toolName,
+									input: event.input,
+								},
+								lifecycleId,
+							);
 							return approved
 								? undefined
 								: { block: true, reason: "Desktop user denied this tool call.", terminate: true };
@@ -491,48 +562,139 @@ export class DesktopAgentHost {
 		});
 
 		const statuses = new Map<string, string>();
+		const managed: ManagedSession = {
+			id: created.session.sessionId,
+			lifecycleId,
+			session: created.session,
+			settingsManager,
+			cwd: options.cwd,
+			...(options.workspacePath ? { workspacePath: options.workspacePath } : {}),
+			sessionDirectory: options.sessionDirectory,
+			projectTrusted: options.projectTrusted,
+			unsubscribe: () => undefined,
+			...(created.modelFallbackMessage ? { error: "没有可用模型。请在设置中配置模型服务商。" } : {}),
+			extensionStatuses: [],
+			extensionWidgets: [],
+			extensionCustomUi: new ExtensionCustomUiController(
+				created.session.sessionId,
+				(event) => {
+					if (event.sessionId !== this.activeSessionId) return;
+					for (const listener of this.extensionUiListeners) listener(event);
+				},
+				PLAIN_TEXT_THEME,
+				CUSTOM_UI_KEYBINDINGS,
+			),
+			runningToolNames: new Set<string>(),
+			lastUsedAt: Date.now(),
+		};
 		const partialUiContext = {
-			select: async (title: string, dialogOptions: string[]) => {
-				const value = await this.extensionDialogQueue.request({
-					kind: "select",
-					title,
-					options: dialogOptions ?? [],
-				});
+			select: async (title: string, dialogOptions: string[], opts?: ExtensionDialogOptions) => {
+				const value = await this.extensionDialogQueue.request(
+					managed.id,
+					{
+						kind: "select",
+						title,
+						options: dialogOptions ?? [],
+					},
+					opts,
+				);
 				return value || undefined;
 			},
-			confirm: async (title: string, message: string) => {
-				const value = await this.extensionDialogQueue.request({ kind: "confirm", title, message });
+			confirm: async (title: string, message: string, opts?: ExtensionDialogOptions) => {
+				const value = await this.extensionDialogQueue.request(
+					managed.id,
+					{ kind: "confirm", title, message },
+					opts,
+				);
 				return value === "confirm";
 			},
-			input: async (title: string, placeholder?: string) => {
-				const value = await this.extensionDialogQueue.request({
-					kind: "input",
-					title,
-					...(placeholder ? { placeholder } : {}),
-				});
+			input: async (title: string, placeholder?: string, opts?: ExtensionDialogOptions) => {
+				const value = await this.extensionDialogQueue.request(
+					managed.id,
+					{
+						kind: "input",
+						title,
+						...(placeholder ? { placeholder } : {}),
+					},
+					opts,
+				);
 				return value || undefined;
 			},
-			editor: async (title: string, prefill?: string) => {
-				const value = await this.extensionDialogQueue.request({
-					kind: "input",
-					title,
-					...(prefill ? { placeholder: prefill } : {}),
-				});
+			editor: async (title: string, prefill?: string, opts?: ExtensionDialogOptions) => {
+				const value = await this.extensionDialogQueue.request(
+					managed.id,
+					{
+						kind: "editor",
+						title,
+						...(prefill ? { prefill } : {}),
+					},
+					opts,
+				);
 				return value || undefined;
 			},
 			notify: (message: string, type?: "info" | "warning" | "error") => {
-				this.extensionNotice = `${type === "error" ? "错误" : type === "warning" ? "警告" : "提示"}：${message}`;
+				managed.extensionNotice = `${type === "error" ? "错误" : type === "warning" ? "警告" : "提示"}：${message}`;
+				if (this.activeSessionId === managed.id) this.extensionNotice = managed.extensionNotice;
 				this.publish();
 			},
 			setStatus: (key: string, text: string | undefined) => {
 				if (text === undefined) statuses.delete(key);
 				else statuses.set(key, text);
-				this.extensionStatuses = [...statuses.entries()].map(([statusKey, statusText]) => ({
+				managed.extensionStatuses = [...statuses.entries()].map(([statusKey, statusText]) => ({
 					key: statusKey,
 					text: statusText,
 				}));
+				if (this.activeSessionId === managed.id) this.extensionStatuses = managed.extensionStatuses;
 				this.publish();
 			},
+			setWidget: (
+				key: string,
+				content: string[] | unknown | undefined,
+				options?: { placement?: "aboveEditor" | "belowEditor" },
+			) => {
+				const widgets = new Map(managed.extensionWidgets.map((widget) => [widget.key, widget]));
+				if (Array.isArray(content) && content.every((line) => typeof line === "string")) {
+					widgets.set(key, {
+						key,
+						lines: content.slice(0, 100),
+						placement: options?.placement === "belowEditor" ? "belowEditor" : "aboveEditor",
+					});
+				} else if (content === undefined) {
+					widgets.delete(key);
+				}
+				managed.extensionWidgets = [...widgets.values()];
+				if (this.activeSessionId === managed.id) this.extensionWidgets = managed.extensionWidgets;
+				this.publish();
+			},
+			setTitle: (title: string) => {
+				managed.extensionNotice = title;
+				if (this.activeSessionId === managed.id) this.extensionNotice = title;
+				this.publish();
+			},
+			custom: <T = unknown>(factory: unknown, options?: unknown) =>
+				managed.extensionCustomUi.request<T>(factory, options),
+			pasteToEditor: (text: string) => {
+				managed.extensionEditorRequest = { id: ++this.extensionEditorSequence, text, mode: "insert" };
+				if (this.activeSessionId === managed.id) this.extensionEditorRequest = managed.extensionEditorRequest;
+				this.publish();
+			},
+			setEditorText: (text: string) => {
+				managed.extensionEditorRequest = { id: ++this.extensionEditorSequence, text, mode: "replace" };
+				if (this.activeSessionId === managed.id) this.extensionEditorRequest = managed.extensionEditorRequest;
+				this.publish();
+			},
+			getEditorText: () => "",
+			addAutocompleteProvider: () => undefined,
+			setEditorComponent: () => undefined,
+			getEditorComponent: () => undefined,
+			get theme() {
+				return PLAIN_TEXT_THEME;
+			},
+			getAllThemes: () => [],
+			getTheme: () => undefined,
+			setTheme: () => ({ success: false, error: "Electron 扩展界面暂不支持切换主题。" }),
+			getToolsExpanded: () => false,
+			setToolsExpanded: () => undefined,
 		};
 		try {
 			created.session.extensionRunner.setUIContext(
@@ -543,31 +705,23 @@ export class DesktopAgentHost {
 			// UI 桥不可用时扩展交互静默降级。
 		}
 
-		this.workspacePath = options.workspacePath;
-		this.sessionDirectory = options.sessionDirectory;
-		this.projectTrusted = options.projectTrusted;
-		this.session = created.session;
-		this.error = created.modelFallbackMessage ? "没有可用模型。请在设置中配置模型服务商。" : undefined;
-		this.autoRetryState = undefined;
-		this.lastCompaction = undefined;
-		this.runningToolNames = new Set<string>();
-		this.unsubscribeSession = this.session.subscribe((event: unknown) => {
+		managed.unsubscribe = created.session.subscribe((event: unknown) => {
 			const typed = event as { type?: string; [key: string]: unknown };
 			if (typed.type === "auto_retry_start") {
-				this.autoRetryState = {
+				managed.autoRetryState = {
 					attempt: typeof typed.attempt === "number" ? typed.attempt : 0,
 					maxAttempts: typeof typed.maxAttempts === "number" ? typed.maxAttempts : 0,
 					errorMessage: typeof typed.errorMessage === "string" ? typed.errorMessage : "未知错误",
 				};
 			} else if (typed.type === "auto_retry_end") {
-				this.autoRetryState = undefined;
+				managed.autoRetryState = undefined;
 			} else if (typed.type === "tool_execution_start" && typeof typed.toolName === "string") {
-				this.runningToolNames.add(typed.toolName);
+				managed.runningToolNames.add(typed.toolName);
 			} else if (typed.type === "tool_execution_end" && typeof typed.toolName === "string") {
-				this.runningToolNames.delete(typed.toolName);
+				managed.runningToolNames.delete(typed.toolName);
 			} else if (typed.type === "compaction_end") {
 				const result = typed.result as { tokensBefore?: unknown; estimatedTokensAfter?: unknown } | undefined;
-				this.lastCompaction = {
+				managed.lastCompaction = {
 					reason: typeof typed.reason === "string" ? typed.reason : "manual",
 					tokensBefore: typeof result?.tokensBefore === "number" ? result.tokensBefore : 0,
 					...(typeof result?.estimatedTokensAfter === "number"
@@ -575,13 +729,19 @@ export class DesktopAgentHost {
 						: {}),
 				};
 			}
+			if (this.activeSessionId === managed.id) this.applyManagedSessionState(managed);
+			const managedPath = managed.session.sessionManager.getSessionFile();
+			if (managedPath) {
+				this.sessions = this.sessions.map((info) =>
+					resolve(info.path) === resolve(managedPath)
+						? { ...info, phase: toPhase(managed.session, managed.error) }
+						: info,
+				);
+			}
 			this.publish();
 		});
-		if (options.workspacePath && options.projectTrusted) {
-			this.workspaceWatcher.start(options.workspacePath);
-		} else {
-			this.workspaceWatcher.stop();
-		}
+		this.managedSessions.set(managed.id, managed);
+		this.activateManagedSession(managed);
 		await this.refreshSessions();
 	}
 
@@ -596,36 +756,72 @@ export class DesktopAgentHost {
 		if (!this.session) {
 			throw new Error("请先选择项目，再发送消息。");
 		}
+		const managed = this.activeSessionId ? this.managedSessions.get(this.activeSessionId) : undefined;
+		if (!managed) throw new Error("当前智能体会话未注册。");
+		const session = managed.session;
 
-		if (this.session.sessionName === undefined) {
+		if (session.sessionName === undefined) {
 			const trimmed = text.trim().replace(/\s+/gu, " ");
 			if (trimmed) {
 				const name = trimmed.length > 40 ? `${trimmed.slice(0, 40)}…` : trimmed;
-				this.session.sessionManager.appendSessionInfo(name);
+				session.sessionManager.appendSessionInfo(name);
 			}
 		}
 
-		if (this.session.isStreaming && streamingBehavior === undefined) {
+		if (session.isStreaming && streamingBehavior === undefined) {
 			throw new Error("智能体运行中，请选择立即引导或排队跟进。");
 		}
 
-		this.error = undefined;
+		managed.error = undefined;
+		if (this.activeSessionId === managed.id) this.error = undefined;
 		try {
-			await this.session.prompt(text, {
+			await session.prompt(this.resolveSessionReferences(text), {
 				images: images.map((image) => ({ ...image, type: "image" as const })),
 				source: "interactive",
 				...(streamingBehavior === undefined ? {} : { streamingBehavior }),
 			});
 		} catch (error) {
-			this.error = error instanceof Error ? error.message : String(error);
+			managed.error = error instanceof Error ? error.message : String(error);
+			if (this.activeSessionId === managed.id) this.error = managed.error;
 		}
+		await this.refreshSessions();
 		return this.publish();
+	}
+
+	private resolveSessionReferences(text: string): string {
+		return expandSessionReferences(text, {
+			candidates: this.sessions.map((info) => ({
+				label: info.name ?? info.firstMessage.slice(0, 40),
+				path: info.path,
+			})),
+			load: (sessionPath) => {
+				const indexed = this.sessions.find((info) => resolve(info.path) === resolve(sessionPath));
+				if (!indexed) return "";
+				const sessionsRoot = resolve(join(this.agentDir, "sessions"));
+				const resolvedPath = resolve(indexed.path);
+				if (!resolvedPath.startsWith(sessionsRoot + sep) || !resolvedPath.endsWith(".jsonl")) return "";
+				try {
+					const manager = SessionManager.open(resolvedPath, dirname(resolvedPath));
+					return manager
+						.buildSessionContext()
+						.messages.map((message, index) => {
+							const transcript = toTranscriptMessage(message, index);
+							return `[${transcript.role.toUpperCase()}]\n${transcript.text}`;
+						})
+						.join("\n\n")
+						.replaceAll("</session_reference>", "&lt;/session_reference&gt;");
+				} catch {
+					return "";
+				}
+			},
+		});
 	}
 
 	async abort(): Promise<DesktopSnapshot> {
 		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
 		if (!this.session.isStreaming) return this.getSnapshot();
-		this.approvalQueue.cancelAll();
+		const managed = this.activeSessionId ? this.managedSessions.get(this.activeSessionId) : undefined;
+		if (managed) this.approvalQueue.cancelGroup(managed.lifecycleId);
 		await this.session.abort();
 		return this.publish();
 	}
@@ -634,18 +830,12 @@ export class DesktopAgentHost {
 		if (this.providerSetupInProgress) {
 			throw new Error("请先完成当前模型服务商配置，再切换会话。");
 		}
-		if (this.session?.isStreaming) {
-			throw new Error("请等待当前智能体任务完成后，再切换会话。");
-		}
 		return this.enqueueWorkspaceChange(() => this.switchSession({ sessionFile: sessionPath }));
 	}
 
 	async newSession(): Promise<DesktopSnapshot> {
 		if (this.providerSetupInProgress) {
 			throw new Error("请先完成当前模型服务商配置，再新建会话。");
-		}
-		if (this.session?.isStreaming) {
-			throw new Error("请等待当前智能体任务完成后，再新建会话。");
 		}
 		return this.enqueueWorkspaceChange(() => this.switchSession({}));
 	}
@@ -689,7 +879,7 @@ export class DesktopAgentHost {
 		}
 
 		const forked = SessionManager.forkFrom(sourceFile, workspacePath, sessionDirectory);
-		await this.disposeSession();
+		this.deactivateActiveSession();
 		try {
 			await this.createSession({
 				cwd: workspacePath,
@@ -706,24 +896,39 @@ export class DesktopAgentHost {
 	}
 
 	private async switchSession(options: { sessionFile?: string }): Promise<DesktopSnapshot> {
-		const workspacePath = this.workspacePath;
-		const projectTrusted = this.projectTrusted;
-		const sessionDirectory = this.sessionDirectory;
+		let workspacePath = this.workspacePath;
+		let projectTrusted = this.projectTrusted;
+		let sessionDirectory = this.sessionDirectory;
+
+		let sessionFile: string | undefined;
+		if (options.sessionFile) {
+			const resolvedFile = resolve(options.sessionFile);
+			const existing = this.findManagedSessionByPath(resolvedFile);
+			if (existing) {
+				this.activateManagedSession(existing);
+				await this.refreshSessions();
+				return this.publish();
+			}
+			const indexed = this.sessions.find((item) => resolve(item.path) === resolvedFile);
+			if (!indexed) throw new Error("只能打开已索引的项目会话。");
+			workspacePath = indexed.cwd;
+			sessionDirectory = dirname(resolvedFile);
+			const expectedDirectory = resolve(join(this.agentDir, "sessions", getWorkspaceKey(workspacePath)));
+			if (
+				resolve(sessionDirectory) !== expectedDirectory ||
+				!resolvedFile.startsWith(expectedDirectory + sep) ||
+				!resolvedFile.endsWith(".jsonl")
+			) {
+				throw new Error("无效的会话文件。");
+			}
+			projectTrusted = await this.trustStore.isTrusted(workspacePath);
+			sessionFile = resolvedFile;
+		}
 		if (!workspacePath || !sessionDirectory) {
 			throw new Error("请先选择项目，再管理会话。");
 		}
 
-		let sessionFile: string | undefined;
-		if (options.sessionFile) {
-			const resolvedDirectory = resolve(sessionDirectory);
-			const resolvedFile = resolve(options.sessionFile);
-			if (!resolvedFile.startsWith(resolvedDirectory + sep) || !resolvedFile.endsWith(".jsonl")) {
-				throw new Error("无效的会话文件。");
-			}
-			sessionFile = resolvedFile;
-		}
-
-		await this.disposeSession();
+		this.deactivateActiveSession();
 		try {
 			await this.createSession({
 				cwd: workspacePath,
@@ -819,28 +1024,44 @@ export class DesktopAgentHost {
 		return this.publish();
 	}
 
-	async renameSession(name: string): Promise<DesktopSnapshot> {
-		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
+	async renameSession(sessionPath: string, name: string): Promise<DesktopSnapshot> {
+		const realPath = resolve(sessionPath);
+		const indexed = this.sessions.find((info) => resolve(info.path) === realPath);
+		if (!indexed) throw new Error("只能重命名已索引的项目会话。");
+		const directory = resolve(join(this.agentDir, "sessions", getWorkspaceKey(indexed.cwd)));
+		if (!realPath.startsWith(directory + sep) || !realPath.endsWith(".jsonl")) {
+			throw new Error("无效的会话文件。");
+		}
 		const trimmed = name.trim().slice(0, 120);
 		if (!trimmed) throw new Error("会话名称不能为空。");
-		this.session.setSessionName(trimmed);
+		const managed = this.findManagedSessionByPath(realPath);
+		if (managed) managed.session.setSessionName(trimmed);
+		else SessionManager.open(realPath, directory).appendSessionInfo(trimmed);
+		await this.refreshSessions();
 		return this.publish();
 	}
 
 	async deleteSession(sessionPath: string): Promise<DesktopSnapshot> {
-		if (this.session?.isStreaming) throw new Error("请等待当前智能体任务完成后再删除会话。");
-		const { unlink } = await import("node:fs/promises");
 		const realPath = resolve(sessionPath);
-		const directory = this.sessionDirectory ? resolve(this.sessionDirectory) : undefined;
-		if (!directory || !realPath.startsWith(directory + sep)) {
-			throw new Error("只能删除当前工作区目录中的会话文件。");
-		}
+		const indexed = this.sessions.find((info) => resolve(info.path) === realPath);
+		if (!indexed) throw new Error("只能删除已索引的项目会话。");
+		const directory = resolve(join(this.agentDir, "sessions", getWorkspaceKey(indexed.cwd)));
+		if (!realPath.startsWith(directory + sep) || !realPath.endsWith(".jsonl")) throw new Error("无效的会话文件。");
+		const managed = this.findManagedSessionByPath(realPath);
+		if (managed?.session.isStreaming) throw new Error("请等待该智能体任务完成后再删除会话。");
+		const wasActive = managed !== undefined && managed.id === this.activeSessionId;
+		const projectTrusted = managed?.projectTrusted ?? (await this.trustStore.isTrusted(indexed.cwd));
+		if (managed) this.disposeManagedSession(managed);
 		await unlink(realPath);
 		this.auditLog.write("workspace.trust", "denied", { deletedSession: basename(realPath) });
 		await this.refreshSessions();
-		const currentFile = this.session?.sessionManager.getSessionFile();
-		if (currentFile && resolve(currentFile) === realPath) {
-			await this.newSession();
+		if (wasActive) {
+			await this.createSession({
+				cwd: indexed.cwd,
+				projectTrusted,
+				sessionDirectory: directory,
+				workspacePath: indexed.cwd,
+			});
 		}
 		return this.publish();
 	}
@@ -872,7 +1093,11 @@ export class DesktopAgentHost {
 			if (!this.workspacePath) {
 				throw new Error("请先选择项目，再更改项目权限。");
 			}
-			if (this.session?.isStreaming) {
+			if (
+				[...this.managedSessions.values()].some(
+					(managed) => managed.workspacePath === this.workspacePath && managed.session.isStreaming,
+				)
+			) {
 				throw new Error("请等待当前智能体任务完成后，再更改项目权限。");
 			}
 
@@ -882,6 +1107,7 @@ export class DesktopAgentHost {
 				this.auditLog.write("workspace.trust", trusted ? "allowed" : "denied", {
 					workspaceKey: getWorkspaceKey(workspacePath),
 				});
+				this.disposeWorkspaceSessions(workspacePath);
 				return await this.openWorkspaceInternal(workspacePath);
 			} catch (error) {
 				this.error = error instanceof Error ? error.message : String(error);
@@ -902,7 +1128,7 @@ export class DesktopAgentHost {
 	}
 
 	async startProviderSetup(providerId: string, authType: "api_key" | "oauth"): Promise<DesktopSnapshot> {
-		if (this.session?.isStreaming) {
+		if (this.hasStreamingSession()) {
 			throw new Error("请等待当前智能体任务完成后，再更改模型认证信息。");
 		}
 		if (this.providerSetupInProgress) {
@@ -965,7 +1191,7 @@ export class DesktopAgentHost {
 	}
 
 	async logoutProvider(providerId: string): Promise<DesktopSnapshot> {
-		if (this.session?.isStreaming) throw new Error("请等待当前智能体任务完成后，再断开模型服务商。");
+		if (this.hasStreamingSession()) throw new Error("请等待当前智能体任务完成后，再断开模型服务商。");
 		const modelRuntime = await this.getModelRuntime();
 		await modelRuntime.logout(providerId);
 		await modelRuntime.refresh({ allowNetwork: false });
@@ -982,6 +1208,24 @@ export class DesktopAgentHost {
 
 	async listWorkspaceFiles(): Promise<DesktopWorkspaceEntry[]> {
 		return this.getTrustedWorkspaceBrowser().list();
+	}
+
+	async searchWorkspaceFiles(query: string): Promise<DesktopWorkspaceEntry[]> {
+		const workspacePath = this.workspacePath;
+		if (!workspacePath) throw new Error("请先选择项目，再搜索文件。");
+		const normalizedQuery = query.trim().slice(0, 200).toLocaleLowerCase();
+		const cached = this.workspaceSearchCache;
+		if (
+			cached &&
+			cached.workspacePath === workspacePath &&
+			cached.query === normalizedQuery &&
+			cached.expiresAt > Date.now()
+		) {
+			return cached.entries;
+		}
+		const entries = await this.getTrustedWorkspaceBrowser().search(normalizedQuery);
+		this.workspaceSearchCache = { workspacePath, query: normalizedQuery, expiresAt: Date.now() + 10_000, entries };
+		return entries;
 	}
 
 	async readWorkspaceFile(path: string): Promise<DesktopWorkspaceFilePreview> {
@@ -1007,6 +1251,7 @@ export class DesktopAgentHost {
 		const config = await readModelsConfig(modelsJsonPathFor(this.agentDir));
 		return Object.entries(config.providers).map(([id, provider]) => ({
 			id,
+			sourceId: id,
 			...(provider.name === undefined ? {} : { name: provider.name }),
 			...(provider.baseUrl === undefined ? {} : { baseUrl: provider.baseUrl }),
 			...(provider.api === undefined ? {} : { api: provider.api }),
@@ -1015,6 +1260,7 @@ export class DesktopAgentHost {
 				: {
 						models: provider.models.map((model) => ({
 							id: model.id,
+							sourceId: model.id,
 							...(model.name === undefined ? {} : { name: model.name }),
 							...(model.api === undefined ? {} : { api: model.api }),
 							...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
@@ -1028,42 +1274,12 @@ export class DesktopAgentHost {
 	}
 
 	async saveModelsConfig(providers: DesktopProviderConfig[]): Promise<DesktopSnapshot> {
-		if (this.session?.isStreaming) {
+		if (this.hasStreamingSession()) {
 			throw new Error("请等待当前智能体任务完成后，再保存模型配置。");
 		}
 
 		const currentConfig = await readModelsConfig(modelsJsonPathFor(this.agentDir));
-		const config: ModelsJson = {
-			providers: Object.fromEntries(
-				providers.map((provider): [string, ModelsJsonProvider] => [
-					provider.id,
-					{
-						...(provider.name === undefined ? {} : { name: provider.name }),
-						...(provider.baseUrl === undefined ? {} : { baseUrl: provider.baseUrl }),
-						...(provider.apiKey === undefined
-							? currentConfig.providers[provider.id]?.apiKey === undefined
-								? {}
-								: { apiKey: currentConfig.providers[provider.id].apiKey }
-							: { apiKey: provider.apiKey }),
-						...(provider.api === undefined ? {} : { api: provider.api }),
-						...(provider.models === undefined
-							? {}
-							: {
-									models: provider.models.map((model) => ({
-										id: model.id,
-										...(model.name === undefined ? {} : { name: model.name }),
-										...(model.api === undefined ? {} : { api: model.api }),
-										...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
-										...(model.input === undefined ? {} : { input: model.input }),
-										...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
-										...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
-										...(model.cost === undefined ? {} : { cost: model.cost }),
-									})),
-								}),
-					},
-				]),
-			),
-		};
+		const config = mergeModelsConfig(currentConfig, providers);
 		await writeModelsConfig(modelsJsonPathFor(this.agentDir), config);
 
 		return this.enqueueWorkspaceChange(() => this.rebuildAfterModelsConfigChange());
@@ -1087,13 +1303,8 @@ export class DesktopAgentHost {
 		try {
 			const modelsPath = join(tempDir, "models.json");
 			const storedConfig = await readModelsConfig(modelsJsonPathFor(this.agentDir));
-			const apiKey = provider.apiKey ?? storedConfig.providers[provider.id]?.apiKey;
-			await writeFile(
-				modelsPath,
-				JSON.stringify({
-					providers: { [provider.id]: { ...provider, apiKey, id: undefined, models: [{ ...model }] } },
-				}),
-			);
+			const testConfig = mergeModelsConfig(storedConfig, [{ ...provider, models: [model] }]);
+			await writeFile(modelsPath, JSON.stringify(testConfig));
 			const runtime = await ModelRuntime.create({
 				authPath: join(this.agentDir, "auth.json"),
 				modelsPath,
@@ -1137,7 +1348,7 @@ export class DesktopAgentHost {
 	}
 
 	async toggleSkill(filePath: string, disable: boolean): Promise<DesktopSnapshot> {
-		if (this.session?.isStreaming) {
+		if (this.hasStreamingSession()) {
 			throw new Error("请等待当前智能体任务完成后，再修改技能。");
 		}
 		await toggleSkillFile(filePath, disable, {
@@ -1164,7 +1375,7 @@ export class DesktopAgentHost {
 	}
 
 	async installSkill(pkg: string, scope: "global" | "project"): Promise<DesktopSnapshot> {
-		if (this.session?.isStreaming) {
+		if (this.hasStreamingSession()) {
 			throw new Error("请等待当前智能体任务完成后，再安装技能。");
 		}
 		if (scope === "project" && !this.projectTrusted) {
@@ -1193,6 +1404,7 @@ export class DesktopAgentHost {
 	}
 
 	async updateSkill(pkg: string, scope: "global" | "project"): Promise<string> {
+		if (this.hasStreamingSession()) throw new Error("请等待当前智能体任务完成后，再更新技能。");
 		const skills = await this.listSkillsDetailed();
 		const install = skills
 			.map((skill) => skill.install)
@@ -1205,7 +1417,7 @@ export class DesktopAgentHost {
 	}
 
 	async installPlugin(source: string, local: boolean): Promise<DesktopSnapshot> {
-		if (this.session?.isStreaming) {
+		if (this.hasStreamingSession()) {
 			throw new Error("请等待当前智能体任务完成后，再安装插件。");
 		}
 		const settingsManager = this.requireSettingsManager();
@@ -1225,7 +1437,7 @@ export class DesktopAgentHost {
 	}
 
 	async removePlugin(source: string, local: boolean): Promise<DesktopSnapshot> {
-		if (this.session?.isStreaming) {
+		if (this.hasStreamingSession()) {
 			throw new Error("请等待当前智能体任务完成后，再移除插件。");
 		}
 		const settingsManager = this.requireSettingsManager();
@@ -1244,16 +1456,143 @@ export class DesktopAgentHost {
 		}
 	}
 
-	async getPluginPackages(): Promise<Array<{ source: string; scope: "user" | "project" }>> {
+	async togglePlugin(source: string, local: boolean, enabled: boolean): Promise<DesktopSnapshot> {
+		if (this.hasStreamingSession()) throw new Error("请等待当前智能体任务完成后，再修改插件。");
+		if (local && !this.projectTrusted) throw new Error("请先信任当前项目，再修改项目插件。");
 		const settingsManager = this.requireSettingsManager();
-		const result: Array<{ source: string; scope: "user" | "project" }> = [];
-		for (const pkg of settingsManager.getPackages()) {
-			result.push({ source: typeof pkg === "string" ? pkg : pkg.source, scope: "user" });
-		}
-		for (const pkg of settingsManager.getProjectSettings().packages ?? []) {
-			result.push({ source: typeof pkg === "string" ? pkg : pkg.source, scope: "project" });
-		}
-		return result;
+		const current = local ? (settingsManager.getProjectSettings().packages ?? []) : settingsManager.getPackages();
+		const next = current.map((entry): PackageSource => {
+			const entrySource = typeof entry === "string" ? entry : entry.source;
+			if (entrySource !== source) return entry;
+			return enabled ? source : { source, autoload: false, extensions: [], skills: [], prompts: [], themes: [] };
+		});
+		if (local) settingsManager.setProjectPackages(next);
+		else settingsManager.setPackages(next);
+		this.auditLog.write("plugin.toggle", "succeeded", { source, scope: local ? "project" : "user", enabled });
+		return this.reloadSessionResources();
+	}
+
+	async getPluginPackages(): Promise<DesktopPluginPackage[]> {
+		const settingsManager = this.requireSettingsManager();
+		const packageManager = new DefaultPackageManager({
+			cwd: this.workspacePath ?? this.agentDir,
+			agentDir: this.agentDir,
+			settingsManager,
+		});
+		const configured = packageManager.listConfiguredPackages();
+		const resourceLoader = this.session?.resourceLoader;
+		const extensions = resourceLoader?.getExtensions();
+		const skills = resourceLoader?.getSkills();
+		const prompts = resourceLoader?.getPrompts();
+		const themes = resourceLoader?.getThemes();
+		const settingsFor = (scope: "user" | "project"): PackageSource[] =>
+			scope === "user" ? settingsManager.getPackages() : (settingsManager.getProjectSettings().packages ?? []);
+		const isDisabled = (source: string, scope: "user" | "project"): boolean => {
+			const entry = settingsFor(scope).find(
+				(candidate) => (typeof candidate === "string" ? candidate : candidate.source) === source,
+			);
+			return (
+				typeof entry === "object" &&
+				entry.autoload === false &&
+				[entry.extensions, entry.skills, entry.prompts, entry.themes].every((patterns) => patterns?.length === 0)
+			);
+		};
+		const belongsTo = (
+			source: string | undefined,
+			path: string | undefined,
+			packageSource: string,
+			installedPath: string | undefined,
+		): boolean => {
+			if (source === packageSource) return true;
+			if (!path || !installedPath) return false;
+			const candidate = resolve(path);
+			const root = resolve(installedPath);
+			return candidate === root || candidate.startsWith(`${root}${sep}`);
+		};
+
+		return Promise.all(
+			configured.map(async (pkg): Promise<DesktopPluginPackage> => {
+				const installedPath = pkg.installedPath ?? packageManager.getInstalledPath(pkg.source, pkg.scope);
+				const extensionPaths =
+					extensions?.extensions
+						.filter((extension) =>
+							belongsTo(extension.sourceInfo.source, extension.path, pkg.source, installedPath),
+						)
+						.map((extension) => extension.path) ?? [];
+				const skillPaths =
+					skills?.skills
+						.filter((skill) => belongsTo(skill.sourceInfo.source, skill.filePath, pkg.source, installedPath))
+						.map((skill) => skill.filePath) ?? [];
+				const promptPaths =
+					prompts?.prompts
+						.filter((prompt) => belongsTo(prompt.sourceInfo.source, prompt.filePath, pkg.source, installedPath))
+						.map((prompt) => prompt.filePath) ?? [];
+				const themePaths =
+					themes?.themes
+						.filter((theme) => belongsTo(theme.sourceInfo?.source, theme.sourcePath, pkg.source, installedPath))
+						.map((theme) => theme.sourcePath)
+						.filter((path): path is string => path !== undefined) ?? [];
+				const diagnostics: DesktopPluginPackage["diagnostics"] = [];
+				for (const error of extensions?.errors ?? []) {
+					if (belongsTo(undefined, error.path, pkg.source, installedPath)) {
+						diagnostics.push({ type: "error", message: error.error, path: error.path });
+					}
+				}
+				for (const diagnostic of [
+					...(skills?.diagnostics ?? []),
+					...(prompts?.diagnostics ?? []),
+					...(themes?.diagnostics ?? []),
+				]) {
+					if (belongsTo(undefined, diagnostic.path, pkg.source, installedPath)) {
+						diagnostics.push({
+							type: diagnostic.type === "error" ? "error" : "warning",
+							message: diagnostic.message,
+							...(diagnostic.path ? { path: diagnostic.path } : {}),
+						});
+					}
+				}
+				let packageName: string | undefined;
+				let version: string | undefined;
+				if (installedPath) {
+					try {
+						const stats = await lstat(installedPath);
+						const packageRoot = stats.isDirectory() ? installedPath : dirname(installedPath);
+						const packageJson = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as Record<
+							string,
+							unknown
+						>;
+						if (typeof packageJson.name === "string") packageName = packageJson.name;
+						if (typeof packageJson.version === "string") version = packageJson.version;
+					} catch {
+						// A local single-file extension has no package metadata.
+					}
+				}
+				const enabled = !isDisabled(pkg.source, pkg.scope);
+				const resourceCount = extensionPaths.length + skillPaths.length + promptPaths.length + themePaths.length;
+				return {
+					source: pkg.source,
+					scope: pkg.scope,
+					enabled,
+					status: !enabled
+						? "disabled"
+						: diagnostics.some((entry) => entry.type === "error")
+							? "error"
+							: resourceCount > 0
+								? "loaded"
+								: "installed",
+					...(installedPath ? { installedPath } : {}),
+					...(packageName ? { packageName } : {}),
+					...(version ? { version } : {}),
+					resources: {
+						extensions: extensionPaths,
+						skills: skillPaths,
+						prompts: promptPaths,
+						themes: themePaths,
+					},
+					diagnostics,
+				};
+			}),
+		);
 	}
 
 	private async reloadSessionResources(): Promise<DesktopSnapshot> {
@@ -1277,7 +1616,7 @@ export class DesktopAgentHost {
 		const sessionFile = this.session?.sessionManager.getSessionFile();
 
 		this.modelRuntime = undefined;
-		await this.disposeSession();
+		this.disposeAllSessions();
 
 		const cwd = workspacePath ?? this.agentDir;
 		const directory = sessionDirectory ?? join(this.agentDir, "sessions", "default");
@@ -1323,6 +1662,35 @@ export class DesktopAgentHost {
 		await gitRemoveWorktree(workspacePath, path);
 	}
 
+	async readFullBashOutput(messageId: string): Promise<string> {
+		if (!this.session) throw new Error("没有活动会话。");
+		const indexText = messageId.split(":", 1)[0] ?? "";
+		if (!/^\d+$/u.test(indexText)) throw new Error("无效的终端输出标识。");
+		const message = this.session.messages[Number(indexText)] as unknown as Record<string, unknown> | undefined;
+		if (
+			!message ||
+			message.role !== "bashExecution" ||
+			message.truncated !== true ||
+			typeof message.fullOutputPath !== "string"
+		) {
+			throw new Error("该终端输出不可用。");
+		}
+		const candidate = resolve(message.fullOutputPath);
+		const temporaryDirectory = await realpath(tmpdir());
+		const resolvedOutput = await realpath(candidate);
+		if (
+			dirname(resolvedOutput) !== temporaryDirectory ||
+			!/^pi-(?:bash|output)-[a-zA-Z0-9_-]+\.log$/u.test(basename(resolvedOutput))
+		) {
+			throw new Error("终端完整输出路径无效。");
+		}
+		const stats = await lstat(resolvedOutput);
+		if (!stats.isFile() || stats.isSymbolicLink() || stats.size > 20 * 1024 * 1024) {
+			throw new Error("终端完整输出不是受支持的普通文件，或超过 20 MB。 ");
+		}
+		return readFile(resolvedOutput, "utf8");
+	}
+
 	requireWorkspacePath(): string {
 		if (!this.workspacePath) {
 			throw new Error("请先选择项目。");
@@ -1332,42 +1700,137 @@ export class DesktopAgentHost {
 
 	async dispose(): Promise<void> {
 		this.workspaceWatcher.stop();
-		await this.disposeSession();
+		this.disposeAllSessions();
 	}
 
-	private async disposeSession(): Promise<void> {
+	private applyManagedSessionState(managed: ManagedSession): void {
+		this.error = managed.error;
+		this.extensionStatuses = managed.extensionStatuses;
+		this.extensionWidgets = managed.extensionWidgets;
+		this.extensionEditorRequest = managed.extensionEditorRequest;
+		this.extensionNotice = managed.extensionNotice;
+		this.autoRetryState = managed.autoRetryState;
+		this.lastCompaction = managed.lastCompaction;
+		this.runningToolNames = managed.runningToolNames;
+	}
+
+	private syncActiveSessionState(): void {
+		if (!this.activeSessionId) return;
+		const managed = this.managedSessions.get(this.activeSessionId);
+		if (!managed) return;
+		managed.error = this.error;
+		managed.extensionStatuses = this.extensionStatuses;
+		managed.extensionWidgets = this.extensionWidgets;
+		managed.extensionEditorRequest = this.extensionEditorRequest;
+		managed.extensionNotice = this.extensionNotice;
+		managed.autoRetryState = this.autoRetryState;
+		managed.lastCompaction = this.lastCompaction;
+		managed.runningToolNames = this.runningToolNames;
+	}
+
+	private activateManagedSession(managed: ManagedSession): void {
+		this.syncActiveSessionState();
+		this.activeSessionId = managed.id;
+		managed.lastUsedAt = Date.now();
+		this.session = managed.session;
+		this.settingsManager = managed.settingsManager;
+		this.workspacePath = managed.workspacePath;
+		this.sessionDirectory = managed.sessionDirectory;
+		this.projectTrusted = managed.projectTrusted;
+		this.applyManagedSessionState(managed);
+		queueMicrotask(() => {
+			if (this.activeSessionId !== managed.id) return;
+			this.extensionDialogQueue.reemitForSession(managed.id);
+			managed.extensionCustomUi.reemit();
+		});
+		if (managed.workspacePath && managed.projectTrusted) this.workspaceWatcher.start(managed.workspacePath);
+		else this.workspaceWatcher.stop();
+	}
+
+	private deactivateActiveSession(): void {
+		this.syncActiveSessionState();
+		this.workspaceWatcher.stop();
+		this.activeSessionId = undefined;
+		this.session = undefined;
+		this.settingsManager = undefined;
+		this.workspacePath = undefined;
+		this.sessionDirectory = undefined;
+		this.projectTrusted = false;
+		this.error = undefined;
+		this.extensionStatuses = [];
+		this.extensionWidgets = [];
+		this.extensionEditorRequest = undefined;
+		this.extensionNotice = undefined;
+		this.autoRetryState = undefined;
+		this.lastCompaction = undefined;
+		this.runningToolNames = new Set<string>();
+	}
+
+	private findManagedSessionByPath(sessionPath: string): ManagedSession | undefined {
+		const resolvedPath = resolve(sessionPath);
+		return [...this.managedSessions.values()].find((managed) => {
+			const managedPath = managed.session.sessionManager.getSessionFile();
+			return managedPath !== undefined && resolve(managedPath) === resolvedPath;
+		});
+	}
+
+	private hasStreamingSession(): boolean {
+		return [...this.managedSessions.values()].some((managed) => managed.session.isStreaming);
+	}
+
+	private disposeManagedSession(managed: ManagedSession): void {
+		const wasActive = this.activeSessionId === managed.id;
+		if (wasActive) this.deactivateActiveSession();
+		this.approvalQueue.cancelGroup(managed.lifecycleId);
+		this.extensionDialogQueue.cancelSession(managed.id);
+		managed.extensionCustomUi.dispose();
+		managed.unsubscribe();
+		managed.session.dispose();
+		this.managedSessions.delete(managed.id);
+	}
+
+	private disposeWorkspaceSessions(workspacePath: string): void {
+		for (const managed of [...this.managedSessions.values()]) {
+			if (managed.workspacePath === workspacePath) this.disposeManagedSession(managed);
+		}
+	}
+
+	private disposeAllSessions(): void {
 		this.approvalQueue.cancelAll();
 		this.authenticationController?.abort();
 		this.authenticationController = undefined;
 		this.authenticationPromptQueue.cancelAll();
-		this.unsubscribeSession?.();
-		this.unsubscribeSession = undefined;
-		this.session?.dispose();
-		this.session = undefined;
-		this.workspacePath = undefined;
-		this.sessionDirectory = undefined;
-		this.projectTrusted = false;
+		this.deactivateActiveSession();
+		for (const managed of this.managedSessions.values()) {
+			this.extensionDialogQueue.cancelSession(managed.id);
+			managed.extensionCustomUi.dispose();
+			managed.unsubscribe();
+			managed.session.dispose();
+		}
+		this.managedSessions.clear();
 		this.sessions = [];
-		this.error = undefined;
 	}
 
 	private async refreshSessions(): Promise<void> {
-		if (!this.workspacePath || !this.sessionDirectory) {
-			this.sessions = [];
-			return;
-		}
 		try {
-			const infos = await SessionManager.list(this.workspacePath, this.sessionDirectory);
-			this.sessions = infos.map((info) => ({
-				path: info.path,
-				id: info.id,
-				...(info.name === undefined ? {} : { name: info.name }),
-				cwd: info.cwd,
-				created: info.created.getTime(),
-				modified: info.modified.getTime(),
-				messageCount: info.messageCount,
-				firstMessage: info.firstMessage,
-			}));
+			const byPath = new Map<string, DesktopSessionInfo>();
+			for (const info of await listIndexedSessions(this.agentDir)) {
+				if (resolve(info.cwd) === resolve(this.agentDir)) continue;
+				const managed = this.findManagedSessionByPath(info.path);
+				byPath.set(resolve(info.path), {
+					path: info.path,
+					id: info.id,
+					...(info.name === undefined ? {} : { name: info.name }),
+					cwd: info.cwd,
+					created: info.created.getTime(),
+					modified: info.modified.getTime(),
+					messageCount: info.messageCount,
+					firstMessage: info.firstMessage,
+					...(info.parentSessionPath ? { parentSessionPath: info.parentSessionPath } : {}),
+					...(managed ? { phase: toPhase(managed.session, managed.error) } : {}),
+				});
+			}
+			this.sessions = [...byPath.values()].sort((left, right) => right.modified - left.modified);
 		} catch {
 			this.sessions = [];
 		}
@@ -1427,7 +1890,9 @@ export class DesktopAgentHost {
 	}
 
 	private publish(): DesktopSnapshot {
+		this.syncActiveSessionState();
 		const snapshot = this.getSnapshot();
+		this.syncActiveSessionState();
 		for (const listener of this.listeners) listener(snapshot);
 		return snapshot;
 	}

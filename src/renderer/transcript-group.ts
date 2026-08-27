@@ -9,6 +9,7 @@ export type TranscriptRenderItem =
 			messages: DesktopTranscriptMessage[];
 			messageCount: number;
 			toolCallCount: number;
+			durationMs?: number;
 	  };
 
 export interface ConversationTurn {
@@ -46,24 +47,37 @@ function countToolCalls(blocks: DesktopTranscriptBlock[], messages: DesktopTrans
 	return count;
 }
 
-function toProcessItem(messages: DesktopTranscriptMessage[], blocks: DesktopTranscriptBlock[]): TranscriptRenderItem {
+function toProcessItem(
+	messages: DesktopTranscriptMessage[],
+	blocks: DesktopTranscriptBlock[],
+	turnStartedAt?: number,
+	answerTimestamp?: number,
+): TranscriptRenderItem {
+	const timestamps = messages.flatMap((message) => (message.timestamp === undefined ? [] : [message.timestamp]));
+	const completedAt = answerTimestamp ?? timestamps.at(-1);
+	const startedAt = turnStartedAt ?? timestamps[0];
+	const durationMs =
+		startedAt !== undefined && completedAt !== undefined ? Math.max(0, completedAt - startedAt) : undefined;
 	return {
 		type: "process",
 		blocks,
 		messages,
 		messageCount: Math.max(1, messages.length + (blocks.length > 0 ? 1 : 0)),
 		toolCallCount: countToolCalls(blocks, messages),
+		...(durationMs !== undefined ? { durationMs } : {}),
 	};
 }
 
 export function partitionTranscript(messages: DesktopTranscriptMessage[]): TranscriptRenderItem[] {
 	const items: TranscriptRenderItem[] = [];
 	let index = 0;
+	let turnStartedAt: number | undefined;
 	while (index < messages.length) {
 		const current = messages[index];
 		if (!current) break;
 		if (current.role === "user") {
 			items.push({ type: "user", message: current });
+			turnStartedAt = current.timestamp;
 			index += 1;
 			continue;
 		}
@@ -87,7 +101,7 @@ export function partitionTranscript(messages: DesktopTranscriptMessage[]): Trans
 		}
 
 		if (answerIndex < 0) {
-			if (slice.length > 0) items.push(toProcessItem(slice, []));
+			if (slice.length > 0) items.push(toProcessItem(slice, [], turnStartedAt));
 			continue;
 		}
 
@@ -96,7 +110,7 @@ export function partitionTranscript(messages: DesktopTranscriptMessage[]): Trans
 		const split = splitAssistantBlocks(answerMessage.blocks ?? []);
 		const processMessages = slice.filter((_, cursor) => cursor !== answerIndex);
 		if (split.process.length > 0 || processMessages.length > 0) {
-			items.push(toProcessItem(processMessages, split.process));
+			items.push(toProcessItem(processMessages, split.process, turnStartedAt, answerMessage.timestamp));
 		}
 		items.push({
 			type: "assistant",

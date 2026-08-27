@@ -13,8 +13,8 @@ export const ExtensionDialog = memo(function ExtensionDialog({ dialog, busy, onR
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: 对话框切换时重置输入
 	useEffect(() => {
-		setValue("");
-	}, [dialogId]);
+		setValue(dialog.kind === "editor" ? (dialog.prefill ?? "") : "");
+	}, [dialogId, dialog]);
 
 	function submit(response: string): void {
 		if (busy) return;
@@ -59,6 +59,22 @@ export const ExtensionDialog = memo(function ExtensionDialog({ dialog, busy, onR
 						onKeyDown={(event) => {
 							if (event.key === "Enter") submit(value);
 							if (event.key === "Escape") submit("");
+						}}
+					/>
+				) : null}
+				{dialog.kind === "editor" ? (
+					<textarea
+						// biome-ignore lint/a11y/noAutofocus: 对话框打开即聚焦编辑器
+						autoFocus
+						className="extension-dialog-editor"
+						value={value}
+						onChange={(event) => setValue(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === "Escape") submit("");
+							if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+								event.preventDefault();
+								submit(value);
+							}
 						}}
 					/>
 				) : null}

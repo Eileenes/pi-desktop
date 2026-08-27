@@ -605,6 +605,12 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 					</div>
 				</aside>
 				<section className="resource-config-detail">
+					{workspacePath && !projectTrusted ? (
+						<div className="resource-trust-banner">
+							<strong>项目尚未信任</strong>
+							<span>项目级技能不会被加载；请先在主窗口确认信任后再安装或启用。</span>
+						</div>
+					) : null}
 					{addMode ? (
 						<AddSkillPanel
 							workspacePath={workspacePath}

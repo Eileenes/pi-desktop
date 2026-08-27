@@ -1,8 +1,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Response as FetchResponse } from "undici-types";
+import type { DesktopProviderConfig, DesktopProviderModelConfig } from "../shared/contracts.ts";
 
 export interface ModelsJsonModel {
+	[key: string]: unknown;
 	id: string;
 	name?: string;
 	api?: string;
@@ -19,6 +21,7 @@ export interface ModelsJsonModel {
 }
 
 export interface ModelsJsonProvider {
+	[key: string]: unknown;
 	name?: string;
 	baseUrl?: string;
 	apiKey?: string;
@@ -28,7 +31,55 @@ export interface ModelsJsonProvider {
 }
 
 export interface ModelsJson {
+	[key: string]: unknown;
 	providers: Record<string, ModelsJsonProvider>;
+}
+
+function setOptional(target: Record<string, unknown>, key: string, value: unknown): void {
+	if (value === undefined) delete target[key];
+	else target[key] = value;
+}
+
+function mergeModel(current: ModelsJsonModel | undefined, edited: DesktopProviderModelConfig): ModelsJsonModel {
+	const next: ModelsJsonModel = { ...current, id: edited.id };
+	setOptional(next, "name", edited.name);
+	setOptional(next, "api", edited.api);
+	setOptional(next, "reasoning", edited.reasoning);
+	setOptional(next, "input", edited.input);
+	setOptional(next, "contextWindow", edited.contextWindow);
+	setOptional(next, "maxTokens", edited.maxTokens);
+	setOptional(next, "cost", edited.cost);
+	delete next.sourceId;
+	return next;
+}
+
+/**
+ * Applies the fields exposed by the desktop editor while retaining advanced
+ * provider/model options that the UI does not understand yet.
+ */
+export function mergeModelsConfig(current: ModelsJson, providers: DesktopProviderConfig[]): ModelsJson {
+	const mergedProviders = Object.fromEntries(
+		providers.map((edited): [string, ModelsJsonProvider] => {
+			const sourceId = edited.sourceId ?? edited.id;
+			const currentProvider = current.providers[sourceId] ?? current.providers[edited.id];
+			const next: ModelsJsonProvider = { ...currentProvider };
+			setOptional(next, "name", edited.name);
+			setOptional(next, "baseUrl", edited.baseUrl);
+			setOptional(next, "api", edited.api);
+			if (edited.apiKey !== undefined) next.apiKey = edited.apiKey;
+
+			if (edited.models !== undefined) {
+				const currentModels = new Map((currentProvider?.models ?? []).map((model) => [model.id, model] as const));
+				next.models = edited.models.map((model) =>
+					mergeModel(currentModels.get(model.sourceId ?? model.id) ?? currentModels.get(model.id), model),
+				);
+			}
+			delete next.sourceId;
+			return [edited.id, next];
+		}),
+	);
+
+	return { ...current, providers: mergedProviders };
 }
 
 function stripJsonComments(content: string): string {

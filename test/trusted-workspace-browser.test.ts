@@ -27,6 +27,38 @@ async function createWorkspace(): Promise<{ workspacePath: string; outsideFilePa
 	return { workspacePath, outsideFilePath };
 }
 
+function createStoredZip(name: string, content: string): Buffer {
+	const nameBuffer = Buffer.from(name);
+	const contentBuffer = Buffer.from(content);
+	const local = Buffer.alloc(30 + nameBuffer.length + contentBuffer.length);
+	local.writeUInt32LE(0x04034b50, 0);
+	local.writeUInt16LE(20, 4);
+	local.writeUInt16LE(0, 6);
+	local.writeUInt16LE(0, 8);
+	local.writeUInt32LE(contentBuffer.length, 18);
+	local.writeUInt32LE(contentBuffer.length, 22);
+	local.writeUInt16LE(nameBuffer.length, 26);
+	nameBuffer.copy(local, 30);
+	contentBuffer.copy(local, 30 + nameBuffer.length);
+	const central = Buffer.alloc(46 + nameBuffer.length);
+	central.writeUInt32LE(0x02014b50, 0);
+	central.writeUInt16LE(20, 4);
+	central.writeUInt16LE(20, 6);
+	central.writeUInt16LE(0, 8);
+	central.writeUInt32LE(contentBuffer.length, 20);
+	central.writeUInt32LE(contentBuffer.length, 24);
+	central.writeUInt16LE(nameBuffer.length, 28);
+	central.writeUInt32LE(0, 42);
+	nameBuffer.copy(central, 46);
+	const eocd = Buffer.alloc(22);
+	eocd.writeUInt32LE(0x06054b50, 0);
+	eocd.writeUInt16LE(1, 8);
+	eocd.writeUInt16LE(1, 10);
+	eocd.writeUInt32LE(central.length, 12);
+	eocd.writeUInt32LE(local.length, 16);
+	return Buffer.concat([local, central, eocd]);
+}
+
 describe("TrustedWorkspaceBrowser", () => {
 	it("lists regular project files while excluding protected directories and symlinks", async () => {
 		const { workspacePath, outsideFilePath } = await createWorkspace();
@@ -50,5 +82,39 @@ describe("TrustedWorkspaceBrowser", () => {
 		});
 		await expect(browser.read("../outside.txt")).rejects.toThrow("必须位于所选项目目录内");
 		await expect(browser.read(".git/config")).rejects.toThrow("受保护项目路径");
+	});
+
+	it("returns a PDF as an isolated data URL preview", async () => {
+		const { workspacePath } = await createWorkspace();
+		await writeFile(join(workspacePath, "sample.pdf"), Buffer.from("%PDF-1.4\n"));
+
+		await expect(new TrustedWorkspaceBrowser(workspacePath).read("sample.pdf")).resolves.toEqual({
+			path: "sample.pdf",
+			content: "",
+			pdfDataUrl: "data:application/pdf;base64,JVBERi0xLjQK",
+			binaryDataUrl: "data:application/pdf;base64,JVBERi0xLjQK",
+		});
+	});
+
+	it("renders DOCX paragraphs without executing document content", async () => {
+		const { workspacePath } = await createWorkspace();
+		const documentXml =
+			'<?xml version="1.0"?><w:document><w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p><w:p><w:r><w:t>World</w:t></w:r></w:p></w:body></w:document>';
+		await writeFile(join(workspacePath, "sample.docx"), createStoredZip("word/document.xml", documentXml));
+
+		await expect(new TrustedWorkspaceBrowser(workspacePath).read("sample.docx")).resolves.toMatchObject({
+			path: "sample.docx",
+			content: "",
+			docxHtml: '<article class="docx-preview"><p>Hello</p>\n<p>World</p></article>',
+		});
+	});
+
+	it("searches beyond the compact file listing limit", async () => {
+		const { workspacePath } = await createWorkspace();
+		await writeFile(join(workspacePath, "needle-not-in-first-page.txt"), "found\n");
+
+		await expect(new TrustedWorkspaceBrowser(workspacePath).search("needle")).resolves.toEqual([
+			{ path: "needle-not-in-first-page.txt", name: "needle-not-in-first-page.txt", type: "file", depth: 0 },
+		]);
 	});
 });

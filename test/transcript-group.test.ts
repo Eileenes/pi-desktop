@@ -71,6 +71,17 @@ describe("partitionTranscript", () => {
 		]);
 		expect(items.map((item) => item.type)).toEqual(["user", "process", "assistant"]);
 	});
+
+	it("reports the elapsed process duration from the user prompt to the answer", () => {
+		const items = partitionTranscript([
+			message({ id: "u1", role: "user", text: "run", timestamp: 1_000 }),
+			message({ id: "tool1", role: "tool", text: "out", toolName: "bash", timestamp: 2_000 }),
+			message({ id: "a1", role: "assistant", text: "done", timestamp: 3_500 }),
+		]);
+		const process = items[1];
+		if (process.type !== "process") throw new Error("expected process");
+		expect(process.durationMs).toBe(2_500);
+	});
 });
 
 describe("buildConversationTurns", () => {

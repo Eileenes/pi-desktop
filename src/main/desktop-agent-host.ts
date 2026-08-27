@@ -15,6 +15,9 @@ import type {
 	DesktopApiKeyProvider,
 	DesktopAuthenticationPrompt,
 	DesktopBranchPoint,
+	DesktopExtensionDialog,
+	DesktopExtensionDialogListener,
+	DesktopExtensionStatus,
 	DesktopGitChange,
 	DesktopGitWorktree,
 	DesktopModel,
@@ -32,6 +35,7 @@ import type {
 	DesktopSnapshot,
 	DesktopTranscriptBlock,
 	DesktopTranscriptMessage,
+	DesktopWorkspaceChange,
 	DesktopWorkspaceEntry,
 	DesktopWorkspaceFilePreview,
 } from "../shared/contracts.ts";
@@ -64,8 +68,46 @@ import {
 import { ToolApprovalQueue } from "./tool-approval-queue.ts";
 import { TrustedWorkspaceBrowser } from "./trusted-workspace-browser.ts";
 import { getWorkspaceKey, WorkspaceTrustStore } from "./workspace-trust-store.ts";
+import { WorkspaceWatcher } from "./workspace-watcher.ts";
 
 type SnapshotListener = (snapshot: DesktopSnapshot) => void;
+
+class ExtensionDialogQueue {
+	private pending = new Map<string, (value: string) => void>();
+	private sequence = 0;
+	private readonly emit: (dialog: DesktopExtensionDialog) => void;
+
+	constructor(emit: (dialog: DesktopExtensionDialog) => void) {
+		this.emit = emit;
+	}
+
+	request(
+		dialog:
+			| { kind: "select"; title: string; options: string[] }
+			| { kind: "confirm"; title: string; message: string }
+			| { kind: "input"; title: string; placeholder?: string },
+	): Promise<string> {
+		const id = `ext-dialog-${++this.sequence}`;
+		return new Promise((resolvePromise) => {
+			this.pending.set(id, resolvePromise);
+			this.emit({ ...dialog, id } as DesktopExtensionDialog);
+			setTimeout(() => {
+				if (this.pending.has(id)) {
+					this.pending.delete(id);
+					resolvePromise("");
+				}
+			}, 120_000);
+		});
+	}
+
+	resolve(id: string, value: string): boolean {
+		const resolver = this.pending.get(id);
+		if (!resolver) return false;
+		this.pending.delete(id);
+		resolver(value);
+		return true;
+	}
+}
 
 const DESKTOP_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
@@ -192,6 +234,16 @@ export class DesktopAgentHost {
 	private error: string | undefined;
 	private unsubscribeSession: (() => void) | undefined;
 	private readonly listeners = new Set<SnapshotListener>();
+	private readonly workspaceWatcher = new WorkspaceWatcher((changes) => {
+		for (const listener of this.workspaceChangeListeners) listener(changes);
+	});
+	private readonly workspaceChangeListeners = new Set<(changes: DesktopWorkspaceChange[]) => void>();
+	private readonly extensionDialogListeners = new Set<DesktopExtensionDialogListener>();
+	private extensionStatuses: DesktopExtensionStatus[] = [];
+	private extensionNotice: string | undefined;
+	private readonly extensionDialogQueue: ExtensionDialogQueue = new ExtensionDialogQueue((dialog) => {
+		for (const listener of this.extensionDialogListeners) listener(dialog);
+	});
 
 	constructor(agentDir: string) {
 		this.agentDir = agentDir;
@@ -223,6 +275,7 @@ export class DesktopAgentHost {
 			userHomeName: basename(homedir()),
 			pendingToolApprovals: this.approvalQueue.getPendingApprovals(),
 			pendingAuthenticationPrompts: this.authenticationPromptQueue.getPendingPrompts(),
+			...(this.extensionStatuses.length ? { extensionStatuses: this.extensionStatuses } : {}),
 			apiKeyProviders: this.getApiKeyProviders(),
 			availableModels: this.getAvailableModels(),
 			skills: this.getSkills(),
@@ -238,11 +291,13 @@ export class DesktopAgentHost {
 
 		const model = this.session.model;
 		snapshot.notice =
+			this.extensionNotice ??
 			this.error ??
 			this.authenticationNotice ??
 			(this.projectTrusted
 				? "项目资源已信任。每次工具调用仍需要单独确认。"
 				: "未选择项目时，智能体可以对话，但不会读取文件或调用项目工具。");
+		this.extensionNotice = undefined;
 		snapshot.session = {
 			id: this.session.sessionId,
 			...(this.session.sessionName === undefined ? {} : { name: this.session.sessionName }),
@@ -330,6 +385,20 @@ export class DesktopAgentHost {
 		return () => this.listeners.delete(listener);
 	}
 
+	respondToExtensionDialog(id: string, value: string): boolean {
+		return this.extensionDialogQueue.resolve(id, value);
+	}
+
+	onExtensionDialog(listener: DesktopExtensionDialogListener): () => void {
+		this.extensionDialogListeners.add(listener);
+		return () => this.extensionDialogListeners.delete(listener);
+	}
+
+	onWorkspaceChanged(listener: (changes: DesktopWorkspaceChange[]) => void): () => void {
+		this.workspaceChangeListeners.add(listener);
+		return () => this.workspaceChangeListeners.delete(listener);
+	}
+
 	async openWorkspace(cwd: string): Promise<DesktopSnapshot> {
 		if (this.providerSetupInProgress) {
 			throw new Error("请先完成当前模型服务商配置，再打开其他项目。");
@@ -415,12 +484,70 @@ export class DesktopAgentHost {
 			sessionManager,
 		});
 
+		const statuses = new Map<string, string>();
+		const partialUiContext = {
+			select: async (title: string, dialogOptions: string[]) => {
+				const value = await this.extensionDialogQueue.request({
+					kind: "select",
+					title,
+					options: dialogOptions ?? [],
+				});
+				return value || undefined;
+			},
+			confirm: async (title: string, message: string) => {
+				const value = await this.extensionDialogQueue.request({ kind: "confirm", title, message });
+				return value === "confirm";
+			},
+			input: async (title: string, placeholder?: string) => {
+				const value = await this.extensionDialogQueue.request({
+					kind: "input",
+					title,
+					...(placeholder ? { placeholder } : {}),
+				});
+				return value || undefined;
+			},
+			editor: async (title: string, prefill?: string) => {
+				const value = await this.extensionDialogQueue.request({
+					kind: "input",
+					title,
+					...(prefill ? { placeholder: prefill } : {}),
+				});
+				return value || undefined;
+			},
+			notify: (message: string, type?: "info" | "warning" | "error") => {
+				this.extensionNotice = `${type === "error" ? "错误" : type === "warning" ? "警告" : "提示"}：${message}`;
+				this.publish();
+			},
+			setStatus: (key: string, text: string | undefined) => {
+				if (text === undefined) statuses.delete(key);
+				else statuses.set(key, text);
+				this.extensionStatuses = [...statuses.entries()].map(([statusKey, statusText]) => ({
+					key: statusKey,
+					text: statusText,
+				}));
+				this.publish();
+			},
+		};
+		try {
+			created.session.extensionRunner.setUIContext(
+				partialUiContext as unknown as Parameters<typeof created.session.extensionRunner.setUIContext>[0],
+				"rpc",
+			);
+		} catch {
+			// UI 桥不可用时扩展交互静默降级。
+		}
+
 		this.workspacePath = options.workspacePath;
 		this.sessionDirectory = options.sessionDirectory;
 		this.projectTrusted = options.projectTrusted;
 		this.session = created.session;
 		this.error = created.modelFallbackMessage ? "没有可用模型。请在设置中配置模型服务商。" : undefined;
 		this.unsubscribeSession = this.session.subscribe(() => this.publish());
+		if (options.workspacePath && options.projectTrusted) {
+			this.workspaceWatcher.start(options.workspacePath);
+		} else {
+			this.workspaceWatcher.stop();
+		}
 		await this.refreshSessions();
 	}
 
@@ -1170,6 +1297,7 @@ export class DesktopAgentHost {
 	}
 
 	async dispose(): Promise<void> {
+		this.workspaceWatcher.stop();
 		await this.disposeSession();
 	}
 

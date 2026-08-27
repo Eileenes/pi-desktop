@@ -18,6 +18,7 @@ import type { Response as FetchResponse } from "undici-types";
 import {
 	type DesktopImageAttachment,
 	type DesktopSnapshot,
+	type DesktopWorkspaceChange,
 	isDesktopAddWorktreeInput,
 	isDesktopAuthenticationPromptResponseInput,
 	isDesktopDiscoverModelsInput,
@@ -87,6 +88,11 @@ function getHost(): DesktopAgentHost {
 function publishSnapshot(snapshot: DesktopSnapshot): void {
 	if (!mainWindow || mainWindow.isDestroyed()) return;
 	mainWindow.webContents.send("pi-desktop:snapshot", snapshot);
+}
+
+function sendWorkspaceChanges(changes: DesktopWorkspaceChange[]): void {
+	if (!mainWindow || mainWindow.isDestroyed()) return;
+	mainWindow.webContents.send("pi-desktop:workspace-changed", changes);
 }
 
 function assertMainWindowSender(event: IpcMainInvokeEvent): void {
@@ -349,6 +355,13 @@ function registerIpc(): void {
 	ipcMain.handle("pi-desktop:copy-last-answer", async (event): Promise<string> => {
 		assertMainWindowSender(event);
 		return getHost().copyLastAnswer();
+	});
+	ipcMain.handle("pi-desktop:respond-to-extension-dialog", (event, value: unknown): void => {
+		assertMainWindowSender(event);
+		if (!isExactRecord(value, ["id", "value"]) || typeof value.id !== "string" || typeof value.value !== "string") {
+			throw new Error("无效的扩展对话框响应。");
+		}
+		getHost().respondToExtensionDialog(value.id, value.value);
 	});
 	ipcMain.handle("pi-desktop:export-session", async (event): Promise<string> => {
 		assertMainWindowSender(event);
@@ -718,6 +731,12 @@ if (!hasSingleInstanceLock) {
 		registerIpc();
 		host = getHost();
 		host.subscribe(publishSnapshot);
+		host.onWorkspaceChanged(sendWorkspaceChanges);
+		host.onExtensionDialog((dialog) => {
+			if (mainWindow && !mainWindow.isDestroyed()) {
+				mainWindow.webContents.send("pi-desktop:extension-dialog", dialog);
+			}
+		});
 		mainWindow = createWindow();
 		createTray();
 

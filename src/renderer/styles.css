@@ -3231,6 +3231,107 @@ textarea:focus-visible {
 	max-width: 180px;
 }
 
+.extension-status-bar {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	max-width: min(34vw, 340px);
+	overflow: hidden;
+	padding: 0 4px;
+	color: var(--muted);
+	font-size: 11px;
+	white-space: nowrap;
+}
+
+.extension-status-bar span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.file-live-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 2px 8px;
+	border: 0;
+	border-radius: 999px;
+	color: var(--success);
+	background: var(--success-overlay);
+	font-size: 10px;
+	font-weight: 550;
+}
+
+.file-live-badge.is-static {
+	cursor: default;
+	color: var(--muted);
+	background: var(--overlay-5);
+}
+
+.file-live-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: currentColor;
+}
+
+.extension-dialog {
+	width: min(420px, 100%);
+}
+
+.extension-dialog > input {
+	width: 100%;
+	margin-top: 10px;
+	padding: 8px 10px;
+	border: 1px solid var(--border-subtle);
+	border-radius: 6px;
+	color: var(--text);
+	background: var(--surface-recessed);
+	font-size: 13px;
+}
+
+.extension-dialog-message {
+	margin: 8px 0 0;
+	color: var(--text-dim);
+	font-size: 12.5px;
+	line-height: 1.55;
+}
+
+.extension-dialog-options {
+	display: grid;
+	gap: 4px;
+	margin-top: 12px;
+	max-height: 260px;
+	overflow: auto;
+}
+
+.extension-dialog-option {
+	padding: 8px 10px;
+	border: 1px solid var(--border-subtle);
+	border-radius: 6px;
+	color: var(--text-dim);
+	background: transparent;
+	font-size: 12.5px;
+	text-align: left;
+}
+
+.extension-dialog-option:hover {
+	color: var(--text);
+	background: var(--hover);
+}
+
+.extension-dialog-option.is-active {
+	border-color: var(--accent-strong);
+	color: var(--text);
+	font-weight: 550;
+}
+
+.extension-dialog-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 14px;
+}
+
 .chat-project-context span {
 	overflow: hidden;
 	text-overflow: ellipsis;

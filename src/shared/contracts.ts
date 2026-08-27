@@ -196,6 +196,7 @@ export interface DesktopSnapshot {
 	workspacePath?: string;
 	projectTrusted: boolean;
 	userHomeName?: string;
+	extensionStatuses?: DesktopExtensionStatus[];
 	pendingToolApprovals: DesktopToolApproval[];
 	pendingAuthenticationPrompts: DesktopAuthenticationPrompt[];
 	apiKeyProviders: DesktopApiKeyProvider[];
@@ -347,6 +348,27 @@ export interface DesktopAuthenticationPromptResponseInput {
 	response: string;
 }
 
+export type DesktopExtensionDialog =
+	| { kind: "select"; id: string; title: string; options: string[] }
+	| { kind: "confirm"; id: string; title: string; message: string }
+	| { kind: "input"; id: string; title: string; placeholder?: string };
+
+export interface DesktopExtensionDialogResponseInput {
+	id: string;
+	value: string;
+}
+
+export type DesktopExtensionDialogListener = (dialog: DesktopExtensionDialog) => void;
+
+export interface DesktopExtensionStatus {
+	key: string;
+	text: string;
+}
+
+export interface DesktopWorkspaceChange {
+	path: string;
+}
+
 export interface DesktopWorkspaceFileInput {
 	path: string;
 }
@@ -384,6 +406,9 @@ export interface DesktopApi {
 	openWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<void>;
 	revealWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<void>;
 	saveWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<string>;
+	respondToExtensionDialog(input: DesktopExtensionDialogResponseInput): Promise<void>;
+	onExtensionDialog(listener: DesktopExtensionDialogListener): Unsubscribe;
+	onWorkspaceChanged(listener: (changes: DesktopWorkspaceChange[]) => void): Unsubscribe;
 	openExternalUrl(url: string): Promise<void>;
 	notifyComplete(): Promise<void>;
 	listGitChanges(): Promise<DesktopGitChange[]>;

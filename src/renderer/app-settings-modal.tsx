@@ -99,6 +99,15 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 					<span>{updateAvailable ? `v${versionText} → v${update?.latestVersion}` : `版本 ${versionText}`}</span>
 					{updateAvailable ? <span aria-hidden="true">↗</span> : null}
 				</button>
+				{updateAvailable ? (
+					<button
+						className="accent-button"
+						type="button"
+						onClick={() => void openExternalUrl(update?.releaseUrl ?? RELEASES_URL)}
+					>
+						获取更新
+					</button>
+				) : null}
 			</div>
 			<div className="app-settings-cards">
 				<section className="app-settings-card">

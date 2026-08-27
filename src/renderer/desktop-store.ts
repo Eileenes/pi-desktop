@@ -1,5 +1,6 @@
 import type {
 	DesktopAuthenticationPromptResponseInput,
+	DesktopExtensionDialogListener,
 	DesktopGitChange,
 	DesktopGitWorktree,
 	DesktopImageAttachment,
@@ -15,6 +16,7 @@ import type {
 	DesktopSnapshot,
 	DesktopSnapshotListener,
 	DesktopToolApprovalDecisionInput,
+	DesktopWorkspaceChange,
 	DesktopWorkspaceEntry,
 	DesktopWorkspaceFilePreview,
 	Unsubscribe,
@@ -166,6 +168,18 @@ export function executeBashCommand(command: string, excludeFromContext: boolean)
 
 export function copyLastAnswer(): Promise<string> {
 	return window.piDesktop.copyLastAnswer();
+}
+
+export function respondToExtensionDialog(id: string, value: string): Promise<void> {
+	return window.piDesktop.respondToExtensionDialog({ id, value });
+}
+
+export function onExtensionDialog(listener: DesktopExtensionDialogListener): Unsubscribe {
+	return window.piDesktop.onExtensionDialog(listener);
+}
+
+export function onWorkspaceChanged(listener: (changes: DesktopWorkspaceChange[]) => void): Unsubscribe {
+	return window.piDesktop.onWorkspaceChanged(listener);
 }
 
 export async function setModel(input: DesktopModelSelectionInput): Promise<DesktopSnapshot> {

@@ -17,6 +17,10 @@ import type {
 	DesktopOpenSessionInput,
 	DesktopOpenWorkspacePathInput,
 	DesktopDeleteSessionInput,
+	DesktopExtensionDialog,
+	DesktopExtensionDialogListener,
+	DesktopExtensionDialogResponseInput,
+	DesktopWorkspaceChange,
 	DesktopPluginSourceInput,
 	DesktopPromptInput,
 	DesktopProviderConfig,
@@ -108,6 +112,18 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:test-model", input) as Promise<DesktopModelTestResult>,
 	openCustomCss: () => ipcRenderer.invoke("pi-desktop:open-custom-css") as Promise<string>,
 	checkForUpdates: () => ipcRenderer.invoke("pi-desktop:check-for-updates") as Promise<DesktopUpdateInfo>,
+	respondToExtensionDialog: (input: DesktopExtensionDialogResponseInput) =>
+		ipcRenderer.invoke("pi-desktop:respond-to-extension-dialog", input) as Promise<void>,
+	onExtensionDialog(listener: DesktopExtensionDialogListener): Unsubscribe {
+		const subscription = (_event: IpcRendererEvent, dialog: DesktopExtensionDialog) => listener(dialog);
+		ipcRenderer.on("pi-desktop:extension-dialog", subscription);
+		return () => ipcRenderer.removeListener("pi-desktop:extension-dialog", subscription);
+	},
+	onWorkspaceChanged(listener: (changes: DesktopWorkspaceChange[]) => void): Unsubscribe {
+		const subscription = (_event: IpcRendererEvent, changes: DesktopWorkspaceChange[]) => listener(changes);
+		ipcRenderer.on("pi-desktop:workspace-changed", subscription);
+		return () => ipcRenderer.removeListener("pi-desktop:workspace-changed", subscription);
+	},
 	toggleSkill: (input: DesktopToggleSkillInput) =>
 		ipcRenderer.invoke("pi-desktop:toggle-skill", input) as Promise<DesktopSnapshot>,
 	installPlugin: (input: DesktopPluginSourceInput) =>

@@ -2,6 +2,7 @@ import type { CSSProperties, FormEvent } from "react";
 import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type {
 	DesktopAuthenticationPrompt,
+	DesktopExtensionDialog,
 	DesktopGitChange,
 	DesktopImageAttachment,
 	DesktopSessionInfo,
@@ -34,12 +35,15 @@ import {
 	navigateTree,
 	newSession,
 	notifyComplete,
+	onExtensionDialog,
+	onWorkspaceChanged,
 	openSession,
 	openWorkspaceFile,
 	openWorkspacePath,
 	readWorkspaceFile,
 	renameSession,
 	respondToAuthenticationPrompt,
+	respondToExtensionDialog,
 	revealWorkspaceFile,
 	saveWorkspaceFile,
 	setModel,
@@ -50,6 +54,7 @@ import {
 	submitPrompt,
 	subscribeDesktopSnapshot,
 } from "./desktop-store.ts";
+import { ExtensionDialog } from "./extension-dialog.tsx";
 import { type AppLanguage, translate } from "./i18n.ts";
 import { MarkdownBody } from "./markdown.tsx";
 import { ModelsConfigModal } from "./models-config-modal.tsx";
@@ -1118,6 +1123,8 @@ interface FileTab {
 function Inspector({
 	tabs,
 	activeTabPath,
+	changedHint,
+	onReloadChanged,
 	onClose,
 	onOpenFile,
 	onRevealFile,
@@ -1126,6 +1133,8 @@ function Inspector({
 }: {
 	tabs: FileTab[];
 	activeTabPath: string | undefined;
+	changedHint: boolean;
+	onReloadChanged: () => void;
 	onClose: () => void;
 	onOpenFile: (path: string) => void;
 	onRevealFile: (path: string) => void;
@@ -1190,6 +1199,22 @@ function Inspector({
 								<Icon name={fileIconFor(preview.path)} size={15} />
 							</span>
 							<strong title={preview.path}>{preview.path.split("/").at(-1) ?? preview.path}</strong>
+							{changedHint ? (
+								<button
+									className="file-live-badge"
+									type="button"
+									title="文件已在磁盘上更新，点击重新加载"
+									onClick={onReloadChanged}
+								>
+									<span className="file-live-dot" />
+									已更新
+								</button>
+							) : (
+								<span className="file-live-badge is-static">
+									<span className="file-live-dot" />
+									Live
+								</span>
+							)}
 							<small className="inspector-meta">
 								{isImage
 									? getFileKindLabel(preview.path)
@@ -1377,6 +1402,9 @@ export function App() {
 	const [renamingSession, setRenamingSession] = useState<{ path: string; name: string }>();
 	const [modelFilter, setModelFilter] = useState("");
 	const [projectRowMenuOpen, setProjectRowMenuOpen] = useState<string>();
+	const [extensionDialog, setExtensionDialog] = useState<DesktopExtensionDialog>();
+	const [respondingExtension, setRespondingExtension] = useState(false);
+	const [changedFileHint, setChangedFileHint] = useState(false);
 	const [trustDialogOpen, setTrustDialogOpen] = useState(false);
 	const [draft, setDraft] = useState("");
 	const [openingWorkspace, setOpeningWorkspace] = useState(false);
@@ -1720,6 +1748,20 @@ export function App() {
 			void refreshWorkspaceFiles();
 		}
 	}, [atQuery, refreshWorkspaceFiles, snapshot.projectTrusted, snapshot.workspacePath, workspaceEntries.length]);
+	useEffect(() => {
+		const unsubscribeDialog = onExtensionDialog((dialog) => setExtensionDialog(dialog));
+		const unsubscribeChanges = onWorkspaceChanged((changes) => {
+			if (!snapshot.projectTrusted || !snapshot.workspacePath) return;
+			void refreshWorkspaceFiles();
+			if (activeTabPath && changes.some((change) => change.path === activeTabPath)) {
+				setChangedFileHint(true);
+			}
+		});
+		return () => {
+			unsubscribeDialog();
+			unsubscribeChanges();
+		};
+	}, [activeTabPath, refreshWorkspaceFiles, snapshot.projectTrusted, snapshot.workspacePath]);
 
 	function handleChatScroll(): void {
 		if (scrollFrameRef.current !== undefined) return;
@@ -2303,6 +2345,19 @@ export function App() {
 			try {
 				const saved = await saveWorkspaceFile(path);
 				if (saved) pushNotice("success", `已保存到 ${saved}`);
+			} catch (error) {
+				pushNotice("error", error instanceof Error ? error.message : String(error));
+			}
+		},
+		[pushNotice],
+	);
+
+	const handleReloadActiveTab = useCallback(
+		async (path: string): Promise<void> => {
+			try {
+				const preview = await readWorkspaceFile(path);
+				setFileTabs((tabs) => tabs.map((tab) => (tab.path === path ? { ...tab, preview } : tab)));
+				pushNotice("success", "文件已重新加载。");
 			} catch (error) {
 				pushNotice("error", error instanceof Error ? error.message : String(error));
 			}
@@ -3415,6 +3470,18 @@ export function App() {
 					</div>
 					<div className="composer-footer">
 						<div className="composer-footer-left">
+							{snapshot.extensionStatuses?.length ? (
+								<div
+									className="extension-status-bar"
+									title={snapshot.extensionStatuses
+										.map((status) => `${status.key}: ${status.text}`)
+										.join("\n")}
+								>
+									{snapshot.extensionStatuses.slice(0, 3).map((status) => (
+										<span key={status.key}>{status.text}</span>
+									))}
+								</div>
+							) : null}
 							<div className="composer-control-group">
 								<button
 									className="composer-control-button chat-project-context"
@@ -3643,6 +3710,11 @@ export function App() {
 						</div>
 					</header>
 					<Inspector
+						changedHint={changedFileHint}
+						onReloadChanged={() => {
+							setChangedFileHint(false);
+							if (activeTabPath) void handleReloadActiveTab(activeTabPath);
+						}}
 						tabs={fileTabs}
 						activeTabPath={activeTabPath}
 						onClose={() => setInspectorOpen(false)}
@@ -3701,6 +3773,21 @@ export function App() {
 					error={actionError}
 					onCancel={() => setTrustDialogOpen(false)}
 					onConfirm={() => void confirmProjectTrust()}
+				/>
+			) : null}
+			{extensionDialog ? (
+				<ExtensionDialog
+					dialog={extensionDialog}
+					busy={respondingExtension}
+					onRespond={(id, value) => {
+						setRespondingExtension(true);
+						void respondToExtensionDialog(id, value)
+							.catch(() => {})
+							.finally(() => {
+								setRespondingExtension(false);
+								setExtensionDialog(undefined);
+							});
+					}}
 				/>
 			) : null}
 			{renamingSession ? (

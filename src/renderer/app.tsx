@@ -17,17 +17,19 @@ import type {
 import { formatSessionReference } from "../shared/session-reference.ts";
 import { flattenSessionTree } from "../shared/session-tree.ts";
 import { AppSettingsModal } from "./app-settings-modal.tsx";
+import { BranchNavigator } from "./branch-navigator.tsx";
 import { ConversationNavigator } from "./conversation-navigator.tsx";
 import {
 	abortSession,
 	attachDroppedImages,
 	autoNameSession,
+	cancelProviderSetup,
 	chooseImages,
-	chooseWorkspace,
 	compactSession,
 	copyLastAnswer,
 	decideToolApproval,
 	deleteSession,
+	discardImageAttachment,
 	executeBashCommand,
 	exportSession,
 	forkSession,
@@ -52,6 +54,7 @@ import {
 	renameSession,
 	respondToAuthenticationPrompt,
 	respondToExtensionDialog,
+	restoreImageAttachments,
 	revealWorkspaceFile,
 	saveFullBashOutput,
 	saveWorkspaceFile,
@@ -65,6 +68,7 @@ import {
 	submitPrompt,
 	subscribeDesktopSnapshot,
 } from "./desktop-store.ts";
+import { DirectoryPicker } from "./directory-picker.tsx";
 import { ExtensionCustomPanel, ExtensionWidgetStack } from "./extension-custom-panel.tsx";
 import { ExtensionDialog } from "./extension-dialog.tsx";
 import { type AppLanguage, translate } from "./i18n.ts";
@@ -714,7 +718,13 @@ const TranscriptBlock = memo(function TranscriptBlock({
 }) {
 	const [expanded, setExpanded] = useState(false);
 	if (block.type === "text") return <MarkdownBody text={block.text} />;
-	if (block.type === "image") return <span className="message-image-label">{block.label}</span>;
+	if (block.type === "image") {
+		return block.thumbnailDataUrl ? (
+			<img className="message-image-thumbnail" src={block.thumbnailDataUrl} alt={block.label} />
+		) : (
+			<span className="message-image-label">{block.label}</span>
+		);
+	}
 	if (block.type === "thinking") {
 		return (
 			<div className="message-block message-block-thinking">
@@ -777,10 +787,37 @@ function speedTone(tokensPerSecond: number): "is-fast" | "is-good" | "is-warm" |
 
 const COLLAPSE_HEIGHT = 220;
 
-const UserMessageBody = memo(function UserMessageBody({ text }: { text: string }) {
+const UserMessageBody = memo(function UserMessageBody({
+	text,
+	blocks,
+}: {
+	text: string;
+	blocks?: DesktopTranscriptBlock[];
+}) {
 	const [collapsed, setCollapsed] = useState(false);
 	const [overflowing, setOverflowing] = useState(false);
 	const bodyRef = useRef<HTMLDivElement>(null);
+	const imageBlocks =
+		blocks?.filter((block): block is Extract<DesktopTranscriptBlock, { type: "image" }> => block.type === "image") ??
+		[];
+	const imagePreview = imageBlocks.length ? (
+		<div className="message-user-images">
+			{imageBlocks.map((block, index) =>
+				block.thumbnailDataUrl ? (
+					<img
+						className="message-user-image"
+						key={`${block.label}:${index}`}
+						src={block.thumbnailDataUrl}
+						alt={block.label}
+					/>
+				) : (
+					<span className="message-image-label" key={`${block.label}:${index}`}>
+						{block.label}
+					</span>
+				),
+			)}
+		</div>
+	) : null;
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: 仅在消息文本变化时测量一次高度
 	useEffect(() => {
@@ -793,14 +830,16 @@ const UserMessageBody = memo(function UserMessageBody({ text }: { text: string }
 	if (!overflowing) {
 		return (
 			<div className="message-user-body" ref={bodyRef}>
-				<MarkdownBody text={text} />
+				{imagePreview}
+				{text ? <MarkdownBody text={text} /> : null}
 			</div>
 		);
 	}
 	return (
 		<div className="message-user-body-wrap">
 			<div className={`message-user-body ${collapsed ? "is-collapsed" : ""}`} ref={bodyRef}>
-				<MarkdownBody text={text} />
+				{imagePreview}
+				{text ? <MarkdownBody text={text} /> : null}
 			</div>
 			<button type="button" className="message-user-expand" onClick={() => setCollapsed((current) => !current)}>
 				{collapsed ? "展开全部" : "收起"}
@@ -896,7 +935,7 @@ const TranscriptMessage = memo(function TranscriptMessage({
 				) : isAssistant ? (
 					<MarkdownBody text={message.text || ""} />
 				) : (
-					<UserMessageBody text={message.text || "…"} />
+					<UserMessageBody text={message.text} blocks={message.blocks} />
 				)}
 			</div>
 			{!isAssistant && message.timestamp ? (
@@ -1608,9 +1647,13 @@ export function App() {
 		localStorage.getItem("pi-desktop-language") === "en" ? "en" : "zh-CN",
 	);
 	const t = (key: Parameters<typeof translate>[1]) => translate(language, key);
-	const [theme, setTheme] = useState<"dark" | "light" | "system">(() => {
+	const [theme, setTheme] = useState<"dark" | "light">(() => {
 		const stored = localStorage.getItem("pi-desktop-theme");
-		return stored === "light" || stored === "dark" ? stored : "system";
+		return stored === "light" || stored === "dark"
+			? stored
+			: window.matchMedia("(prefers-color-scheme: dark)").matches
+				? "dark"
+				: "light";
 	});
 	const [sidebarWidth, setSidebarWidth] = useState(
 		() => Number(localStorage.getItem("pi-desktop-sidebar-width")) || 260,
@@ -1643,6 +1686,7 @@ export function App() {
 	const [trustDialogOpen, setTrustDialogOpen] = useState(false);
 	const [draft, setDraft] = useState("");
 	const [openingWorkspace, setOpeningWorkspace] = useState(false);
+	const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
 	const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>(() => {
 		try {
 			const value: unknown = JSON.parse(localStorage.getItem("pi-desktop-recent-workspaces") ?? "[]");
@@ -1718,7 +1762,10 @@ export function App() {
 			return new Set();
 		}
 	});
-	const [composerMenu, setComposerMenu] = useState<"model" | "thinking" | "tools" | undefined>();
+	const [composerMenu, setComposerMenu] = useState<"project" | "model" | "thinking" | "tools" | undefined>();
+	const [historyMenuOpen, setHistoryMenuOpen] = useState(false);
+	const [historyActiveIndex, setHistoryActiveIndex] = useState(-1);
+	const [projectFilter, setProjectFilter] = useState("");
 	const [toolPreset, setToolPreset] = useState<"off" | "default" | "full">(
 		() => (localStorage.getItem("pi-desktop-tool-preset") as "off" | "default" | "full" | null) ?? "default",
 	);
@@ -1737,6 +1784,7 @@ export function App() {
 	const promptHistoryRef = useRef<string[]>([]);
 	const promptHistoryIndexRef = useRef(-1);
 	const draftBeforeHistoryRef = useRef("");
+	const hydratedDraftKeyRef = useRef<string | undefined>(undefined);
 	const extensionEditorRequestRef = useRef<number | undefined>(undefined);
 	const previousPhaseRef = useRef<DesktopSessionPhase | undefined>(undefined);
 	const previousSessionPhasesRef = useRef<Map<string, DesktopSessionPhase | undefined>>(new Map());
@@ -1895,12 +1943,37 @@ export function App() {
 		};
 	}, []);
 	useEffect(() => {
+		let active = true;
+		hydratedDraftKeyRef.current = undefined;
 		setDraft(localStorage.getItem(draftKey) ?? "");
 		setAttachments([]);
+		let ids: string[] = [];
+		try {
+			const stored: unknown = JSON.parse(localStorage.getItem(`${draftKey}:attachments`) ?? "[]");
+			if (Array.isArray(stored)) {
+				ids = stored.filter((id): id is string => typeof id === "string").slice(0, MAX_IMAGE_ATTACHMENTS);
+			}
+		} catch {
+			// Ignore malformed attachment draft metadata.
+		}
+		void restoreImageAttachments(ids)
+			.catch(() => [])
+			.then((restored) => {
+				if (!active) return;
+				setAttachments(restored);
+				hydratedDraftKeyRef.current = draftKey;
+			});
+		return () => {
+			active = false;
+		};
 	}, [draftKey]);
 	useEffect(() => {
+		if (hydratedDraftKeyRef.current !== draftKey) return;
 		localStorage.setItem(draftKey, draft);
-	}, [draft, draftKey]);
+		const ids = attachments.map((attachment) => attachment.id);
+		if (ids.length) localStorage.setItem(`${draftKey}:attachments`, JSON.stringify(ids));
+		else localStorage.removeItem(`${draftKey}:attachments`);
+	}, [attachments, draft, draftKey]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: resizePrompt 不捕获响应式状态。
 	useEffect(() => {
 		const request = snapshot.extensionEditorRequest;
@@ -1939,6 +2012,7 @@ export function App() {
 				trustDialogOpen ||
 				topPanel ||
 				composerMenu ||
+				historyMenuOpen ||
 				projectMenuOpen ||
 				sessionMenuOpen ||
 				deleteSessionPath ||
@@ -1966,6 +2040,7 @@ export function App() {
 			const shortcutState = shortcutStateRef.current;
 			setMenusDismissed(true);
 			setComposerMenu(undefined);
+			setHistoryMenuOpen(false);
 			setTopPanel(undefined);
 			setProjectMenuOpen(false);
 			setSessionMenuOpen(undefined);
@@ -1984,14 +2059,14 @@ export function App() {
 		document.documentElement.lang = language;
 	}, [language]);
 	useEffect(() => {
-		const media = window.matchMedia("(prefers-color-scheme: dark)");
+		if (!projectMenuOpen && composerMenu !== "project") setProjectFilter("");
+	}, [composerMenu, projectMenuOpen]);
+	useEffect(() => {
 		const apply = () => {
-			document.documentElement.dataset.theme = theme === "system" ? (media.matches ? "dark" : "light") : theme;
+			document.documentElement.dataset.theme = theme;
 		};
 		apply();
 		localStorage.setItem("pi-desktop-theme", theme);
-		media.addEventListener("change", apply);
-		return () => media.removeEventListener("change", apply);
 	}, [theme]);
 	useEffect(() => {
 		if (!projectMenuOpen && !sessionMenuOpen && !moreMenuOpen && !projectRowMenuOpen) return;
@@ -2011,10 +2086,15 @@ export function App() {
 			}
 			if (!target.closest(".session-row-wrap")) setSessionMenuOpen(undefined);
 			if (!target.closest(".top-bar-more-wrap")) setMoreMenuOpen(false);
+			if (!target.closest(".top-bar")) setTopPanel(undefined);
 		};
 		document.addEventListener("mousedown", close);
 		return () => document.removeEventListener("mousedown", close);
 	}, [projectMenuOpen, sessionMenuOpen, moreMenuOpen, projectRowMenuOpen]);
+	useEffect(() => {
+		if (historyActiveIndex < promptHistoryRef.current.length) return;
+		setHistoryActiveIndex(Math.max(0, promptHistoryRef.current.length - 1));
+	}, [historyActiveIndex]);
 	useEffect(() => {
 		if (!snapshot.workspacePath) return;
 		setRecentWorkspaces((current) => {
@@ -2263,10 +2343,17 @@ export function App() {
 
 	async function handleChooseWorkspace(): Promise<void> {
 		if (!canChooseWorkspace) return;
+		setActionError(undefined);
+		setDirectoryPickerOpen(true);
+	}
+
+	async function handleDirectorySelect(path: string): Promise<void> {
+		if (!path || openingWorkspace) return;
 		setOpeningWorkspace(true);
 		setActionError(undefined);
 		try {
-			await chooseWorkspace();
+			await openWorkspacePath(path);
+			setDirectoryPickerOpen(false);
 		} catch (error) {
 			setActionError(error instanceof Error ? error.message : String(error));
 		} finally {
@@ -2369,10 +2456,12 @@ export function App() {
 			-50,
 		);
 		promptHistoryIndexRef.current = -1;
+		setHistoryMenuOpen(false);
 	}
 
 	function clearSubmittedComposer(submissionSessionId: string | undefined, submissionDraftKey: string): void {
 		localStorage.removeItem(submissionDraftKey);
+		localStorage.removeItem(`${submissionDraftKey}:attachments`);
 		if (getDesktopSnapshot().session?.id !== submissionSessionId) return;
 		startTransition(() => {
 			setAttachments([]);
@@ -3436,6 +3525,10 @@ export function App() {
 	const macOSClassName = navigator.userAgent.includes("Macintosh") ? "is-macos" : "";
 
 	function renderProjectMenu() {
+		const query = projectFilter.trim().toLocaleLowerCase();
+		const visibleRecentWorkspaces = recentWorkspaces.filter(
+			(path) => !query || path.toLocaleLowerCase().includes(query),
+		);
 		return (
 			<div className="project-menu" role="menu">
 				<button
@@ -3453,7 +3546,16 @@ export function App() {
 				{recentWorkspaces.length > 0 ? (
 					<>
 						<div className="project-menu-label">{t("recentProjects")}</div>
-						{recentWorkspaces.map((path) => (
+						{recentWorkspaces.length > 7 ? (
+							<input
+								className="project-menu-filter"
+								value={projectFilter}
+								onChange={(event) => setProjectFilter(event.target.value)}
+								placeholder={language === "en" ? "Filter projects…" : "筛选项目…"}
+								aria-label={language === "en" ? "Filter projects" : "筛选项目"}
+							/>
+						) : null}
+						{visibleRecentWorkspaces.slice(0, query ? visibleRecentWorkspaces.length : 7).map((path) => (
 							<button
 								className="project-menu-item"
 								key={path}
@@ -3463,12 +3565,18 @@ export function App() {
 								onClick={() => {
 									setProjectMenuOpen(false);
 									void handleSwitchWorkspacePath(path);
+									setProjectFilter("");
 								}}
 							>
 								<Icon name="folder" size={14} />
 								<span>{formatWorkspace(path)}</span>
 							</button>
 						))}
+						{visibleRecentWorkspaces.length === 0 ? (
+							<p className="project-menu-empty">
+								{language === "en" ? "No matching projects." : "没有匹配的项目。"}
+							</p>
+						) : null}
 					</>
 				) : null}
 				{snapshot.workspacePath ? (
@@ -3650,44 +3758,15 @@ export function App() {
 							<Icon name="history" size={12} />
 							<span>{t("fullHistory")}</span>
 						</button>
-						<button
-							className={`native-toolbar-button ${topPanel === "branches" ? "is-active" : ""}`}
-							type="button"
-							disabled={!snapshot.branchPoints?.length || session?.phase === "running"}
-							onClick={() => setTopPanel((current) => (current === "branches" ? undefined : "branches"))}
-						>
-							<Icon name="branch" size={12} />
-							<span>{t("branches")}</span>
-						</button>
-						{topPanel === "branches" ? (
-							<div className="branch-popover" role="menu" aria-label="分支">
-								<div className="branch-popover-header">
-									<strong>会话分支树</strong>
-									<small>选择任一用户消息，后续对话将从该节点继续</small>
-								</div>
-								<div className="branch-list">
-									{snapshot.branchPoints?.map((point, index) => (
-										<button
-											key={point.entryId}
-											type="button"
-											onClick={() => void handleNavigateTree(point.entryId)}
-										>
-											<i aria-hidden="true" />
-											<span>
-												<small>用户消息 {index + 1}</small>
-												<strong>{point.text || "（空消息）"}</strong>
-											</span>
-											<em>从这里继续</em>
-										</button>
-									))}
-								</div>
-								<div className="branch-popover-footer">
-									<button type="button" onClick={() => void handleForkSession()}>
-										Fork 为独立会话
-									</button>
-								</div>
-							</div>
-						) : null}
+						<BranchNavigator
+							tree={snapshot.branchTree ?? []}
+							activeLeafId={snapshot.branchActiveLeafId}
+							hasSession={Boolean(session)}
+							onLeafChange={handleNavigateTree}
+							onFork={() => void handleForkSession()}
+							open={topPanel === "branches"}
+							onToggle={() => setTopPanel((current) => (current === "branches" ? undefined : "branches"))}
+						/>
 						<div className="top-bar-more-wrap">
 							<button
 								className={`native-toolbar-button app-topbar-more-trigger ${moreMenuOpen ? "is-active" : ""}`}
@@ -3802,7 +3881,7 @@ export function App() {
 					<output className="offline-banner">
 						<span className="offline-banner-dot" />
 						<span>
-							{isOnline ? "Pi Desktop 初始化失败，部分功能暂不可用。" : "当前处于离线状态，模型请求将无法发送。"}
+							{isOnline ? "Pi Agent 初始化失败，部分功能暂不可用。" : "当前处于离线状态，模型请求将无法发送。"}
 						</span>
 						<button type="button" onClick={() => void startDesktopStore()}>
 							重试
@@ -4148,27 +4227,31 @@ export function App() {
 						{attachments.length ? (
 							<div className="attachment-list">
 								{attachments.map((attachment) => (
-									<span className="attachment-chip" key={attachment.id}>
+									<div
+										className="attachment-chip"
+										key={attachment.id}
+										title={`${attachment.name} · ${formatAttachmentSize(attachment.size)}`}
+									>
 										{attachment.thumbnailDataUrl ? (
 											<img className="attachment-thumbnail" src={attachment.thumbnailDataUrl} alt="" />
 										) : (
-											<Icon name="image" size={13} />
+											<span className="attachment-placeholder">
+												<Icon name="image" size={20} />
+											</span>
 										)}
-										<span title={attachment.name}>
-											{attachment.name} · {formatAttachmentSize(attachment.size)}
-										</span>
 										<button
 											aria-label={`移除 ${attachment.name}`}
 											type="button"
-											onClick={() =>
+											onClick={() => {
 												setAttachments((current) =>
 													current.filter((currentAttachment) => currentAttachment.id !== attachment.id),
-												)
-											}
+												);
+												void discardImageAttachment(attachment.id).catch(() => undefined);
+											}}
 										>
 											<Icon name="close" size={12} />
 										</button>
-									</span>
+									</div>
 								))}
 							</div>
 						) : null}
@@ -4179,6 +4262,37 @@ export function App() {
 							</div>
 						) : null}
 						<div className="composer-editor">
+							{historyMenuOpen && promptHistoryRef.current.length > 0 ? (
+								<div className="prompt-history-menu" role="listbox" aria-label="输入历史">
+									<div className="prompt-history-header">
+										<Icon name="history" size={13} />
+										<span>输入历史</span>
+										<small>↑↓ 选择 · Enter 回填 · Esc 关闭</small>
+									</div>
+									<div className="prompt-history-list">
+										{promptHistoryRef.current.map((item, index) => (
+											<button
+												key={`${index}:${item}`}
+												type="button"
+												role="option"
+												aria-selected={index === historyActiveIndex}
+												className={index === historyActiveIndex ? "is-active" : ""}
+												onMouseDown={(event) => event.preventDefault()}
+												onMouseEnter={() => setHistoryActiveIndex(index)}
+												onClick={() => {
+													setDraft(item);
+													setHistoryMenuOpen(false);
+													promptHistoryIndexRef.current = index;
+													requestAnimationFrame(() => promptRef.current?.focus());
+												}}
+											>
+												<span>{index + 1}</span>
+												<strong>{item}</strong>
+											</button>
+										))}
+									</div>
+								</div>
+							) : null}
 							<textarea
 								ref={promptRef}
 								id="prompt"
@@ -4187,6 +4301,7 @@ export function App() {
 									setDraft(event.target.value);
 									setSuggestionIndex(0);
 									setMenusDismissed(false);
+									setHistoryMenuOpen(false);
 									promptHistoryIndexRef.current = -1;
 									resizePrompt(event.currentTarget);
 								}}
@@ -4205,6 +4320,33 @@ export function App() {
 									void handleDroppedImages(files);
 								}}
 								onKeyDown={(event) => {
+									if (historyMenuOpen) {
+										if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+											event.preventDefault();
+											const count = promptHistoryRef.current.length;
+											if (count > 0) {
+												setHistoryActiveIndex((current) =>
+													event.key === "ArrowUp" ? (current - 1 + count) % count : (current + 1) % count,
+												);
+											}
+											return;
+										}
+										if (event.key === "Enter" && !event.shiftKey) {
+											event.preventDefault();
+											const value = promptHistoryRef.current[historyActiveIndex];
+											if (value !== undefined) {
+												setDraft(value);
+												setHistoryMenuOpen(false);
+												promptHistoryIndexRef.current = historyActiveIndex;
+											}
+											return;
+										}
+										if (event.key === "Escape") {
+											event.preventDefault();
+											setHistoryMenuOpen(false);
+											return;
+										}
+									}
 									if (suggestionCount > 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
 										event.preventDefault();
 										setSuggestionIndex((current) =>
@@ -4222,8 +4364,8 @@ export function App() {
 									if (!draft && event.key === "ArrowUp" && promptHistoryRef.current.length > 0) {
 										event.preventDefault();
 										draftBeforeHistoryRef.current = draft;
-										promptHistoryIndexRef.current = promptHistoryRef.current.length - 1;
-										setDraft(promptHistoryRef.current[promptHistoryIndexRef.current] ?? "");
+										setHistoryActiveIndex(promptHistoryRef.current.length - 1);
+										setHistoryMenuOpen(true);
 										return;
 									}
 									if (
@@ -4310,21 +4452,83 @@ export function App() {
 									>
 										<Icon name="image" size={15} />
 									</button>
-									<button
-										className="composer-control-button chat-project-context"
-										type="button"
-										disabled={!canChooseWorkspace}
-										title={snapshot.workspacePath ?? "选择项目文件夹"}
-										onClick={() => void handleChooseWorkspace()}
-									>
-										<Icon name="folder" size={15} />
-										<span>
-											{snapshot.workspacePath
-												? (snapshot.workspacePath.split(/[\\/]/u).filter(Boolean).at(-1) ??
-													snapshot.workspacePath)
-												: "选择项目"}
-										</span>
-									</button>
+									<div className="composer-control-anchor">
+										<button
+											className="composer-control-button chat-project-context"
+											type="button"
+											disabled={!canChooseWorkspace}
+											title={snapshot.workspacePath ?? "选择项目文件夹"}
+											aria-expanded={composerMenu === "project"}
+											onClick={() => {
+												setProjectFilter("");
+												setComposerMenu((current) => (current === "project" ? undefined : "project"));
+											}}
+										>
+											<Icon name="folder" size={15} />
+											<span>
+												{snapshot.workspacePath
+													? (snapshot.workspacePath.split(/[\\/]/u).filter(Boolean).at(-1) ??
+														snapshot.workspacePath)
+													: "选择项目"}
+											</span>
+										</button>
+										{composerMenu === "project" ? (
+											<div className="composer-popover project-composer-popover" role="menu">
+												<button
+													type="button"
+													onClick={() => {
+														setComposerMenu(undefined);
+														void handleChooseWorkspace();
+													}}
+												>
+													<Icon name="folder" size={13} />
+													{t("chooseFolder")}
+												</button>
+												{recentWorkspaces.length > 7 ? (
+													<input
+														className="composer-popover-filter"
+														value={projectFilter}
+														onChange={(event) => setProjectFilter(event.target.value)}
+														placeholder={language === "en" ? "Filter projects…" : "筛选项目…"}
+														aria-label={language === "en" ? "Filter projects" : "筛选项目"}
+													/>
+												) : null}
+												{recentWorkspaces
+													.filter(
+														(path) =>
+															!projectFilter.trim() ||
+															path
+																.toLocaleLowerCase()
+																.includes(projectFilter.trim().toLocaleLowerCase()),
+													)
+													.slice(0, projectFilter.trim() ? undefined : 7)
+													.map((path) => (
+														<button
+															key={path}
+															type="button"
+															className={path === snapshot.workspacePath ? "is-current" : ""}
+															onClick={() => {
+																setComposerMenu(undefined);
+																setProjectFilter("");
+																void handleSwitchWorkspacePath(path);
+															}}
+														>
+															{path === snapshot.workspacePath ? "✓ " : ""}
+															{formatWorkspace(path)}
+														</button>
+													))}
+												{recentWorkspaces.length > 0 &&
+												recentWorkspaces.every(
+													(path) =>
+														!path.toLocaleLowerCase().includes(projectFilter.trim().toLocaleLowerCase()),
+												) ? (
+													<p className="composer-popover-empty">
+														{language === "en" ? "No matching projects." : "没有匹配的项目。"}
+													</p>
+												) : null}
+											</div>
+										) : null}
+									</div>
 									<div className="composer-control-anchor">
 										<button
 											className="composer-control-button"
@@ -4632,17 +4836,33 @@ export function App() {
 					</div>
 				</aside>
 			) : null}
+			{directoryPickerOpen ? (
+				<DirectoryPicker
+					busy={openingWorkspace}
+					onClose={() => {
+						if (!openingWorkspace) setDirectoryPickerOpen(false);
+					}}
+					onSelect={(path) => void handleDirectorySelect(path)}
+				/>
+			) : null}
 			{configModal === "models" ? (
 				<ModelsConfigModal
 					providers={snapshot.apiKeyProviders}
 					selectedProviderId={selectedProviderId}
 					providerSetupInProgress={snapshot.providerSetupInProgress}
 					settingUpProvider={settingUpProvider}
+					authenticationPrompt={authenticationPrompt}
+					authenticationNotice={snapshot.authenticationNotice}
+					authenticationUrl={snapshot.authenticationUrl}
+					authenticationUserCode={snapshot.authenticationUserCode}
+					authenticationExpiresAt={snapshot.authenticationExpiresAt}
+					authenticationResponse={authenticationResponse}
+					authenticationResolving={respondingToAuthenticationPromptId === authenticationPrompt?.id}
 					onChangeProvider={setSelectedProviderId}
-					onStartProviderSetup={(providerId, authType) => {
-						setConfigModal(undefined);
-						void beginProviderSetup(providerId, authType);
-					}}
+					onStartProviderSetup={(providerId, authType) => void beginProviderSetup(providerId, authType)}
+					onChangeAuthenticationResponse={setAuthenticationResponse}
+					onSubmitAuthentication={handleAuthenticationPrompt}
+					onCancelProviderSetup={() => void cancelProviderSetup()}
 					onClose={() => setConfigModal(undefined)}
 				/>
 			) : null}

@@ -1,5 +1,6 @@
 import type {
 	DesktopAuthenticationPromptResponseInput,
+	DesktopDirectoryListing,
 	DesktopExtensionUiListener,
 	DesktopGitChange,
 	DesktopGitWorktree,
@@ -11,6 +12,8 @@ import type {
 	DesktopProviderConfig,
 	DesktopProviderModelConfig,
 	DesktopProviderSetupInput,
+	DesktopRemoveWorktreeResult,
+	DesktopRestoreImageAttachmentsInput,
 	DesktopSkillInfo,
 	DesktopSkillSearchResult,
 	DesktopSkillUpdateResult,
@@ -89,6 +92,10 @@ export async function chooseWorkspace(): Promise<DesktopSnapshot> {
 	return next;
 }
 
+export function browseDirectories(path?: string): Promise<DesktopDirectoryListing> {
+	return window.piDesktop.browseDirectories(path);
+}
+
 export function selectDirectory(): Promise<string | undefined> {
 	return window.piDesktop.selectDirectory();
 }
@@ -99,6 +106,15 @@ export function chooseImages(): Promise<DesktopImageAttachment[]> {
 
 export function attachDroppedImages(files: File[]): Promise<DesktopImageAttachment[]> {
 	return window.piDesktop.attachDroppedImages(files);
+}
+
+export function restoreImageAttachments(ids: string[]): Promise<DesktopImageAttachment[]> {
+	const input: DesktopRestoreImageAttachmentsInput = { ids };
+	return window.piDesktop.restoreImageAttachments(input);
+}
+
+export function discardImageAttachment(id: string): Promise<void> {
+	return window.piDesktop.discardImageAttachment(id);
 }
 
 export function importDroppedFiles(files: File[], overwriteConflicts = false) {
@@ -241,6 +257,12 @@ export async function startProviderSetup(input: DesktopProviderSetupInput): Prom
 	return next;
 }
 
+export async function cancelProviderSetup(): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.cancelProviderSetup();
+	publish(next);
+	return next;
+}
+
 export async function respondToAuthenticationPrompt(
 	input: DesktopAuthenticationPromptResponseInput,
 ): Promise<DesktopSnapshot> {
@@ -293,6 +315,10 @@ export function listGitBranches(): Promise<{ local: string[]; remote: string[] }
 	return window.piDesktop.listGitBranches();
 }
 
+export function fetchGitBranches(): Promise<void> {
+	return window.piDesktop.fetchGitBranches();
+}
+
 export async function switchGitBranch(branch: string): Promise<DesktopSnapshot> {
 	const next = await window.piDesktop.switchGitBranch({ branch });
 	publish(next);
@@ -303,8 +329,8 @@ export function addGitWorktree(branch: string): Promise<DesktopGitWorktree> {
 	return window.piDesktop.addGitWorktree({ branch });
 }
 
-export function removeGitWorktree(path: string): Promise<void> {
-	return window.piDesktop.removeGitWorktree({ path });
+export function removeGitWorktree(path: string, force = false): Promise<DesktopRemoveWorktreeResult> {
+	return window.piDesktop.removeGitWorktree({ path, ...(force ? { force: true } : {}) });
 }
 
 export function setCloseQuits(closeQuits: boolean): Promise<void> {

@@ -31,7 +31,9 @@ function packageKey(pkg: Pick<DesktopPluginPackage, "scope" | "source">): string
 }
 
 function normalizeInstallSource(input: string): string {
-	return input.trim().replace(/^\$?\s*pi\s+install\s+/iu, "");
+	const value = input.trim();
+	const command = value.match(/^\$?\s*pi\s+install\s+(\S+)\s*$/iu);
+	return command?.[1] ?? value;
 }
 
 function resourceSummary(pkg: DesktopPluginPackage): string {

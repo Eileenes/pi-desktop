@@ -1,10 +1,17 @@
+import type { CSSProperties, ReactElement } from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DesktopApiKeyProvider, DesktopProviderConfig, DesktopProviderModelConfig } from "../shared/contracts.ts";
+import type {
+	DesktopApiKeyProvider,
+	DesktopAuthenticationPrompt,
+	DesktopProviderConfig,
+	DesktopProviderModelConfig,
+} from "../shared/contracts.ts";
 import {
 	discoverModels,
 	getModelsConfig,
 	logoutProvider,
 	lookupModelCatalog,
+	openExternalUrl,
 	saveModelsConfig,
 	testModel,
 } from "./desktop-store.ts";
@@ -15,8 +22,18 @@ interface ModelsConfigModalProps {
 	selectedProviderId: string;
 	providerSetupInProgress: boolean;
 	settingUpProvider: boolean;
+	authenticationPrompt?: DesktopAuthenticationPrompt;
+	authenticationNotice?: string;
+	authenticationUrl?: string;
+	authenticationUserCode?: string;
+	authenticationExpiresAt?: number;
+	authenticationResponse: string;
+	authenticationResolving: boolean;
 	onChangeProvider: (providerId: string) => void;
 	onStartProviderSetup: (providerId: string, authType: "api_key" | "oauth") => void;
+	onChangeAuthenticationResponse: (response: string) => void;
+	onSubmitAuthentication: (id: string, response: string) => Promise<void>;
+	onCancelProviderSetup: () => void;
 	onClose: () => void;
 }
 
@@ -34,15 +51,65 @@ type DiscoveryState =
 const API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"];
 const COST_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const THINKING_LEVEL_COLORS: Record<(typeof THINKING_LEVELS)[number], string> = {
+	off: "var(--text-dim)",
+	minimal: "#6b7280",
+	low: "var(--accent)",
+	medium: "#a78bfa",
+	high: "#f472b6",
+	xhigh: "#fb923c",
+	max: "var(--danger)",
+};
+
+const PROVIDER_MARKS: Record<string, { label: string; color: string }> = {
+	anthropic: { label: "A", color: "#d97757" },
+	openai: { label: "O", color: "#10a37f" },
+	"openai-codex": { label: "O", color: "#10a37f" },
+	google: { label: "G", color: "#4285f4" },
+	"google-vertex": { label: "G", color: "#4285f4" },
+	deepseek: { label: "D", color: "#4b7bec" },
+	groq: { label: "G", color: "#f55036" },
+	mistral: { label: "M", color: "#f59e0b" },
+	moonshotai: { label: "K", color: "#7c3aed" },
+	minimax: { label: "M", color: "#ef4444" },
+	openrouter: { label: "R", color: "#8b5cf6" },
+	xai: { label: "X", color: "#111827" },
+	qwen: { label: "Q", color: "#2563eb" },
+	zhipu: { label: "Z", color: "#2563eb" },
+	cohere: { label: "C", color: "#d946ef" },
+	perplexity: { label: "P", color: "#20b8cd" },
+	together: { label: "T", color: "#f97316" },
+	grok: { label: "G", color: "#111827" },
+};
+
+function ProviderMark({ providerId, name }: { providerId: string; name: string }): ReactElement {
+	const mark = PROVIDER_MARKS[providerId.toLocaleLowerCase()] ?? {
+		label: name.trim().slice(0, 1).toUpperCase() || "?",
+		color: "var(--text)",
+	};
+	return (
+		<span className="models-provider-mark" style={{ "--provider-color": mark.color } as CSSProperties}>
+			{mark.label}
+		</span>
+	);
+}
 
 function hasDeepSeekThinkingCompat(model: DesktopProviderModelConfig): boolean {
 	return model.compat?.thinkingFormat === "deepseek";
 }
 
+const DEEPSEEK_COMPAT = {
+	thinkingFormat: "deepseek",
+	requiresReasoningContentOnAssistantMessages: true,
+} as const;
+
 function setDeepSeekThinkingCompat(model: DesktopProviderModelConfig, enabled: boolean): DesktopProviderModelConfig {
 	const compat = { ...(model.compat ?? {}) };
-	if (enabled) compat.thinkingFormat = "deepseek";
-	else delete compat.thinkingFormat;
+	if (enabled) Object.assign(compat, DEEPSEEK_COMPAT);
+	else {
+		delete compat.thinkingFormat;
+		delete compat.requiresReasoningContentOnAssistantMessages;
+	}
 	return { ...model, compat: Object.keys(compat).length ? compat : undefined };
 }
 
@@ -53,28 +120,107 @@ function ThinkingLevelMapEditor({
 	value?: Record<string, string | null>;
 	onChange: (value: Record<string, string | null> | undefined) => void;
 }) {
-	const rows = THINKING_LEVELS.map((level) => [level, value?.[level] ?? ""] as const);
+	function setLevel(level: string, entry: string | null | "omit"): void {
+		const next = { ...(value ?? {}) };
+		if (entry === "omit") delete next[level];
+		else next[level] = entry;
+		onChange(Object.keys(next).length ? next : undefined);
+	}
+
 	return (
 		<div className="models-thinking-map">
-			{rows.map(([level, mapped]) => (
-				<label key={level}>
-					<span>{level}</span>
-					<input
-						value={mapped}
-						placeholder="default"
-						onChange={(event) => {
-							const next = { ...(value ?? {}) };
-							const nextValue = event.target.value.trim();
-							if (nextValue) next[level] = nextValue;
-							else delete next[level];
-							onChange(Object.keys(next).length ? next : undefined);
-						}}
-					/>
-				</label>
-			))}
+			{THINKING_LEVELS.map((level) => {
+				const hasValue = value !== undefined && Object.hasOwn(value, level);
+				const raw = value?.[level];
+				const state = !hasValue ? "omit" : raw === null ? "null" : "string";
+				const customValue = typeof raw === "string" ? raw : "";
+				return (
+					<label key={level}>
+						<span className={`models-thinking-level-name is-${state}`}>
+							<span
+								className="models-thinking-level-dot"
+								style={{ "--thinking-color": THINKING_LEVEL_COLORS[level] } as CSSProperties}
+							/>
+							{level}
+						</span>
+						<span className="models-thinking-level-presets">
+							<button
+								type="button"
+								className={state === "omit" ? "is-active" : ""}
+								onClick={() => setLevel(level, "omit")}
+							>
+								默认
+							</button>
+							<button
+								type="button"
+								className={state === "null" ? "is-disabled" : ""}
+								onClick={() => setLevel(level, null)}
+							>
+								禁用
+							</button>
+						</span>
+						<span className={`models-thinking-custom ${state === "string" ? "is-active" : ""}`}>
+							<button type="button" onClick={() => setLevel(level, customValue || level)}>
+								自定义
+							</button>
+							<input
+								value={customValue}
+								placeholder={level}
+								maxLength={10}
+								onFocus={() => {
+									if (state !== "string") setLevel(level, customValue || level);
+								}}
+								onChange={(event) => setLevel(level, event.target.value)}
+							/>
+						</span>
+					</label>
+				);
+			})}
 		</div>
 	);
 }
+
+const AuthenticationDeviceCode = memo(function AuthenticationDeviceCode({
+	code,
+	expiresAt,
+}: {
+	code: string;
+	expiresAt?: number;
+}) {
+	const [now, setNow] = useState(() => Date.now());
+	const [copied, setCopied] = useState(false);
+	useEffect(() => {
+		if (!expiresAt) return;
+		const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+		return () => window.clearInterval(timer);
+	}, [expiresAt]);
+	const remainingSeconds = expiresAt === undefined ? undefined : Math.max(0, Math.ceil((expiresAt - now) / 1000));
+	const copyCode = async (): Promise<void> => {
+		try {
+			await navigator.clipboard.writeText(code);
+			setCopied(true);
+			window.setTimeout(() => setCopied(false), 1_500);
+		} catch {
+			setCopied(false);
+		}
+	};
+	return (
+		<div className="models-auth-device-code">
+			<div>
+				<span>设备验证码</span>
+				<strong>{code}</strong>
+			</div>
+			<button type="button" className="models-auth-copy" onClick={() => void copyCode()}>
+				{copied ? "已复制" : "复制"}
+			</button>
+			{remainingSeconds !== undefined ? (
+				<small className={remainingSeconds === 0 ? "is-expired" : ""}>
+					{remainingSeconds === 0 ? "验证码已过期，请重新登录" : `有效期 ${Math.ceil(remainingSeconds / 60)} 分钟`}
+				</small>
+			) : null}
+		</div>
+	);
+});
 
 function emptyCost(): NonNullable<DesktopProviderModelConfig["cost"]> {
 	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -85,8 +231,18 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	selectedProviderId,
 	providerSetupInProgress,
 	settingUpProvider,
+	authenticationPrompt,
+	authenticationNotice,
+	authenticationUrl,
+	authenticationUserCode,
+	authenticationExpiresAt,
+	authenticationResponse,
+	authenticationResolving,
 	onChangeProvider,
 	onStartProviderSetup,
+	onChangeAuthenticationResponse,
+	onSubmitAuthentication,
+	onCancelProviderSetup,
 	onClose,
 }: ModelsConfigModalProps) {
 	const [config, setConfig] = useState<DesktopProviderConfig[]>([]);
@@ -113,6 +269,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 		state: "idle",
 	});
 	const [catalogUndo, setCatalogUndo] = useState<DesktopProviderModelConfig>();
+	const [showProviderApiKey, setShowProviderApiKey] = useState(false);
 	const hasChanges = JSON.stringify(config) !== JSON.stringify(savedConfig);
 	const requestClose = useCallback(() => {
 		if (hasChanges) setConfirmDiscard(true);
@@ -150,6 +307,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	useEffect(() => {
 		setCatalogUndo(undefined);
 		setCatalogFill({ state: "idle" });
+		setShowProviderApiKey(false);
 	}, [selectionIdentity]);
 
 	useEffect(() => {
@@ -157,7 +315,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	}, [providerPickerOpen]);
 
 	const managedProvider =
-		selection?.type === "managed" ? providers.find((provider) => provider.id === selection.providerId) : undefined;
+		selection?.type === "managed"
+			? providers.find((provider) => provider.id === selection.providerId && provider.configured)
+			: undefined;
 	const selectedProvider =
 		selection && selection.type !== "managed"
 			? config.find((provider) => provider.id === selection.providerId)
@@ -251,6 +411,21 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 		const query = discoveryQuery.trim().toLocaleLowerCase();
 		return discovery.models.filter((id) => !query || id.toLocaleLowerCase().includes(query)).slice(0, 300);
 	}, [discovery, discoveryQuery]);
+	const selectableShownDiscovered = useMemo(
+		() => shownDiscovered.filter((id) => !(selectedProvider?.models?.some((model) => model.id === id) ?? false)),
+		[shownDiscovered, selectedProvider?.models],
+	);
+	const allShownDiscoveredSelected =
+		selectableShownDiscovered.length > 0 && selectableShownDiscovered.every((id) => selectedDiscovered.includes(id));
+
+	function toggleShownDiscovered(): void {
+		const shown = new Set(selectableShownDiscovered);
+		setSelectedDiscovered((current) =>
+			allShownDiscoveredSelected
+				? current.filter((id) => !shown.has(id))
+				: [...new Set([...current, ...selectableShownDiscovered])],
+		);
+	}
 
 	function addDiscoveredModels(): void {
 		if (!selectedProvider || selectedDiscovered.length === 0) return;
@@ -344,7 +519,12 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	}
 
 	return (
-		<Modal title="模型" subtitle="~/.pi/agent/models.json" className="models-modal" onClose={requestClose}>
+		<Modal
+			title="模型"
+			subtitle="~/.pi/agent/models.json"
+			className="models-modal"
+			onClose={providerSetupInProgress || settingUpProvider ? () => undefined : requestClose}
+		>
 			<div className="models-layout">
 				<aside className="models-tree">
 					<div className="models-tree-scroll">
@@ -355,11 +535,11 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								type="button"
 								onClick={() => {
 									onChangeProvider(provider.id);
-									if (provider.configured) setSelection({ type: "managed", providerId: provider.id });
-									else requestProviderSetup(provider);
+									setSelection({ type: "managed", providerId: provider.id });
+									if (!provider.configured) requestProviderSetup(provider);
 								}}
 							>
-								<span className="models-provider-mark">{provider.name.slice(0, 1).toUpperCase()}</span>
+								<ProviderMark providerId={provider.id} name={provider.name} />
 								<span>{provider.name}</span>
 								{provider.configured ? <span className="models-connected-dot" title="已连接" /> : null}
 							</button>
@@ -375,9 +555,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 										resetDiscovery();
 									}}
 								>
-									<span className="models-provider-mark">
-										{(provider.name ?? provider.id).slice(0, 1).toUpperCase()}
-									</span>
+									<ProviderMark providerId={provider.id} name={provider.name ?? provider.id} />
 									<span>{provider.name ?? provider.id}</span>
 								</button>
 								{provider.models?.map((model, index) => (
@@ -421,18 +599,42 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							<p className="models-managed-description">
 								该服务商已连接。断开后会移除本地保存的认证信息，不会删除模型配置。
 							</p>
-							<button
-								className="danger-button"
-								type="button"
-								onClick={() => {
-									setSaveError(undefined);
-									void logoutProvider(managedProvider.id).catch((error: unknown) =>
-										setSaveError(error instanceof Error ? error.message : String(error)),
-									);
-								}}
-							>
-								断开连接
-							</button>
+							<div className="models-managed-actions">
+								{managedProvider.supportsApiKey && managedProvider.supportsOAuth ? (
+									<button
+										className="outline-button"
+										type="button"
+										onClick={() => setAuthProvider(managedProvider)}
+									>
+										切换认证方式
+									</button>
+								) : null}
+								<button
+									className="outline-button"
+									type="button"
+									disabled={providerSetupInProgress || settingUpProvider}
+									onClick={() =>
+										onStartProviderSetup(
+											managedProvider.id,
+											managedProvider.credentialType === "oauth" ? "oauth" : "api_key",
+										)
+									}
+								>
+									{managedProvider.credentialType === "oauth" ? "重新登录" : "更新 API Key"}
+								</button>
+								<button
+									className="danger-button"
+									type="button"
+									onClick={() => {
+										setSaveError(undefined);
+										void logoutProvider(managedProvider.id).catch((error: unknown) =>
+											setSaveError(error instanceof Error ? error.message : String(error)),
+										);
+									}}
+								>
+									断开连接
+								</button>
+							</div>
 						</div>
 					) : selectedProvider && selection?.type === "provider" ? (
 						<div className="models-detail-form">
@@ -480,20 +682,31 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</label>
 							<label>
 								API Key
-								<input
-									className="mono"
-									type="password"
-									value={selectedProvider.apiKey ?? ""}
-									placeholder="留空以保留已保存的密钥"
-									autoComplete="new-password"
-									onChange={(event) => {
-										updateProvider(selectedProvider.id, (provider) => ({
-											...provider,
-											apiKey: event.target.value || undefined,
-										}));
-										resetDiscovery();
-									}}
-								/>
+								<div className="models-secret-input">
+									<input
+										className="mono"
+										type={showProviderApiKey ? "text" : "password"}
+										value={selectedProvider.apiKey ?? ""}
+										placeholder="留空以保留已保存的密钥"
+										autoComplete="new-password"
+										onChange={(event) => {
+											updateProvider(selectedProvider.id, (provider) => ({
+												...provider,
+												apiKey: event.target.value || undefined,
+											}));
+											resetDiscovery();
+										}}
+									/>
+									<button
+										className="models-secret-toggle"
+										type="button"
+										aria-label={showProviderApiKey ? "隐藏 API Key" : "显示 API Key"}
+										title={showProviderApiKey ? "隐藏 API Key" : "显示 API Key"}
+										onClick={() => setShowProviderApiKey((visible) => !visible)}
+									>
+										{showProviderApiKey ? "隐藏" : "显示"}
+									</button>
+								</div>
 								<small>已保存的密钥不会显示。输入新值会替换它；留空会保留原值。</small>
 							</label>
 							<label>
@@ -532,6 +745,15 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 											onChange={(event) => setDiscoveryQuery(event.target.value)}
 										/>
 										<div className="discovery-results">
+											<label className="discovery-select-all">
+												<input
+													type="checkbox"
+													checked={allShownDiscoveredSelected}
+													disabled={selectableShownDiscovered.length === 0}
+													onChange={toggleShownDiscovered}
+												/>
+												全选当前结果
+											</label>
 											{shownDiscovered.map((id) => {
 												const added = selectedProvider.models?.some((model) => model.id === id) ?? false;
 												return (
@@ -660,7 +882,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 												updateModel((model) => setDeepSeekThinkingCompat(model, event.target.checked))
 											}
 										/>
-										DeepSeek thinking
+										DeepSeek thinking compat
 									</label>
 								) : null}
 								<button
@@ -776,6 +998,89 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 					)}
 				</section>
 			</div>
+			{providerSetupInProgress || settingUpProvider ? (
+				<div className="models-auth-overlay">
+					<div className="models-auth-panel" role="dialog" aria-modal="true" aria-label="连接模型服务商">
+						<div className="models-auth-heading">
+							<strong>连接模型服务商</strong>
+							<span>完成认证后会自动刷新模型列表。</span>
+						</div>
+						{authenticationPrompt ? (
+							<form
+								className="models-auth-prompt"
+								onSubmit={(event) => {
+									event.preventDefault();
+									void onSubmitAuthentication(authenticationPrompt.id, authenticationResponse);
+								}}
+							>
+								{authenticationNotice ? <p>{authenticationNotice}</p> : null}
+								{authenticationUserCode ? (
+									<AuthenticationDeviceCode
+										code={authenticationUserCode}
+										expiresAt={authenticationExpiresAt}
+									/>
+								) : null}
+								{authenticationUrl ? (
+									<button
+										className="models-auth-link"
+										type="button"
+										onClick={() => void openExternalUrl(authenticationUrl)}
+									>
+										打开认证页面 ↗
+									</button>
+								) : null}
+								<p>{authenticationPrompt.message}</p>
+								{authenticationPrompt.type === "select" ? (
+									<select
+										disabled={authenticationResolving}
+										value={authenticationResponse}
+										onChange={(event) => onChangeAuthenticationResponse(event.target.value)}
+									>
+										{authenticationPrompt.options?.map((option) => (
+											<option key={option.id} value={option.id}>
+												{option.label}
+											</option>
+										))}
+									</select>
+								) : (
+									<input
+										disabled={authenticationResolving}
+										placeholder={authenticationPrompt.placeholder}
+										type={authenticationPrompt.type === "secret" ? "password" : "text"}
+										value={authenticationResponse}
+										onChange={(event) => onChangeAuthenticationResponse(event.target.value)}
+									/>
+								)}
+								<button className="accent-button" type="submit" disabled={authenticationResolving}>
+									{authenticationResolving ? "处理中…" : "继续"}
+								</button>
+							</form>
+						) : (
+							<div className="models-auth-waiting">
+								{authenticationNotice ? <p>{authenticationNotice}</p> : <p>正在打开浏览器或等待服务商响应…</p>}
+								{authenticationUserCode ? (
+									<AuthenticationDeviceCode
+										code={authenticationUserCode}
+										expiresAt={authenticationExpiresAt}
+									/>
+								) : null}
+								{authenticationUrl ? (
+									<button
+										className="models-auth-link"
+										type="button"
+										onClick={() => void openExternalUrl(authenticationUrl)}
+									>
+										打开认证页面 ↗
+									</button>
+								) : null}
+							</div>
+						)}
+						<button className="outline-button" type="button" onClick={onCancelProviderSetup}>
+							取消连接
+						</button>
+					</div>
+				</div>
+			) : null}
 
 			<footer className="models-footer">
 				{saveError ? (
@@ -783,13 +1088,18 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 				) : (
 					<span>{hasChanges ? "有未保存的更改" : "配置已保存"}</span>
 				)}
-				<button className="outline-button" type="button" onClick={requestClose}>
+				<button
+					className="outline-button"
+					type="button"
+					disabled={providerSetupInProgress || settingUpProvider}
+					onClick={requestClose}
+				>
 					取消
 				</button>
 				<button
 					className="accent-button"
 					type="button"
-					disabled={!hasChanges || saving}
+					disabled={!hasChanges || saving || providerSetupInProgress || settingUpProvider}
 					onClick={() => void handleSave()}
 				>
 					{saving ? "保存中…" : "保存更改"}
@@ -836,6 +1146,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</button>
 							{providers
 								.filter((provider) => {
+									if (provider.configured) return false;
 									const query = providerPickerQuery.trim().toLocaleLowerCase();
 									return (
 										!query ||
@@ -851,8 +1162,8 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 										onClick={() => {
 											onChangeProvider(provider.id);
 											setProviderPickerOpen(false);
-											if (provider.configured) setSelection({ type: "managed", providerId: provider.id });
-											else requestProviderSetup(provider);
+											setSelection({ type: "managed", providerId: provider.id });
+											if (!provider.configured) requestProviderSetup(provider);
 										}}
 									>
 										<span>
@@ -865,7 +1176,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 														: "API Key"}
 											</small>
 										</span>
-										<b>{provider.name.slice(0, 1).toUpperCase()}</b>
+										<ProviderMark providerId={provider.id} name={provider.name} />
 									</button>
 								))}
 						</div>

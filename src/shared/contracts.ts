@@ -4,7 +4,7 @@ export type DesktopTranscriptBlock =
 	| { type: "text"; text: string }
 	| { type: "thinking"; text: string }
 	| { type: "toolCall"; id: string; name: string; input: string }
-	| { type: "image"; label: string };
+	| { type: "image"; label: string; thumbnailDataUrl?: string };
 
 export interface DesktopTranscriptMessage {
 	id: string;
@@ -178,6 +178,22 @@ export interface DesktopImageAttachment {
 	thumbnailDataUrl?: string;
 }
 
+export interface DesktopRestoreImageAttachmentsInput {
+	ids: string[];
+}
+
+export interface DesktopDirectoryEntry {
+	name: string;
+	path: string;
+}
+
+export interface DesktopDirectoryListing {
+	path: string;
+	parentPath?: string;
+	directories: DesktopDirectoryEntry[];
+	drives?: DesktopDirectoryEntry[];
+}
+
 export interface DesktopAuthenticationPrompt {
 	id: string;
 	type: "manual_code" | "secret" | "select" | "text";
@@ -249,9 +265,19 @@ export interface DesktopSnapshot {
 	skills: DesktopSkill[];
 	plugins: DesktopPlugin[];
 	providerSetupInProgress: boolean;
+	/** Human-readable OAuth/device-code instructions while provider setup is active. */
+	authenticationNotice?: string;
+	/** URL emitted by the provider's OAuth/device-code flow, when available. */
+	authenticationUrl?: string;
+	/** Device-code value emitted by OAuth providers, kept separate for copy/paste UX. */
+	authenticationUserCode?: string;
+	/** Absolute expiry timestamp for the current device code, when supplied by the provider. */
+	authenticationExpiresAt?: number;
 	sessions: DesktopSessionInfo[];
 	sessionStats?: DesktopSessionStats;
 	branchPoints?: DesktopBranchPoint[];
+	branchTree?: DesktopSessionTreeNode[];
+	branchActiveLeafId?: string | null;
 	notice?: string;
 	session?: DesktopSessionSnapshot;
 }
@@ -259,6 +285,16 @@ export interface DesktopSnapshot {
 export interface DesktopBranchPoint {
 	entryId: string;
 	text: string;
+}
+
+export interface DesktopSessionTreeNode {
+	entry: {
+		id: string;
+		type: string;
+		role?: string;
+		text?: string;
+	};
+	children: DesktopSessionTreeNode[];
 }
 
 export interface DesktopGitChange {
@@ -269,6 +305,10 @@ export interface DesktopGitChange {
 export interface DesktopGitWorktree {
 	path: string;
 	branch: string;
+}
+
+export interface DesktopRemoveWorktreeResult {
+	dirty?: boolean;
 }
 
 export interface DesktopGitBranches {
@@ -342,6 +382,7 @@ export interface DesktopSwitchGitBranchInput {
 
 export interface DesktopRemoveWorktreeInput {
 	path: string;
+	force?: boolean;
 }
 
 export interface DesktopOpenWorkspacePathInput {
@@ -484,9 +525,12 @@ export type Unsubscribe = () => void;
 export interface DesktopApi {
 	bootstrap(): Promise<DesktopSnapshot>;
 	chooseWorkspace(): Promise<DesktopSnapshot>;
+	browseDirectories(path?: string): Promise<DesktopDirectoryListing>;
 	selectDirectory(): Promise<string | undefined>;
 	chooseImages(): Promise<DesktopImageAttachment[]>;
 	attachDroppedImages(files: File[]): Promise<DesktopImageAttachment[]>;
+	restoreImageAttachments(input: DesktopRestoreImageAttachmentsInput): Promise<DesktopImageAttachment[]>;
+	discardImageAttachment(id: string): Promise<void>;
 	importDroppedFiles(files: File[], overwriteConflicts?: boolean): Promise<DesktopImportedFileResult[]>;
 	prompt(input: DesktopPromptInput): Promise<DesktopSnapshot>;
 	abort(): Promise<DesktopSnapshot>;
@@ -508,6 +552,7 @@ export interface DesktopApi {
 	setProjectTrust(input: DesktopProjectTrustInput): Promise<DesktopSnapshot>;
 	decideToolApproval(input: DesktopToolApprovalDecisionInput): Promise<DesktopSnapshot>;
 	startProviderSetup(input: DesktopProviderSetupInput): Promise<DesktopSnapshot>;
+	cancelProviderSetup(): Promise<DesktopSnapshot>;
 	logoutProvider(input: DesktopProviderLogoutInput): Promise<DesktopSnapshot>;
 	respondToAuthenticationPrompt(input: DesktopAuthenticationPromptResponseInput): Promise<DesktopSnapshot>;
 	listWorkspaceFiles(): Promise<DesktopWorkspaceEntry[]>;
@@ -526,9 +571,10 @@ export interface DesktopApi {
 	getGitDiff(input: DesktopGitDiffInput): Promise<string>;
 	listGitWorktrees(): Promise<DesktopGitWorktree[]>;
 	listGitBranches(): Promise<DesktopGitBranches>;
+	fetchGitBranches(): Promise<void>;
 	switchGitBranch(input: DesktopSwitchGitBranchInput): Promise<DesktopSnapshot>;
 	addGitWorktree(input: DesktopAddWorktreeInput): Promise<DesktopGitWorktree>;
-	removeGitWorktree(input: DesktopRemoveWorktreeInput): Promise<void>;
+	removeGitWorktree(input: DesktopRemoveWorktreeInput): Promise<DesktopRemoveWorktreeResult>;
 	openWorkspacePath(input: DesktopOpenWorkspacePathInput): Promise<DesktopSnapshot>;
 	setCloseQuits(closeQuits: boolean): Promise<void>;
 	quitApp(): Promise<void>;
@@ -628,12 +674,24 @@ export function isDesktopAddWorktreeInput(value: unknown): value is DesktopAddWo
 	);
 }
 
-export function isDesktopRemoveWorktreeInput(value: unknown): value is DesktopRemoveWorktreeInput {
+export function isDesktopRestoreImageAttachmentsInput(value: unknown): value is DesktopRestoreImageAttachmentsInput {
 	return (
-		isExactRecord(value, ["path"]) &&
-		typeof value.path === "string" &&
-		value.path.length > 0 &&
-		value.path.length <= 2000
+		isExactRecord(value, ["ids"]) &&
+		Array.isArray(value.ids) &&
+		value.ids.length <= 10 &&
+		value.ids.every((id) => typeof id === "string" && /^[0-9a-f-]{36}$/iu.test(id))
+	);
+}
+
+export function isDesktopRemoveWorktreeInput(value: unknown): value is DesktopRemoveWorktreeInput {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	const input = value as Record<string, unknown>;
+	if (!Object.keys(input).every((key) => key === "path" || key === "force")) return false;
+	return (
+		typeof input.path === "string" &&
+		input.path.length > 0 &&
+		input.path.length <= 2000 &&
+		(input.force === undefined || typeof input.force === "boolean")
 	);
 }
 

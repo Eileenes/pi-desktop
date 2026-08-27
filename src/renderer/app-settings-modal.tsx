@@ -5,19 +5,20 @@ import type { AppLanguage } from "./i18n.ts";
 import { Modal } from "./modal.tsx";
 
 interface AppSettingsModalProps {
-	theme: "dark" | "light" | "system";
+	theme: "dark" | "light";
 	language: AppLanguage;
 	notifyOnComplete: boolean;
 	soundOnComplete: boolean;
-	onChangeTheme: (theme: "dark" | "light" | "system") => void;
+	onChangeTheme: (theme: "dark" | "light") => void;
 	onChangeLanguage: (language: AppLanguage) => void;
 	onToggleNotify: () => void;
 	onToggleSound: () => void;
 	onClose: () => void;
 }
 
-const REPOSITORY = "Eileenes/pi-desktop";
-const RELEASES_URL = "https://github.com/Eileenes/pi-desktop/releases";
+const PRODUCT_NAME = "Pi Agent";
+const REPOSITORY = "abcwyc/pi-agent-desktop";
+const RELEASES_URL = "https://github.com/abcwyc/pi-agent-desktop/releases";
 
 function ChoiceButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) {
 	return (
@@ -80,7 +81,7 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 	const updateAvailable = update?.updateAvailable === true;
 
 	return (
-		<Modal title="Pi Desktop" subtitle="本地 AI 编码智能体" className="app-settings-dialog" onClose={onClose}>
+		<Modal title={PRODUCT_NAME} subtitle="本地 AI 编码智能体" className="app-settings-dialog" onClose={onClose}>
 			<div className="settings-meta-row">
 				<button
 					className="settings-meta-chip"
@@ -136,9 +137,6 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 					<strong>外观</strong>
 					<p>选择适合当前环境的显示主题。</p>
 					<div className="choice-row">
-						<ChoiceButton active={theme === "system"} onClick={() => onChangeTheme("system")}>
-							跟随系统
-						</ChoiceButton>
 						<ChoiceButton active={theme === "light"} onClick={() => onChangeTheme("light")}>
 							浅色
 						</ChoiceButton>

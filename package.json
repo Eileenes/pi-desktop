@@ -48,7 +48,7 @@
 	},
 	"build": {
 		"appId": "com.earendil.pi.desktop",
-		"productName": "Pi Desktop",
+		"productName": "Pi Agent",
 		"asar": true,
 		"icon": "build/icon.png",
 		"files": [

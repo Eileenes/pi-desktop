@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -102,6 +104,15 @@ export async function listGitBranches(cwd: string): Promise<GitBranches> {
 	return { local, remote };
 }
 
+export async function fetchGitBranches(cwd: string): Promise<void> {
+	await execFileAsync("git", ["fetch", "--prune"], {
+		cwd,
+		timeout: 90_000,
+		maxBuffer: 1024 * 1024,
+		env: { ...process.env, LC_ALL: "C", GIT_TERMINAL_PROMPT: "0" },
+	});
+}
+
 export async function switchGitBranch(cwd: string, branch: string): Promise<void> {
 	const trimmed = branch.trim();
 	if (!/^[A-Za-z0-9._/-]+$/u.test(trimmed)) throw new Error("无效的 Git 分支名。");
@@ -121,37 +132,63 @@ export async function listGitWorktrees(cwd: string): Promise<GitWorktree[]> {
 	const worktrees: GitWorktree[] = [];
 	let currentPath: string | undefined;
 	let currentBranch: string | undefined;
+	let currentPrunable = false;
 
 	for (const line of stdout.split("\n")) {
 		if (line.startsWith("worktree ")) {
-			if (currentPath) worktrees.push({ path: currentPath, branch: currentBranch ?? "(detached)" });
+			if (currentPath && !currentPrunable && existsSync(currentPath)) {
+				worktrees.push({ path: currentPath, branch: currentBranch ?? "(detached)" });
+			}
 			currentPath = line.slice("worktree ".length).trim();
 			currentBranch = undefined;
+			currentPrunable = false;
 		} else if (line.startsWith("branch ")) {
 			currentBranch = line.slice("branch ".length).trim();
+		} else if (line.startsWith("prunable")) {
+			currentPrunable = true;
 		}
 	}
-	if (currentPath) worktrees.push({ path: currentPath, branch: currentBranch ?? "(detached)" });
+	if (currentPath && !currentPrunable && existsSync(currentPath)) {
+		worktrees.push({ path: currentPath, branch: currentBranch ?? "(detached)" });
+	}
 	return worktrees;
 }
 
 export async function addGitWorktree(cwd: string, branch: string): Promise<GitWorktree> {
-	const targetPath = `${cwd}-worktrees/${branch.replaceAll("/", "-")}`;
-	const branches = await listGitBranches(cwd);
-	if (branches.local.includes(branch)) {
-		await execFileAsync("git", ["worktree", "add", targetPath, branch], { cwd });
-	} else if (branches.remote.includes(branch)) {
-		await execFileAsync("git", ["worktree", "add", "--track", targetPath, branch], { cwd });
-	} else {
-		await execFileAsync("git", ["worktree", "add", "-b", branch, targetPath], { cwd });
+	const trimmed = branch.trim();
+	if (!trimmed || trimmed.startsWith("-") || !/^[A-Za-z0-9._/-]+$/u.test(trimmed)) {
+		throw new Error("无效的 Git 分支名。");
 	}
-	return { path: targetPath, branch };
+	const directoryName = trimmed.replace(/[/\\:*?"<>|\s]+/gu, "-").replace(/^-+|-+$/gu, "");
+	if (!directoryName || directoryName === "." || directoryName === "..") {
+		throw new Error("无效的 Worktree 目录名。");
+	}
+	const targetPath = join(`${cwd}-worktrees`, directoryName);
+	const branches = await listGitBranches(cwd);
+	if (branches.local.includes(trimmed)) {
+		await execFileAsync("git", ["worktree", "add", "--", targetPath, trimmed], { cwd });
+	} else if (branches.remote.includes(trimmed)) {
+		await execFileAsync("git", ["worktree", "add", "--track", "--", targetPath, trimmed], { cwd });
+	} else {
+		await execFileAsync("git", ["worktree", "add", "-b", trimmed, "--", targetPath], { cwd });
+	}
+	return { path: targetPath, branch: trimmed };
 }
 
-export async function removeGitWorktree(cwd: string, path: string): Promise<void> {
+export async function removeGitWorktree(cwd: string, path: string, force = false): Promise<{ dirty?: boolean }> {
 	const worktrees = await listGitWorktrees(cwd);
 	if (!worktrees.some((worktree) => worktree.path === path) || path === cwd) {
 		throw new Error("只能移除当前仓库中的非活动 Worktree。");
 	}
-	await execFileAsync("git", ["worktree", "remove", "--", path], { cwd });
+	try {
+		await execFileAsync("git", ["worktree", "remove", ...(force ? ["--force"] : []), "--", path], { cwd });
+	} catch (error) {
+		const stderr =
+			typeof error === "object" && error !== null && "stderr" in error && typeof error.stderr === "string"
+				? error.stderr
+				: "";
+		if (!force && /modified|untracked|local changes|contains changes/iu.test(stderr)) return { dirty: true };
+		throw error;
+	}
+	return {};
 }

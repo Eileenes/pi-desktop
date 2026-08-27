@@ -14,7 +14,7 @@ import {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
-import { shell } from "electron";
+import { nativeImage, shell } from "electron";
 import type {
 	DesktopApiKeyProvider,
 	DesktopAuthenticationPrompt,
@@ -31,9 +31,11 @@ import type {
 	DesktopPluginPackage,
 	DesktopProviderConfig,
 	DesktopProviderModelConfig,
+	DesktopRemoveWorktreeResult,
 	DesktopSessionInfo,
 	DesktopSessionPhase,
 	DesktopSessionStats,
+	DesktopSessionTreeNode,
 	DesktopSkillInfo,
 	DesktopSkillInstallInfo,
 	DesktopSkillSearchResult,
@@ -50,6 +52,7 @@ import { AuthenticationPromptQueue } from "./authentication-prompt-queue.ts";
 import { ExtensionCustomUiController, ExtensionDialogQueue } from "./extension-ui-controller.ts";
 import {
 	addGitWorktree as gitAddWorktree,
+	fetchGitBranches as gitFetchBranches,
 	getGitDiff as gitGetDiff,
 	listGitBranches as gitListBranches,
 	listGitChanges as gitListChanges,
@@ -107,6 +110,63 @@ interface ManagedSession {
 	lastCompaction?: { reason: string; tokensBefore: number; tokensAfter?: number };
 	runningToolNames: Set<string>;
 	lastUsedAt: number;
+}
+
+type PiSessionTreeNode = ReturnType<SessionManager["getTree"]>[number];
+
+function summarizeSessionEntry(entry: PiSessionTreeNode["entry"]): {
+	role?: string;
+	text?: string;
+} {
+	if (entry.type === "message") {
+		const message = entry.message as unknown as { role?: unknown; content?: unknown };
+		const role = typeof message.role === "string" ? message.role : undefined;
+		const content = message.content;
+		const text =
+			typeof content === "string"
+				? content
+				: Array.isArray(content)
+					? content
+							.filter(
+								(item): item is Record<string, unknown> =>
+									typeof item === "object" && item !== null && !Array.isArray(item),
+							)
+							.filter((item) => item.type === "text" && typeof item.text === "string")
+							.map((item) => item.text as string)
+							.join(" ")
+					: "";
+		return {
+			...(role ? { role } : {}),
+			...(text ? { text: text.slice(0, 200) } : {}),
+		};
+	}
+	const record = entry as unknown as Record<string, unknown>;
+	const text =
+		typeof record.summary === "string"
+			? record.summary
+			: typeof record.label === "string"
+				? record.label
+				: typeof record.name === "string"
+					? record.name
+					: typeof record.modelId === "string"
+						? `${typeof record.provider === "string" ? record.provider : ""}/${record.modelId}`
+						: typeof record.thinkingLevel === "string"
+							? record.thinkingLevel
+							: "";
+	return text ? { text: text.slice(0, 200) } : {};
+}
+
+function toDesktopSessionTreeNode(node: PiSessionTreeNode): DesktopSessionTreeNode {
+	const details = summarizeSessionEntry(node.entry);
+	return {
+		entry: {
+			id: node.entry.id,
+			type: node.entry.type,
+			...(details.role ? { role: details.role } : {}),
+			...(details.text ? { text: details.text } : {}),
+		},
+		children: node.children.map(toDesktopSessionTreeNode),
+	};
 }
 
 class PlainTextTheme extends Theme {
@@ -169,6 +229,35 @@ function toMessageRole(value: unknown): DesktopTranscriptMessage["role"] {
 	return "system";
 }
 
+function imageThumbnailDataUrl(block: Record<string, unknown>): string | undefined {
+	let data: string | undefined;
+	let mimeType: string | undefined;
+	const source = block.source;
+	if (typeof source === "object" && source !== null && !Array.isArray(source)) {
+		const sourceRecord = source as Record<string, unknown>;
+		if (
+			sourceRecord.type === "base64" &&
+			typeof sourceRecord.data === "string" &&
+			typeof sourceRecord.media_type === "string"
+		) {
+			data = sourceRecord.data;
+			mimeType = sourceRecord.media_type;
+		}
+	}
+	if (!data && typeof block.data === "string") {
+		data = block.data;
+		mimeType = typeof block.mimeType === "string" ? block.mimeType : undefined;
+	}
+	if (!data || !mimeType?.startsWith("image/") || data.length > 16_000_000) return undefined;
+	try {
+		const image = nativeImage.createFromBuffer(Buffer.from(data, "base64"));
+		if (image.isEmpty()) return undefined;
+		return image.resize({ width: 240, height: 240, quality: "good" }).toDataURL();
+	} catch {
+		return undefined;
+	}
+}
+
 function contentToBlocks(value: unknown): DesktopTranscriptBlock[] {
 	if (typeof value === "string") return [{ type: "text", text: value }];
 	if (!Array.isArray(value)) return [];
@@ -194,7 +283,10 @@ function contentToBlocks(value: unknown): DesktopTranscriptBlock[] {
 			});
 			continue;
 		}
-		if (block.type === "image") blocks.push({ type: "image", label: "图片附件" });
+		if (block.type === "image") {
+			const thumbnailDataUrl = imageThumbnailDataUrl(block);
+			blocks.push({ type: "image", label: "图片附件", ...(thumbnailDataUrl ? { thumbnailDataUrl } : {}) });
+		}
 	}
 	return blocks;
 }
@@ -206,8 +298,9 @@ function blocksToText(blocks: DesktopTranscriptBlock[]): string {
 				? block.text
 				: block.type === "toolCall"
 					? `工具调用：${block.name}`
-					: block.label,
+					: "",
 		)
+		.filter(Boolean)
 		.join("\n");
 }
 
@@ -284,6 +377,9 @@ export class DesktopAgentHost {
 	private providerSetupInProgress = false;
 	private authenticationController: AbortController | undefined;
 	private authenticationNotice: string | undefined;
+	private authenticationUrl: string | undefined;
+	private authenticationUserCode: string | undefined;
+	private authenticationExpiresAt: number | undefined;
 	private error: string | undefined;
 	private readonly listeners = new Set<SnapshotListener>();
 	private readonly workspaceWatcher = new WorkspaceWatcher((changes) => {
@@ -344,6 +440,10 @@ export class DesktopAgentHost {
 			providerSetupInProgress: this.providerSetupInProgress,
 			sessions: this.sessions,
 		};
+		if (this.authenticationNotice) snapshot.authenticationNotice = this.authenticationNotice;
+		if (this.authenticationUrl) snapshot.authenticationUrl = this.authenticationUrl;
+		if (this.authenticationUserCode) snapshot.authenticationUserCode = this.authenticationUserCode;
+		if (this.authenticationExpiresAt) snapshot.authenticationExpiresAt = this.authenticationExpiresAt;
 		if (this.workspacePath) snapshot.workspacePath = this.workspacePath;
 		if (!this.session) {
 			snapshot.notice = this.error ?? this.authenticationNotice ?? "正在准备本地智能体会话。";
@@ -391,6 +491,8 @@ export class DesktopAgentHost {
 		};
 		snapshot.sessionStats = this.toDesktopSessionStats();
 		snapshot.branchPoints = this.toDesktopBranchPoints();
+		snapshot.branchTree = this.session.sessionManager.getTree().map(toDesktopSessionTreeNode);
+		snapshot.branchActiveLeafId = this.session.sessionManager.getLeafId();
 		return snapshot;
 	}
 
@@ -1148,6 +1250,9 @@ export class DesktopAgentHost {
 		this.providerSetupInProgress = true;
 		this.authenticationController = controller;
 		this.authenticationNotice = undefined;
+		this.authenticationUrl = undefined;
+		this.authenticationUserCode = undefined;
+		this.authenticationExpiresAt = undefined;
 		this.error = undefined;
 		this.publish();
 
@@ -1159,16 +1264,36 @@ export class DesktopAgentHost {
 				},
 				notify: (event) => {
 					if (event.type === "auth_url") {
+						this.authenticationUrl = event.url;
+						this.authenticationUserCode = undefined;
+						this.authenticationExpiresAt = undefined;
 						void shell.openExternal(event.url).catch((error: unknown) => {
 							this.error = error instanceof Error ? error.message : "无法打开 OAuth 登录页面。";
 							this.publish();
 						});
 					}
+					if (event.type === "device_code") {
+						this.authenticationUrl = event.verificationUri;
+						this.authenticationUserCode = event.userCode;
+						const expiresInSeconds =
+							"expiresInSeconds" in event &&
+							typeof event.expiresInSeconds === "number" &&
+							Number.isFinite(event.expiresInSeconds) &&
+							event.expiresInSeconds > 0
+								? event.expiresInSeconds
+								: undefined;
+						this.authenticationExpiresAt =
+							expiresInSeconds === undefined ? undefined : Date.now() + expiresInSeconds * 1000;
+					} else if (event.type !== "auth_url") {
+						this.authenticationUrl = undefined;
+						this.authenticationUserCode = undefined;
+						this.authenticationExpiresAt = undefined;
+					}
 					this.authenticationNotice =
 						event.type === "auth_url"
 							? (event.instructions ?? "请在浏览器窗口中完成模型服务商登录。")
 							: event.type === "device_code"
-								? `请在 ${event.verificationUri} 输入验证码 ${event.userCode}。`
+								? `请在打开的验证页面输入验证码：${event.userCode}`
 								: event.message;
 					this.publish();
 				},
@@ -1178,6 +1303,10 @@ export class DesktopAgentHost {
 			if (!workspacePath) return this.publish();
 			return await this.enqueueWorkspaceChange(() => this.openWorkspaceInternal(workspacePath));
 		} catch (error) {
+			if (controller.signal.aborted) {
+				this.error = undefined;
+				return this.publish();
+			}
 			this.auditLog.write("credential.configure", "failed", { providerId, authType });
 			this.error = error instanceof Error ? error.message : "模型服务商配置失败，请检查填写内容后重试。";
 			return this.publish();
@@ -1187,9 +1316,18 @@ export class DesktopAgentHost {
 				this.authenticationController = undefined;
 			}
 			this.authenticationNotice = undefined;
+			this.authenticationUrl = undefined;
+			this.authenticationUserCode = undefined;
+			this.authenticationExpiresAt = undefined;
 			this.providerSetupInProgress = false;
 			this.publish();
 		}
+	}
+
+	cancelProviderSetup(): DesktopSnapshot {
+		this.authenticationController?.abort();
+		this.authenticationPromptQueue.cancelAll();
+		return this.publish();
 	}
 
 	async logoutProvider(providerId: string): Promise<DesktopSnapshot> {
@@ -1409,6 +1547,9 @@ export class DesktopAgentHost {
 
 	async updateSkill(pkg: string, scope: "global" | "project"): Promise<string> {
 		if (this.hasStreamingSession()) throw new Error("请等待当前智能体任务完成后，再更新技能。");
+		if (scope === "project" && !this.projectTrusted) {
+			throw new Error("请先信任当前项目，再更新项目技能。");
+		}
 		const skills = await this.listSkillsDetailed();
 		const install = skills
 			.map((skill) => skill.install)
@@ -1424,6 +1565,7 @@ export class DesktopAgentHost {
 		if (this.hasStreamingSession()) {
 			throw new Error("请等待当前智能体任务完成后，再安装插件。");
 		}
+		if (local && !this.projectTrusted) throw new Error("请先信任当前项目，再安装项目插件。");
 		const settingsManager = this.requireSettingsManager();
 		const packageManager = new DefaultPackageManager({
 			cwd: this.workspacePath ?? this.agentDir,
@@ -1444,6 +1586,7 @@ export class DesktopAgentHost {
 		if (this.hasStreamingSession()) {
 			throw new Error("请等待当前智能体任务完成后，再移除插件。");
 		}
+		if (local && !this.projectTrusted) throw new Error("请先信任当前项目，再移除项目插件。");
 		const settingsManager = this.requireSettingsManager();
 		const packageManager = new DefaultPackageManager({
 			cwd: this.workspacePath ?? this.agentDir,
@@ -1675,6 +1818,12 @@ export class DesktopAgentHost {
 		return gitListBranches(workspacePath);
 	}
 
+	async fetchGitBranches(): Promise<void> {
+		if (!this.projectTrusted) throw new Error("请先信任当前项目，再刷新远程分支。");
+		const workspacePath = this.requireWorkspacePath();
+		await gitFetchBranches(workspacePath);
+	}
+
 	async switchGitBranch(branch: string): Promise<DesktopSnapshot> {
 		if (this.hasStreamingSession()) throw new Error("请等待当前智能体任务完成后，再切换 Git 分支。");
 		if (!this.projectTrusted) throw new Error("请先信任当前项目，再切换 Git 分支。");
@@ -1687,13 +1836,15 @@ export class DesktopAgentHost {
 	}
 
 	async addGitWorktree(branch: string): Promise<DesktopGitWorktree> {
+		if (!this.projectTrusted) throw new Error("请先信任当前项目，再创建 Worktree。");
 		const workspacePath = this.requireWorkspacePath();
 		return gitAddWorktree(workspacePath, branch);
 	}
 
-	async removeGitWorktree(path: string): Promise<void> {
+	async removeGitWorktree(path: string, force = false): Promise<DesktopRemoveWorktreeResult> {
+		if (!this.projectTrusted) throw new Error("请先信任当前项目，再移除 Worktree。");
 		const workspacePath = this.requireWorkspacePath();
-		await gitRemoveWorktree(workspacePath, path);
+		return gitRemoveWorktree(workspacePath, path, force);
 	}
 
 	async readFullBashOutput(messageId: string): Promise<string> {

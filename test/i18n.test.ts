@@ -1,0 +1,37 @@
+import { describe, expect, it } from "vitest";
+import { translate } from "../src/renderer/i18n.ts";
+
+describe("renderer translations", () => {
+	it("provides both supported languages for every public key", () => {
+		const keys = [
+			"newChat",
+			"chats",
+			"files",
+			"searchSessions",
+			"chooseFolder",
+			"sessions",
+			"models",
+			"skills",
+			"plugins",
+			"sourceControl",
+			"settings",
+			"recentProjects",
+			"openPreview",
+			"selectModel",
+			"addImage",
+			"languageName",
+			"fullHistory",
+			"branches",
+			"more",
+			"processDetails",
+			"send",
+			"source",
+			"preview",
+			"diff",
+		] as const;
+		for (const key of keys) {
+			expect(translate("zh-CN", key).trim()).not.toBe("");
+			expect(translate("en", key).trim()).not.toBe("");
+		}
+	});
+});

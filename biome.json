@@ -25,20 +25,13 @@
 	},
 	"files": {
 		"includes": [
-			"apps/*/src/**/*.ts",
-			"apps/*/src/**/*.tsx",
-			"apps/*/test/**/*.ts",
-			"packages/*/src/**/*.ts",
-			"packages/*/test/**/*.ts",
-			"packages/session-backends/*/src/**/*.ts",
-			"packages/session-backends/*/test/**/*.ts",
-			"packages/coding-agent/examples/**/*.ts",
+			"src/**/*.ts",
+			"src/**/*.tsx",
+			"test/**/*.ts",
+			"scripts/**/*.mjs",
+			"*.json",
 			"!**/node_modules/**/*",
-			"!**/test-sessions.ts",
-			"!**/models.generated.ts",
-			"!**/*.models.ts",
-			"!packages/mom/data/**/*",
-			"!!**/node_modules"
+			"!**/dist/**/*"
 		]
 	}
 }

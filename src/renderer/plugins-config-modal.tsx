@@ -5,14 +5,22 @@ import { Modal } from "./modal.tsx";
 
 interface PluginsConfigModalProps {
 	plugins: DesktopPlugin[];
+	workspacePath?: string;
 	onClose: () => void;
 }
+
 interface InstalledPackage {
 	source: string;
 	scope: "user" | "project";
 }
 
-export const PluginsConfigModal = memo(function PluginsConfigModal({ plugins, onClose }: PluginsConfigModalProps) {
+const SCOPE_LABEL: Record<"user" | "project", string> = { user: "GLOBAL", project: "PROJECT" };
+
+export const PluginsConfigModal = memo(function PluginsConfigModal({
+	plugins,
+	workspacePath,
+	onClose,
+}: PluginsConfigModalProps) {
 	const [packages, setPackages] = useState<InstalledPackage[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [selectedKey, setSelectedKey] = useState<string>("add");
@@ -24,6 +32,11 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({ plugins, on
 		() => packages.find((pkg) => `${pkg.scope}\0${pkg.source}` === selectedKey),
 		[packages, selectedKey],
 	);
+	const projectPackages = packages.filter((pkg) => pkg.scope === "project");
+	const userPackages = packages.filter((pkg) => pkg.scope === "user");
+	const selectedPlugin = selected
+		? plugins.find((plugin) => plugin.name.includes(selected.source.split("/").at(-1) ?? selected.source))
+		: undefined;
 
 	const load = useCallback(async () => {
 		setLoading(true);
@@ -63,6 +76,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({ plugins, on
 			setBusy(false);
 		}
 	}
+
 	async function handleUpdate(pkg: InstalledPackage): Promise<void> {
 		setBusy(true);
 		setError(undefined);
@@ -90,26 +104,53 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({ plugins, on
 		}
 	}
 
+	function renderPackageRow(pkg: InstalledPackage) {
+		const key = `${pkg.scope}\0${pkg.source}`;
+		const commandCount = plugins.find((plugin) => plugin.name.includes(pkg.source.split("/").at(-1) ?? pkg.source))
+			?.commands.length;
+		return (
+			<button
+				key={key}
+				className={`resource-config-row ${selectedKey === key ? "is-active" : ""}`}
+				type="button"
+				title={pkg.source}
+				onClick={() => setSelectedKey(key)}
+			>
+				<span className="resource-status-dot is-on" />
+				<span>{pkg.source}</span>
+				<small>{commandCount ? `${commandCount} cmd` : SCOPE_LABEL[pkg.scope]}</small>
+			</button>
+		);
+	}
+
 	return (
-		<Modal title="插件" subtitle="项目与用户插件" className="resource-config-modal" onClose={onClose}>
+		<Modal
+			title="插件"
+			subtitle={workspacePath ?? "~/.pi/agent/plugins"}
+			className="resource-config-modal"
+			onClose={onClose}
+		>
 			<div className="resource-config-layout">
 				<aside className="resource-config-sidebar">
 					<div className="resource-config-scroll">
 						{loading ? (
 							<p className="modal-empty">正在加载插件…</p>
 						) : (
-							packages.map((pkg) => (
-								<button
-									key={`${pkg.scope}\0${pkg.source}`}
-									className={`resource-config-row ${selectedKey === `${pkg.scope}\0${pkg.source}` ? "is-active" : ""}`}
-									type="button"
-									onClick={() => setSelectedKey(`${pkg.scope}\0${pkg.source}`)}
-								>
-									<span className="resource-status-dot is-on" />
-									<span>{pkg.source}</span>
-									<small>{pkg.scope === "user" ? "用户" : "项目"}</small>
-								</button>
-							))
+							<>
+								{projectPackages.length ? (
+									<>
+										<div className="settings-group-label">PROJECT</div>
+										{projectPackages.map(renderPackageRow)}
+									</>
+								) : null}
+								{userPackages.length ? (
+									<>
+										<div className="settings-group-label">GLOBAL</div>
+										{userPackages.map(renderPackageRow)}
+									</>
+								) : null}
+								{packages.length === 0 ? <p className="modal-empty">尚未安装插件。</p> : null}
+							</>
 						)}
 					</div>
 					<button
@@ -123,11 +164,12 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({ plugins, on
 				<section className="resource-config-detail">
 					{selectedKey === "add" ? (
 						<div className="resource-add-panel">
-							<strong>安装插件</strong>
-							<p>支持 npm 包、Git URL 或本地路径。</p>
+							<strong>添加插件</strong>
+							<p>支持 npm 包、Git URL 或本地路径。安装前会请求确认。</p>
 							<label>
 								源
 								<input
+									className="mono"
 									value={installSource}
 									placeholder="npm:@scope/plugin 或 git:https://... 或 /path"
 									onChange={(event) => setInstallSource(event.target.value)}
@@ -139,7 +181,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({ plugins, on
 									value={installScope}
 									onChange={(event) => setInstallScope(event.target.value as "user" | "project")}
 								>
-									<option value="user">用户</option>
+									<option value="user">全局</option>
 									<option value="project">项目</option>
 								</select>
 							</label>
@@ -149,15 +191,16 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({ plugins, on
 								disabled={!installSource.trim() || busy}
 								onClick={() => void handleInstall()}
 							>
-								{busy ? "处理中…" : "安装"}
+								{busy ? "安装中…" : "安装"}
 							</button>
 						</div>
 					) : selected ? (
 						<>
 							<div className="resource-detail-heading">
-								<div>
-									<strong>{selected.source}</strong>
-									<code>{selected.scope === "user" ? "用户范围" : "项目范围"}</code>
+								<div className="resource-detail-title-row">
+									<span className={`resource-scope-tag ${selected.scope === "project" ? "is-project" : ""}`}>
+										{SCOPE_LABEL[selected.scope]}
+									</span>
 								</div>
 								<div className="resource-detail-actions">
 									<button
@@ -178,14 +221,18 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({ plugins, on
 									</button>
 								</div>
 							</div>
-							<div className="resource-detail-card">
-								<span>已加载资源</span>
-								<p>
-									{plugins.find((plugin) =>
-										plugin.name.includes(selected.source.split("/").at(-1) ?? selected.source),
-									)?.commands.length ?? 0}{" "}
-									个斜杠命令
-								</p>
+							<h3 className="resource-detail-name">{selected.source}</h3>
+							<div className="resource-meta-grid">
+								<span>状态</span>
+								<strong>{selectedPlugin ? "已加载" : "已安装 · 未加载"}</strong>
+								<span>范围</span>
+								<strong>{selected.scope === "user" ? "全局" : "项目"}</strong>
+								<span>命令</span>
+								<strong>{selectedPlugin ? `${selectedPlugin.commands.length} 个斜杠命令` : "—"}</strong>
+								<span>命令列表</span>
+								<strong className="is-mono">
+									{selectedPlugin?.commands.length ? selectedPlugin.commands.join("  ") : "—"}
+								</strong>
 							</div>
 						</>
 					) : (

@@ -2890,24 +2890,26 @@ export function App() {
 								</button>
 							)}
 						</div>
-						<div className="composer-footer">
-							<div className="composer-footer-left">
-								<div className="composer-control-group">
-									<button
-										className="composer-control-button chat-project-context"
-										type="button"
-										disabled={!canChooseWorkspace}
-										title={snapshot.workspacePath ?? "选择项目文件夹"}
-										onClick={() => void handleChooseWorkspace()}
-									>
-										<Icon name="folder" size={15} />
-										<span>
-											{snapshot.workspacePath
-												? (snapshot.workspacePath.split(/[\\/]/u).filter(Boolean).at(-1) ??
-													snapshot.workspacePath)
-												: "选择项目"}
-										</span>
-									</button>
+					</div>
+					<div className="composer-footer">
+						<div className="composer-footer-left">
+							<div className="composer-control-group">
+								<button
+									className="composer-control-button chat-project-context"
+									type="button"
+									disabled={!canChooseWorkspace}
+									title={snapshot.workspacePath ?? "选择项目文件夹"}
+									onClick={() => void handleChooseWorkspace()}
+								>
+									<Icon name="folder" size={15} />
+									<span>
+										{snapshot.workspacePath
+											? (snapshot.workspacePath.split(/[\\/]/u).filter(Boolean).at(-1) ??
+												snapshot.workspacePath)
+											: "选择项目"}
+									</span>
+								</button>
+								<div className="composer-control-anchor">
 									<button
 										className="composer-control-button"
 										type="button"
@@ -2917,12 +2919,30 @@ export function App() {
 										<Icon name="model" size={15} />
 										<span>{session?.model?.id ?? "模型"}</span>
 									</button>
-									<ContextUsageRing
-										stats={snapshot.sessionStats}
-										onToggle={() => setTopPanel((current) => (current === "session" ? undefined : "session"))}
-									/>
+									{composerMenu === "model" ? (
+										<div className="composer-popover" role="menu">
+											{snapshot.availableModels.map((model) => (
+												<button
+													key={getModelKey(model.provider, model.id)}
+													type="button"
+													onClick={() => {
+														setComposerMenu(undefined);
+														void handleChangeModel(getModelKey(model.provider, model.id));
+													}}
+												>
+													{model.provider} / {model.name}
+												</button>
+											))}
+										</div>
+									) : null}
 								</div>
-								<div className="composer-control-group composer-control-group-right">
+								<ContextUsageRing
+									stats={snapshot.sessionStats}
+									onToggle={() => setTopPanel((current) => (current === "session" ? undefined : "session"))}
+								/>
+							</div>
+							<div className="composer-control-group composer-control-group-right">
+								<div className="composer-control-anchor">
 									<button
 										className="composer-control-button"
 										type="button"
@@ -2934,6 +2954,28 @@ export function App() {
 										<Icon name="bulb" size={14} />
 										<span>{session?.thinkingLevel ?? "auto"}</span>
 									</button>
+									{composerMenu === "thinking" ? (
+										<div className="composer-popover" role="menu">
+											{(
+												session?.availableThinkingLevels ?? [
+													"auto",
+													"off",
+													"minimal",
+													"low",
+													"medium",
+													"high",
+													"xhigh",
+													"max",
+												]
+											).map((level) => (
+												<button key={level} type="button" onClick={() => void handleChangeThinking(level)}>
+													{level}
+												</button>
+											))}
+										</div>
+									) : null}
+								</div>
+								<div className="composer-control-anchor">
 									<button
 										className="composer-control-button"
 										type="button"
@@ -2942,69 +2984,33 @@ export function App() {
 										<Icon name="wrench" size={14} />
 										<span>{toolPreset}</span>
 									</button>
-									<button
-										className="composer-control-button"
-										type="button"
-										disabled={!session || session.phase === "running" || compacting}
-										onClick={() => void handleCompact()}
-									>
-										<Icon name="compact" size={14} />
-										<span>{compacting ? "压缩中" : "压缩"}</span>
-									</button>
-									<button
-										className="composer-control-button"
-										type="button"
-										aria-label="切换完成提示音"
-										onClick={() => setSoundOnComplete((current) => !current)}
-									>
-										<Icon name="speaker" size={14} />
-									</button>
+									{composerMenu === "tools" ? (
+										<div className="composer-popover" role="menu">
+											{(["off", "default", "full"] as const).map((preset) => (
+												<button key={preset} type="button" onClick={() => handleToolPresetChange(preset)}>
+													{preset}
+												</button>
+											))}
+										</div>
+									) : null}
 								</div>
-								{composerMenu === "model" ? (
-									<div className="composer-popover" role="menu">
-										{snapshot.availableModels.map((model) => (
-											<button
-												key={getModelKey(model.provider, model.id)}
-												type="button"
-												onClick={() => {
-													setComposerMenu(undefined);
-													void handleChangeModel(getModelKey(model.provider, model.id));
-												}}
-											>
-												{model.provider} / {model.name}
-											</button>
-										))}
-									</div>
-								) : null}
-								{composerMenu === "thinking" ? (
-									<div className="composer-popover" role="menu">
-										{(
-											session?.availableThinkingLevels ?? [
-												"auto",
-												"off",
-												"minimal",
-												"low",
-												"medium",
-												"high",
-												"xhigh",
-												"max",
-											]
-										).map((level) => (
-											<button key={level} type="button" onClick={() => void handleChangeThinking(level)}>
-												{level}
-											</button>
-										))}
-									</div>
-								) : null}
-								{composerMenu === "tools" ? (
-									<div className="composer-popover" role="menu">
-										{(["off", "default", "full"] as const).map((preset) => (
-											<button key={preset} type="button" onClick={() => handleToolPresetChange(preset)}>
-												{preset}
-											</button>
-										))}
-									</div>
-								) : null}
+								<button
+									className="composer-control-button"
+									type="button"
+									disabled={!session || session.phase === "running" || compacting}
+									onClick={() => void handleCompact()}
+								>
+									<Icon name="compact" size={14} />
+									<span>{compacting ? "压缩中" : "压缩"}</span>
+								</button>
+								<button
+									className="composer-control-button"
+									type="button"
+									aria-label="切换完成提示音"
+									onClick={() => setSoundOnComplete((current) => !current)}
+								>
+									<Icon name="speaker" size={14} />
+								</button>
 							</div>
 							<div className="composer-footer-right">
 								{session?.phase === "running" ? (
@@ -3116,10 +3122,18 @@ export function App() {
 				/>
 			) : null}
 			{configModal === "skills" ? (
-				<SkillsConfigModal skills={snapshot.skills} onClose={() => setConfigModal(undefined)} />
+				<SkillsConfigModal
+					skills={snapshot.skills}
+					workspacePath={snapshot.workspacePath}
+					onClose={() => setConfigModal(undefined)}
+				/>
 			) : null}
 			{configModal === "plugins" ? (
-				<PluginsConfigModal plugins={snapshot.plugins} onClose={() => setConfigModal(undefined)} />
+				<PluginsConfigModal
+					plugins={snapshot.plugins}
+					workspacePath={snapshot.workspacePath}
+					onClose={() => setConfigModal(undefined)}
+				/>
 			) : null}
 			{configModal === "settings" ? (
 				<AppSettingsModal

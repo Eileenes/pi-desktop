@@ -67,24 +67,24 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 				<p>配置界面外观、桌面行为和任务通知。</p>
 				<div className="settings-version-row">
 					<span>当前 v{update?.currentVersion ?? "…"}</span>
-					<span>
-						{checkingUpdate
-							? "正在检查更新…"
-							: updateError
-								? updateError
-								: update?.updateAvailable
-									? `最新 v${update.latestVersion}`
-									: "已是最新版本"}
-					</span>
-					{update?.updateAvailable ? (
-						<button
-							className="outline-button"
-							type="button"
-							onClick={() => void openExternalUrl(update.releaseUrl)}
-						>
-							查看版本
-						</button>
-					) : null}
+					{checkingUpdate ? (
+						<span>正在检查更新…</span>
+					) : updateError ? (
+						<span className="settings-update-muted">暂时无法检查更新</span>
+					) : update?.updateAvailable ? (
+						<>
+							<span>最新 v{update.latestVersion}</span>
+							<button
+								className="outline-button"
+								type="button"
+								onClick={() => void openExternalUrl(update.releaseUrl)}
+							>
+								查看版本
+							</button>
+						</>
+					) : (
+						<span>已是最新版本</span>
+					)}
 				</div>
 			</div>
 			<div className="app-settings-cards">

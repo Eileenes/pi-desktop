@@ -7,6 +7,7 @@ import type {
 	DesktopAddWorktreeInput,
 	DesktopDiscoverModelsInput,
 	DesktopGitChange,
+	DesktopGitBranches,
 	DesktopGitDiffInput,
 	DesktopGitWorktree,
 	DesktopImageAttachment,
@@ -48,6 +49,7 @@ import type {
 const desktopApi: DesktopApi = {
 	bootstrap: () => ipcRenderer.invoke("pi-desktop:bootstrap") as Promise<DesktopSnapshot>,
 	chooseWorkspace: () => ipcRenderer.invoke("pi-desktop:choose-workspace") as Promise<DesktopSnapshot>,
+	selectDirectory: () => ipcRenderer.invoke("pi-desktop:select-directory") as Promise<string | undefined>,
 	chooseImages: () => ipcRenderer.invoke("pi-desktop:choose-images") as Promise<DesktopImageAttachment[]>,
 	attachDroppedImages: (files: File[]) =>
 		ipcRenderer.invoke("pi-desktop:attach-dropped-images", files.map((file) => webUtils.getPathForFile(file))) as Promise<DesktopImageAttachment[]>,
@@ -109,6 +111,9 @@ const desktopApi: DesktopApi = {
 	getGitDiff: (input: DesktopGitDiffInput) =>
 		ipcRenderer.invoke("pi-desktop:git-diff", input) as Promise<string>,
 	listGitWorktrees: () => ipcRenderer.invoke("pi-desktop:list-git-worktrees") as Promise<DesktopGitWorktree[]>,
+	listGitBranches: () => ipcRenderer.invoke("pi-desktop:list-git-branches") as Promise<DesktopGitBranches>,
+	switchGitBranch: (input) =>
+		ipcRenderer.invoke("pi-desktop:switch-git-branch", input) as Promise<DesktopSnapshot>,
 	addGitWorktree: (input: DesktopAddWorktreeInput) =>
 		ipcRenderer.invoke("pi-desktop:add-git-worktree", input) as Promise<DesktopGitWorktree>,
 	removeGitWorktree: (input: DesktopRemoveWorktreeInput) =>
@@ -151,6 +156,7 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:remove-plugin", input) as Promise<DesktopSnapshot>,
 	togglePlugin: (input: DesktopTogglePluginInput) =>
 		ipcRenderer.invoke("pi-desktop:toggle-plugin", input) as Promise<DesktopSnapshot>,
+	reloadSession: () => ipcRenderer.invoke("pi-desktop:reload-session") as Promise<DesktopSnapshot>,
 	getPluginPackages: () =>
 		ipcRenderer.invoke("pi-desktop:get-plugin-packages") as Promise<DesktopPluginPackage[]>,
 	listSkillsDetailed: () => ipcRenderer.invoke("pi-desktop:list-skills-detailed") as Promise<DesktopSkillInfo[]>,

@@ -74,6 +74,48 @@ export interface GitWorktree {
 	branch: string;
 }
 
+export interface GitBranches {
+	local: string[];
+	remote: string[];
+}
+
+function branchName(value: string): string {
+	return value.trim().replace(/^\*\s*/u, "");
+}
+
+export async function listGitBranches(cwd: string): Promise<GitBranches> {
+	const [{ stdout: localOutput }, { stdout: remoteOutput }] = await Promise.all([
+		execFileAsync("git", ["branch", "--format=%(refname:short)"], { cwd }),
+		execFileAsync("git", ["branch", "--remotes", "--format=%(refname:short)"], { cwd }),
+	]);
+	const local = [...new Set(localOutput.split("\n").map(branchName).filter(Boolean))].sort((a, b) =>
+		a.localeCompare(b),
+	);
+	const remote = [
+		...new Set(
+			remoteOutput
+				.split("\n")
+				.map(branchName)
+				.filter((branch) => branch && !branch.endsWith("/HEAD")),
+		),
+	].sort((a, b) => a.localeCompare(b));
+	return { local, remote };
+}
+
+export async function switchGitBranch(cwd: string, branch: string): Promise<void> {
+	const trimmed = branch.trim();
+	if (!/^[A-Za-z0-9._/-]+$/u.test(trimmed)) throw new Error("无效的 Git 分支名。");
+	const branches = await listGitBranches(cwd);
+	if (!branches.local.includes(trimmed) && !branches.remote.includes(trimmed)) {
+		throw new Error("该分支不存在，请刷新分支列表后重试。");
+	}
+	if (branches.remote.includes(trimmed) && !branches.local.includes(trimmed)) {
+		await execFileAsync("git", ["switch", "--track", trimmed], { cwd });
+		return;
+	}
+	await execFileAsync("git", ["switch", trimmed], { cwd });
+}
+
 export async function listGitWorktrees(cwd: string): Promise<GitWorktree[]> {
 	const { stdout } = await execFileAsync("git", ["worktree", "list", "--porcelain"], { cwd });
 	const worktrees: GitWorktree[] = [];
@@ -95,7 +137,14 @@ export async function listGitWorktrees(cwd: string): Promise<GitWorktree[]> {
 
 export async function addGitWorktree(cwd: string, branch: string): Promise<GitWorktree> {
 	const targetPath = `${cwd}-worktrees/${branch.replaceAll("/", "-")}`;
-	await execFileAsync("git", ["worktree", "add", "-b", branch, targetPath], { cwd });
+	const branches = await listGitBranches(cwd);
+	if (branches.local.includes(branch)) {
+		await execFileAsync("git", ["worktree", "add", targetPath, branch], { cwd });
+	} else if (branches.remote.includes(branch)) {
+		await execFileAsync("git", ["worktree", "add", "--track", targetPath, branch], { cwd });
+	} else {
+		await execFileAsync("git", ["worktree", "add", "-b", branch, targetPath], { cwd });
+	}
 	return { path: targetPath, branch };
 }
 

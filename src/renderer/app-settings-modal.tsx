@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import type { DesktopUpdateInfo } from "../shared/contracts.ts";
 import { checkForUpdates, openCustomCss, openExternalUrl, quitApp, setCloseQuits } from "./desktop-store.ts";
 import type { AppLanguage } from "./i18n.ts";
@@ -48,23 +48,25 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 	);
 	const [update, setUpdate] = useState<DesktopUpdateInfo>();
 	const [checkingUpdate, setCheckingUpdate] = useState(true);
+	const [updateError, setUpdateError] = useState<string>();
 	const [cssBusy, setCssBusy] = useState(false);
 	const [cssError, setCssError] = useState<string>();
 
-	useEffect(() => {
-		let active = true;
-		void checkForUpdates()
-			.then((value) => {
-				if (active) setUpdate(value);
-			})
-			.catch(() => {})
-			.finally(() => {
-				if (active) setCheckingUpdate(false);
-			});
-		return () => {
-			active = false;
-		};
+	const runUpdateCheck = useCallback(async () => {
+		setCheckingUpdate(true);
+		setUpdateError(undefined);
+		try {
+			setUpdate(await checkForUpdates());
+		} catch (error: unknown) {
+			setUpdateError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setCheckingUpdate(false);
+		}
 	}, []);
+
+	useEffect(() => {
+		void runUpdateCheck();
+	}, [runUpdateCheck]);
 
 	function handleToggleCloseQuits(): void {
 		const next = !closeQuits;
@@ -109,6 +111,14 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 					</button>
 				) : null}
 			</div>
+			{updateError ? (
+				<p className="settings-update-error" aria-live="polite">
+					{updateError}
+					<button className="settings-update-retry" type="button" onClick={() => void runUpdateCheck()}>
+						重试
+					</button>
+				</p>
+			) : null}
 			<div className="app-settings-cards">
 				<section className="app-settings-card">
 					<strong>语言</strong>

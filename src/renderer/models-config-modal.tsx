@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DesktopApiKeyProvider, DesktopProviderConfig, DesktopProviderModelConfig } from "../shared/contracts.ts";
 import {
 	discoverModels,
@@ -33,6 +33,48 @@ type DiscoveryState =
 
 const API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"];
 const COST_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+function hasDeepSeekThinkingCompat(model: DesktopProviderModelConfig): boolean {
+	return model.compat?.thinkingFormat === "deepseek";
+}
+
+function setDeepSeekThinkingCompat(model: DesktopProviderModelConfig, enabled: boolean): DesktopProviderModelConfig {
+	const compat = { ...(model.compat ?? {}) };
+	if (enabled) compat.thinkingFormat = "deepseek";
+	else delete compat.thinkingFormat;
+	return { ...model, compat: Object.keys(compat).length ? compat : undefined };
+}
+
+function ThinkingLevelMapEditor({
+	value,
+	onChange,
+}: {
+	value?: Record<string, string | null>;
+	onChange: (value: Record<string, string | null> | undefined) => void;
+}) {
+	const rows = THINKING_LEVELS.map((level) => [level, value?.[level] ?? ""] as const);
+	return (
+		<div className="models-thinking-map">
+			{rows.map(([level, mapped]) => (
+				<label key={level}>
+					<span>{level}</span>
+					<input
+						value={mapped}
+						placeholder="default"
+						onChange={(event) => {
+							const next = { ...(value ?? {}) };
+							const nextValue = event.target.value.trim();
+							if (nextValue) next[level] = nextValue;
+							else delete next[level];
+							onChange(Object.keys(next).length ? next : undefined);
+						}}
+					/>
+				</label>
+			))}
+		</div>
+	);
+}
 
 function emptyCost(): NonNullable<DesktopProviderModelConfig["cost"]> {
 	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -58,6 +100,8 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	const [selectedDiscovered, setSelectedDiscovered] = useState<string[]>([]);
 	const [confirmDiscard, setConfirmDiscard] = useState(false);
 	const [providerPickerOpen, setProviderPickerOpen] = useState(false);
+	const [providerPickerQuery, setProviderPickerQuery] = useState("");
+	const providerPickerInputRef = useRef<HTMLInputElement>(null);
 	const [authProvider, setAuthProvider] = useState<DesktopApiKeyProvider>();
 	const [modelTest, setModelTest] = useState<{ phase: "idle" | "loading" | "success" | "error"; message?: string }>({
 		phase: "idle",
@@ -68,6 +112,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	}>({
 		state: "idle",
 	});
+	const [catalogUndo, setCatalogUndo] = useState<DesktopProviderModelConfig>();
 	const hasChanges = JSON.stringify(config) !== JSON.stringify(savedConfig);
 	const requestClose = useCallback(() => {
 		if (hasChanges) setConfirmDiscard(true);
@@ -93,6 +138,23 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 			cancelled = true;
 		};
 	}, []);
+
+	const selectionIdentity = selection
+		? selection.type === "model"
+			? `model:${selection.providerId}:${selection.modelIndex}`
+			: `${selection.type}:${selection.providerId}`
+		: "none";
+
+	// Reset transient catalog state whenever the selected provider/model changes.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: selection identity intentionally coalesces the union.
+	useEffect(() => {
+		setCatalogUndo(undefined);
+		setCatalogFill({ state: "idle" });
+	}, [selectionIdentity]);
+
+	useEffect(() => {
+		if (providerPickerOpen) window.requestAnimationFrame(() => providerPickerInputRef.current?.focus());
+	}, [providerPickerOpen]);
 
 	const managedProvider =
 		selection?.type === "managed" ? providers.find((provider) => provider.id === selection.providerId) : undefined;
@@ -232,16 +294,20 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	async function handleCatalogFill(): Promise<void> {
 		if (!selectedProvider || !selectedModel) return;
 		setCatalogFill({ state: "loading" });
+		setCatalogUndo(undefined);
 		try {
 			const entry = await lookupModelCatalog(selectedProvider.id, selectedModel.id);
 			if (!entry) {
 				setCatalogFill({ state: "error", message: "models.dev 没有该模型的记录。" });
 				return;
 			}
+			setCatalogUndo(selectedModel);
 			updateModel((model) => ({
 				...model,
 				name: model.name ?? entry.name,
 				reasoning: model.reasoning ?? entry.reasoning,
+				thinkingLevelMap: model.thinkingLevelMap ?? entry.thinkingLevelMap,
+				compat: model.compat ?? entry.compat,
 				input: model.input ?? entry.input,
 				contextWindow: model.contextWindow ?? entry.contextWindow,
 				maxTokens: model.maxTokens ?? entry.maxTokens,
@@ -255,6 +321,13 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 		} catch (error) {
 			setCatalogFill({ state: "error", message: error instanceof Error ? error.message : String(error) });
 		}
+	}
+
+	function undoCatalogFill(): void {
+		if (!catalogUndo) return;
+		updateModel(() => catalogUndo);
+		setCatalogUndo(undefined);
+		setCatalogFill({ state: "idle" });
 	}
 
 	async function handleSave(): Promise<void> {
@@ -327,7 +400,10 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 					<button
 						className="outline-button models-add-provider"
 						type="button"
-						onClick={() => setProviderPickerOpen(true)}
+						onClick={() => {
+							setProviderPickerQuery("");
+							setProviderPickerOpen(true);
+						}}
 					>
 						＋ 添加服务商
 					</button>
@@ -575,6 +651,18 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									/>
 									图片输入
 								</label>
+								{selectedModel.reasoning ? (
+									<label>
+										<input
+											type="checkbox"
+											checked={hasDeepSeekThinkingCompat(selectedModel)}
+											onChange={(event) =>
+												updateModel((model) => setDeepSeekThinkingCompat(model, event.target.checked))
+											}
+										/>
+										DeepSeek thinking
+									</label>
+								) : null}
 								<button
 									className="skill-version-button"
 									type="button"
@@ -583,11 +671,46 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								>
 									{catalogFill.state === "loading" ? "查询中…" : "从目录填充"}
 								</button>
+								<a
+									className="models-catalog-source"
+									href="https://github.com/anomalyco/models.dev"
+									onClick={(event) => {
+										event.preventDefault();
+										void window.piDesktop.openExternalUrl("https://github.com/anomalyco/models.dev");
+									}}
+								>
+									目录来源 ↗
+								</a>
+								{catalogUndo ? (
+									<button className="skill-version-button" type="button" onClick={undoCatalogFill}>
+										撤销填充
+									</button>
+								) : null}
 							</div>
 							{catalogFill.state === "success" ? (
 								<p className="model-test-result is-success">已从 models.dev 填充空缺字段。</p>
 							) : catalogFill.state === "error" ? (
 								<p className="model-test-result is-error">{catalogFill.message}</p>
+							) : null}
+							{selectedModel.reasoning ? (
+								<div className="models-thinking-map-section">
+									<div className="models-field-title models-thinking-map-heading">
+										<span>Thinking level map</span>
+										{selectedModel.thinkingLevelMap ? (
+											<button
+												className="skill-version-button"
+												type="button"
+												onClick={() => updateModel((model) => ({ ...model, thinkingLevelMap: undefined }))}
+											>
+												清空
+											</button>
+										) : null}
+									</div>
+									<ThinkingLevelMapEditor
+										value={selectedModel.thinkingLevelMap}
+										onChange={(value) => updateModel((model) => ({ ...model, thinkingLevelMap: value }))}
+									/>
+								</div>
 							) : null}
 							<div className="models-form-grid">
 								<label>
@@ -676,12 +799,27 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 				// biome-ignore lint/a11y/noStaticElementInteractions: 点击遮罩关闭嵌套对话框
 				<div
 					className="models-nested-backdrop"
+					onKeyDown={(event) => {
+						if (event.key === "Escape") {
+							event.preventDefault();
+							event.stopPropagation();
+							setProviderPickerOpen(false);
+						}
+					}}
+					tabIndex={-1}
 					onMouseDown={(event) => {
 						if (event.target === event.currentTarget) setProviderPickerOpen(false);
 					}}
 				>
 					<div className="models-provider-picker" role="dialog" aria-modal="true" aria-label="添加服务商">
 						<div className="models-provider-picker-search">添加服务商</div>
+						<input
+							className="models-provider-picker-input"
+							ref={providerPickerInputRef}
+							value={providerPickerQuery}
+							placeholder="筛选服务商"
+							onChange={(event) => setProviderPickerQuery(event.target.value)}
+						/>
 						<div className="models-provider-picker-grid">
 							<button
 								type="button"
@@ -696,35 +834,71 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								</span>
 								<b>＋</b>
 							</button>
-							{providers.map((provider) => (
-								<button
-									key={provider.id}
-									type="button"
-									disabled={settingUpProvider || providerSetupInProgress}
-									onClick={() => {
-										onChangeProvider(provider.id);
-										setProviderPickerOpen(false);
-										requestProviderSetup(provider);
-									}}
-								>
-									<span>
-										<strong>{provider.name}</strong>
-										<small>API Key / OAuth</small>
-									</span>
-									<b>{provider.name.slice(0, 1).toUpperCase()}</b>
-								</button>
-							))}
+							{providers
+								.filter((provider) => {
+									const query = providerPickerQuery.trim().toLocaleLowerCase();
+									return (
+										!query ||
+										provider.name.toLocaleLowerCase().includes(query) ||
+										provider.id.toLocaleLowerCase().includes(query)
+									);
+								})
+								.map((provider) => (
+									<button
+										key={provider.id}
+										type="button"
+										disabled={settingUpProvider || providerSetupInProgress}
+										onClick={() => {
+											onChangeProvider(provider.id);
+											setProviderPickerOpen(false);
+											if (provider.configured) setSelection({ type: "managed", providerId: provider.id });
+											else requestProviderSetup(provider);
+										}}
+									>
+										<span>
+											<strong>{provider.name}</strong>
+											<small>
+												{provider.supportsApiKey && provider.supportsOAuth
+													? "API Key / OAuth"
+													: provider.supportsOAuth
+														? (provider.oauthName ?? "OAuth")
+														: "API Key"}
+											</small>
+										</span>
+										<b>{provider.name.slice(0, 1).toUpperCase()}</b>
+									</button>
+								))}
 						</div>
 					</div>
 				</div>
 			) : null}
 			{authProvider ? (
-				<div className="models-nested-backdrop">
+				// biome-ignore lint/a11y/noStaticElementInteractions: nested dialog captures Escape
+				<div
+					className="models-nested-backdrop"
+					onKeyDown={(event) => {
+						if (event.key === "Escape") {
+							event.preventDefault();
+							event.stopPropagation();
+							setAuthProvider(undefined);
+						}
+					}}
+					tabIndex={-1}
+					onMouseDown={(event) => {
+						if (event.target === event.currentTarget) setAuthProvider(undefined);
+					}}
+				>
 					<div className="models-discard-dialog" role="dialog" aria-modal="true" aria-label="选择认证方式">
 						<strong>连接 {authProvider.name}</strong>
 						<p>选择用于该服务商的认证方式。</p>
 						<div>
-							<button className="outline-button" type="button" onClick={() => setAuthProvider(undefined)}>
+							<button
+								// biome-ignore lint/a11y/noAutofocus: 嵌套认证对话框打开后应立即聚焦可取消操作
+								autoFocus
+								className="outline-button"
+								type="button"
+								onClick={() => setAuthProvider(undefined)}
+							>
 								取消
 							</button>
 							<button
@@ -757,6 +931,14 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 				// biome-ignore lint/a11y/noStaticElementInteractions: 点击遮罩关闭确认框
 				<div
 					className="models-nested-backdrop"
+					onKeyDown={(event) => {
+						if (event.key === "Escape") {
+							event.preventDefault();
+							event.stopPropagation();
+							setConfirmDiscard(false);
+						}
+					}}
+					tabIndex={-1}
 					onMouseDown={(event) => {
 						if (event.target === event.currentTarget) setConfirmDiscard(false);
 					}}
@@ -765,7 +947,13 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 						<strong>放弃未保存的更改？</strong>
 						<p>关闭后，本次模型配置修改不会保存。</p>
 						<div>
-							<button className="outline-button" type="button" onClick={() => setConfirmDiscard(false)}>
+							<button
+								// biome-ignore lint/a11y/noAutofocus: 确认弹窗打开后先聚焦安全的继续编辑操作
+								autoFocus
+								className="outline-button"
+								type="button"
+								onClick={() => setConfirmDiscard(false)}
+							>
 								继续编辑
 							</button>
 							<button className="danger-button" type="button" onClick={onClose}>

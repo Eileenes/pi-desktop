@@ -379,6 +379,9 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 			setSelected((current) => {
 				if (current && list.some((skill) => skill.filePath === current)) return current;
 				const initial = list.find((skill) => !skill.disableModelInvocation) ?? list[0];
+				if (initial?.disableModelInvocation) {
+					setDormantOpenGroups((groups) => ({ ...groups, [skillGroupLabel(initial)]: true }));
+				}
 				return initial?.filePath;
 			});
 		} catch (error) {
@@ -391,10 +394,6 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 	useEffect(() => {
 		void loadSkills();
 	}, [loadSkills]);
-
-	useEffect(() => {
-		if (!loading && skills.length === 0) setAddMode(true);
-	}, [loading, skills.length]);
 
 	const checkForUpdates = useCallback(
 		async (skill?: DesktopSkillInfo) => {

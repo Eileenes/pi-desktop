@@ -48,6 +48,7 @@ import {
 	openWorkspacePath,
 	readFullBashOutput,
 	readWorkspaceFile,
+	reloadSession,
 	renameSession,
 	respondToAuthenticationPrompt,
 	respondToExtensionDialog,
@@ -73,6 +74,7 @@ import { PluginsConfigModal } from "./plugins-config-modal.tsx";
 import { ProjectTrustDialog } from "./project-trust-dialog.tsx";
 import { ContextUsageRing, SessionStatsPanel } from "./session-stats.tsx";
 import { SkillsConfigModal } from "./skills-config-modal.tsx";
+import { SourceControl } from "./source-control.tsx";
 import { getLanguageForPath, HighlightedCode } from "./syntax-highlight.tsx";
 import { buildConversationTurns, partitionTranscript } from "./transcript-group.ts";
 import { UpdateReminder } from "./update-reminder.tsx";
@@ -1684,12 +1686,14 @@ export function App() {
 	const [workspaceEntries, setWorkspaceEntries] = useState<DesktopWorkspaceEntry[]>([]);
 	const [mentionEntries, setMentionEntries] = useState<DesktopWorkspaceEntry[]>([]);
 	const [gitWorktrees, setGitWorktrees] = useState<DesktopGitWorktree[]>([]);
+	const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
 	const [fileTabs, setFileTabs] = useState<FileTab[]>([]);
 	const [activeTabPath, setActiveTabPath] = useState<string | undefined>();
 	const [fileExplorerError, setFileExplorerError] = useState<string>();
 	const [loadingFiles, setLoadingFiles] = useState(false);
 	const [loadingFilePath, setLoadingFilePath] = useState<string>();
 	const [inspectorOpen, setInspectorOpen] = useState(false);
+	const [rightPanelMode, setRightPanelMode] = useState<"files" | "source">("files");
 	const [sidebarOpen, setSidebarOpen] = useState(true);
 	const [isOnline, setIsOnline] = useState(() => navigator.onLine);
 	const [configModal, setConfigModal] = useState<ConfigModal | undefined>();
@@ -2209,6 +2213,7 @@ export function App() {
 		});
 		const unsubscribeChanges = onWorkspaceChanged((changes) => {
 			if (!snapshot.projectTrusted || !snapshot.workspacePath) return;
+			setWorkspaceRefreshToken((value) => value + 1);
 			void refreshWorkspaceFiles();
 			if (activeTabPath && changes.some((change) => change.path === activeTabPath)) {
 				setChangedFileHint(true);
@@ -2813,7 +2818,12 @@ export function App() {
 			return true;
 		}
 		if (command === "reload") {
-			pushNotice("accent", "资源会在每次操作后自动重载，无需手动刷新。");
+			try {
+				await reloadSession();
+				pushNotice("success", "扩展与资源已重载。");
+			} catch (error) {
+				pushNotice("error", error instanceof Error ? error.message : String(error));
+			}
 			return true;
 		}
 		if (command === "model") {
@@ -3465,6 +3475,7 @@ export function App() {
 					<WorktreeSection
 						key={snapshot.workspacePath}
 						workspacePath={snapshot.workspacePath}
+						projectTrusted={snapshot.projectTrusted}
 						onSwitch={(path) => {
 							setProjectMenuOpen(false);
 							void handleSwitchWorkspacePath(path);
@@ -4138,7 +4149,11 @@ export function App() {
 							<div className="attachment-list">
 								{attachments.map((attachment) => (
 									<span className="attachment-chip" key={attachment.id}>
-										<Icon name="image" size={13} />
+										{attachment.thumbnailDataUrl ? (
+											<img className="attachment-thumbnail" src={attachment.thumbnailDataUrl} alt="" />
+										) : (
+											<Icon name="image" size={13} />
+										)}
 										<span title={attachment.name}>
 											{attachment.name} · {formatAttachmentSize(attachment.size)}
 										</span>
@@ -4528,9 +4543,21 @@ export function App() {
 						</div>
 						<div className="file-workbench-actions">
 							<button
+								className={`icon-button ${rightPanelMode === "source" ? "is-active" : ""}`}
+								type="button"
+								aria-label="源代码管理"
+								aria-pressed={rightPanelMode === "source"}
+								disabled={!snapshot.workspacePath || !snapshot.projectTrusted}
+								title={!snapshot.projectTrusted ? "信任项目后可查看源代码管理" : "源代码管理"}
+								onClick={() => setRightPanelMode((mode) => (mode === "source" ? "files" : "source"))}
+							>
+								<Icon name="branch" size={15} />
+							</button>
+							<button
 								className={`icon-button ${fileTreeOpen ? "is-active" : ""}`}
 								type="button"
 								aria-label={fileTreeOpen ? "隐藏文件树" : "显示文件树"}
+								disabled={rightPanelMode === "source"}
 								onClick={() => setFileTreeOpen((open) => !open)}
 							>
 								<Icon name="files" size={15} />
@@ -4546,22 +4573,25 @@ export function App() {
 						</div>
 					</header>
 					<div className="right-panel-body">
-						<Inspector
-							changedHint={changedFileHint}
-							onReloadChanged={() => {
-								setChangedFileHint(false);
-								if (activeTabPath) void handleReloadActiveTab(activeTabPath);
-							}}
-							tabs={fileTabs}
-							activeTabPath={activeTabPath}
-							onClose={() => setInspectorOpen(false)}
-							onOpenFile={(path) => void handleOpenFileWithDefaultApp(path)}
-							onRevealFile={(path) => void handleRevealFile(path)}
-							onDownload={(path) => void handleDownloadFile(path)}
-							onQuoteLine={handleQuoteLine}
-							onQuoteLineRange={handleQuoteLineRange}
-						/>
-						{fileTreeOpen ? (
+						{rightPanelMode === "source" ? <SourceControl key={workspaceRefreshToken} /> : null}
+						{rightPanelMode === "files" ? (
+							<Inspector
+								changedHint={changedFileHint}
+								onReloadChanged={() => {
+									setChangedFileHint(false);
+									if (activeTabPath) void handleReloadActiveTab(activeTabPath);
+								}}
+								tabs={fileTabs}
+								activeTabPath={activeTabPath}
+								onClose={() => setInspectorOpen(false)}
+								onOpenFile={(path) => void handleOpenFileWithDefaultApp(path)}
+								onRevealFile={(path) => void handleRevealFile(path)}
+								onDownload={(path) => void handleDownloadFile(path)}
+								onQuoteLine={handleQuoteLine}
+								onQuoteLineRange={handleQuoteLineRange}
+							/>
+						) : null}
+						{rightPanelMode === "files" && fileTreeOpen ? (
 							<>
 								<hr
 									className="file-tree-resizer"
@@ -4627,6 +4657,7 @@ export function App() {
 				<PluginsConfigModal
 					plugins={snapshot.plugins}
 					workspacePath={snapshot.workspacePath}
+					projectTrusted={snapshot.projectTrusted}
 					onClose={() => setConfigModal(undefined)}
 				/>
 			) : null}

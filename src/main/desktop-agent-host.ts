@@ -51,9 +51,11 @@ import { ExtensionCustomUiController, ExtensionDialogQueue } from "./extension-u
 import {
 	addGitWorktree as gitAddWorktree,
 	getGitDiff as gitGetDiff,
+	listGitBranches as gitListBranches,
 	listGitChanges as gitListChanges,
 	listGitWorktrees as gitListWorktrees,
 	removeGitWorktree as gitRemoveWorktree,
+	switchGitBranch as gitSwitchBranch,
 } from "./git-integration.ts";
 import {
 	discoverModels as discoverModelsFromUrl,
@@ -1264,6 +1266,8 @@ export class DesktopAgentHost {
 							...(model.name === undefined ? {} : { name: model.name }),
 							...(model.api === undefined ? {} : { api: model.api }),
 							...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
+							...(model.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: model.thinkingLevelMap }),
+							...(model.compat === undefined ? {} : { compat: model.compat }),
 							...(model.input === undefined ? {} : { input: model.input }),
 							...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
 							...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
@@ -1509,6 +1513,11 @@ export class DesktopAgentHost {
 			const root = resolve(installedPath);
 			return candidate === root || candidate.startsWith(`${root}${sep}`);
 		};
+		const configuredVersionOf = (source: string): string | undefined => {
+			const npmSource = source.startsWith("npm:") ? source.slice(4) : source;
+			const version = npmSource.match(/@([0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)$/u)?.[1];
+			return version;
+		};
 
 		return Promise.all(
 			configured.map(async (pkg): Promise<DesktopPluginPackage> => {
@@ -1573,16 +1582,20 @@ export class DesktopAgentHost {
 					source: pkg.source,
 					scope: pkg.scope,
 					enabled,
-					status: !enabled
-						? "disabled"
-						: diagnostics.some((entry) => entry.type === "error")
-							? "error"
-							: resourceCount > 0
-								? "loaded"
-								: "installed",
+					status: !installedPath
+						? "missing"
+						: !enabled
+							? "disabled"
+							: diagnostics.some((entry) => entry.type === "error")
+								? "error"
+								: resourceCount > 0
+									? "loaded"
+									: "installed",
 					...(installedPath ? { installedPath } : {}),
 					...(packageName ? { packageName } : {}),
 					...(version ? { version } : {}),
+					...(configuredVersionOf(pkg.source) ? { configuredVersion: configuredVersionOf(pkg.source) } : {}),
+					...(pkg.filtered ? { filtered: true } : {}),
 					resources: {
 						extensions: extensionPaths,
 						skills: skillPaths,
@@ -1593,6 +1606,11 @@ export class DesktopAgentHost {
 				};
 			}),
 		);
+	}
+
+	async reloadSession(): Promise<DesktopSnapshot> {
+		if (this.hasStreamingSession()) throw new Error("请等待当前智能体任务完成后，再重载插件资源。");
+		return this.enqueueWorkspaceChange(() => this.reloadSessionResources());
 	}
 
 	private async reloadSessionResources(): Promise<DesktopSnapshot> {
@@ -1650,6 +1668,22 @@ export class DesktopAgentHost {
 	async listGitWorktrees(): Promise<DesktopGitWorktree[]> {
 		const workspacePath = this.requireWorkspacePath();
 		return gitListWorktrees(workspacePath);
+	}
+
+	async listGitBranches(): Promise<{ local: string[]; remote: string[] }> {
+		const workspacePath = this.requireWorkspacePath();
+		return gitListBranches(workspacePath);
+	}
+
+	async switchGitBranch(branch: string): Promise<DesktopSnapshot> {
+		if (this.hasStreamingSession()) throw new Error("请等待当前智能体任务完成后，再切换 Git 分支。");
+		if (!this.projectTrusted) throw new Error("请先信任当前项目，再切换 Git 分支。");
+		const workspacePath = this.requireWorkspacePath();
+		await gitSwitchBranch(workspacePath, branch);
+		await this.session?.resourceLoader.reload();
+		this.workspaceSearchCache = undefined;
+		for (const listener of this.workspaceChangeListeners) listener([]);
+		return this.publish();
 	}
 
 	async addGitWorktree(branch: string): Promise<DesktopGitWorktree> {

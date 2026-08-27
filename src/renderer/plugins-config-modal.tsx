@@ -1,11 +1,19 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { DesktopPlugin, DesktopPluginPackage } from "../shared/contracts.ts";
-import { getPluginPackages, installPlugin, removePlugin, togglePlugin } from "./desktop-store.ts";
+import {
+	getPluginPackages,
+	installPlugin,
+	reloadSession,
+	removePlugin,
+	selectDirectory,
+	togglePlugin,
+} from "./desktop-store.ts";
 import { Modal } from "./modal.tsx";
 
 interface PluginsConfigModalProps {
 	plugins: DesktopPlugin[];
 	workspacePath?: string;
+	projectTrusted: boolean;
 	onClose: () => void;
 }
 
@@ -15,6 +23,7 @@ const STATUS_LABEL: Record<DesktopPluginPackage["status"], string> = {
 	error: "加载错误",
 	installed: "已安装",
 	loaded: "已加载",
+	missing: "未找到",
 };
 
 function packageKey(pkg: Pick<DesktopPluginPackage, "scope" | "source">): string {
@@ -37,14 +46,25 @@ function resourceSummary(pkg: DesktopPluginPackage): string {
 	return parts.length ? parts.join(" · ") : "未发现资源";
 }
 
+function displayResourcePath(path: string, workspacePath?: string): string {
+	if (!workspacePath) return path;
+	const normalizedRoot = workspacePath.replace(/[\\/]+$/u, "");
+	if (path === normalizedRoot) return ".";
+	if (path.startsWith(`${normalizedRoot}/`) || path.startsWith(`${normalizedRoot}\\`)) {
+		return `./${path.slice(normalizedRoot.length).replace(/^[/\\]/u, "")}`;
+	}
+	return path.replace(/^\/Users\/[^/]+/u, "~");
+}
+
 export const PluginsConfigModal = memo(function PluginsConfigModal({
 	plugins,
 	workspacePath,
+	projectTrusted,
 	onClose,
 }: PluginsConfigModalProps) {
 	const [packages, setPackages] = useState<DesktopPluginPackage[]>([]);
 	const [loading, setLoading] = useState(true);
-	const [selectedKey, setSelectedKey] = useState("add");
+	const [selectedKey, setSelectedKey] = useState<string>();
 	const [installSource, setInstallSource] = useState("");
 	const [installScope, setInstallScope] = useState<"user" | "project">("user");
 	const [busy, setBusy] = useState(false);
@@ -71,9 +91,19 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 		try {
 			const next = await getPluginPackages();
 			setPackages(next);
-			setSelectedKey((current) =>
-				current === "add" || next.some((pkg) => packageKey(pkg) === current) ? current : "add",
-			);
+			setSelectedKey((current) => {
+				if (current === "add") return current;
+				if (current === undefined) return undefined;
+				if (next.some((pkg) => packageKey(pkg) === current)) return current;
+				const [scope, ...sourceParts] = current.split("\0");
+				const source = sourceParts.join("\0");
+				const normalized = next.find(
+					(pkg) =>
+						pkg.scope === scope &&
+						(pkg.source === source || pkg.source.endsWith(source) || source.endsWith(pkg.source)),
+				);
+				return normalized ? packageKey(normalized) : undefined;
+			});
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		} finally {
@@ -132,6 +162,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 					<small>
 						{[pkg.version ? `v${pkg.version}` : undefined, STATUS_LABEL[pkg.status]].filter(Boolean).join(" · ")}
 					</small>
+					{pkg.filtered ? <small className="plugin-filtered-label">已过滤</small> : null}
 				</span>
 			</button>
 		);
@@ -171,6 +202,12 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 					</button>
 				</aside>
 				<section className="resource-config-detail">
+					{workspacePath && !projectTrusted ? (
+						<div className="resource-trust-banner" aria-live="polite">
+							<strong>项目工作区尚未信任</strong>
+							<span>项目级插件安装和加载会受到限制，请先在主界面完成信任确认。</span>
+						</div>
+					) : null}
 					{selectedKey === "add" ? (
 						<div className="resource-add-panel plugin-add-panel">
 							<strong>添加插件</strong>
@@ -186,12 +223,37 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 							</a>
 							<label>
 								源
-								<input
-									className="mono"
-									value={installSource}
-									placeholder="@scope/plugin、git:https://… 或 /path"
-									onChange={(event) => setInstallSource(event.target.value)}
-								/>
+								<div className="plugin-source-picker">
+									<input
+										className="mono"
+										value={installSource}
+										placeholder="@scope/plugin、git:https://… 或 /path"
+										onChange={(event) => setInstallSource(event.target.value)}
+										onBlur={(event) => setInstallSource(normalizeInstallSource(event.currentTarget.value))}
+										onKeyDown={(event) => {
+											if (event.key === "Enter") {
+												event.preventDefault();
+												void handleInstall();
+											}
+										}}
+									/>
+									<button
+										className="outline-button"
+										type="button"
+										disabled={busy}
+										onClick={() =>
+											void selectDirectory()
+												.then((path) => {
+													if (path) setInstallSource(path);
+												})
+												.catch((reason: unknown) => {
+													setError(reason instanceof Error ? reason.message : String(reason));
+												})
+										}
+									>
+										浏览…
+									</button>
+								</div>
 							</label>
 							<div className="plugin-example-chips">
 								{[
@@ -215,7 +277,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 								<button
 									type="button"
 									className={installScope === "project" ? "is-active" : ""}
-									disabled={!workspacePath}
+									disabled={!workspacePath || !projectTrusted}
 									onClick={() => setInstallScope("project")}
 								>
 									项目
@@ -263,7 +325,10 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 								<span>状态</span>
 								<strong className={`is-${selected.status}`}>{STATUS_LABEL[selected.status]}</strong>
 								<span>版本</span>
-								<strong>{selected.version ?? "—"}</strong>
+								<strong>
+									{selected.version ? `已安装 v${selected.version}` : "—"}
+									{selected.configuredVersion ? ` · 配置 v${selected.configuredVersion}` : ""}
+								</strong>
 								<span>包名</span>
 								<strong className="is-mono">{selected.packageName ?? selected.source}</strong>
 								<span>安装路径</span>
@@ -281,7 +346,9 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 												{kind.toUpperCase()} <span>{paths.length}</span>
 											</summary>
 											{paths.map((path) => (
-												<code key={path}>{path}</code>
+												<code key={path} title={path}>
+													{displayResourcePath(path, workspacePath)}
+												</code>
 											))}
 										</details>
 									) : null,
@@ -306,11 +373,23 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 										void run(
 											() =>
 												installPlugin(selected.source, selected.scope === "project").then(() => undefined),
-											"插件已更新并重载",
+											"插件已更新",
 										)
 									}
 								>
-									更新 / 重载
+									更新
+								</button>
+								<button
+									className="outline-button"
+									type="button"
+									disabled={busy}
+									onClick={() =>
+										void run(async () => {
+											await reloadSession();
+										}, "会话已重载")
+									}
+								>
+									重载会话
 								</button>
 								<button
 									className="danger-button"

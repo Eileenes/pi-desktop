@@ -151,8 +151,12 @@ export interface DesktopPlugin {
 export interface DesktopPluginPackage {
 	source: string;
 	scope: "user" | "project";
-	status: "disabled" | "error" | "installed" | "loaded";
+	status: "disabled" | "error" | "installed" | "loaded" | "missing";
 	enabled: boolean;
+	/** Resource filters from the package manager settings. */
+	filtered?: boolean;
+	/** Version recorded by the package configuration, when available. */
+	configuredVersion?: string;
 	installedPath?: string;
 	packageName?: string;
 	version?: string;
@@ -170,6 +174,8 @@ export interface DesktopImageAttachment {
 	name: string;
 	mimeType: string;
 	size: number;
+	/** Small preview generated in the main process; original bytes never cross the bridge. */
+	thumbnailDataUrl?: string;
 }
 
 export interface DesktopAuthenticationPrompt {
@@ -265,6 +271,11 @@ export interface DesktopGitWorktree {
 	branch: string;
 }
 
+export interface DesktopGitBranches {
+	local: string[];
+	remote: string[];
+}
+
 export interface DesktopProviderModelConfig {
 	id: string;
 	/** Original models.json key used by the main process for lossless renames. */
@@ -272,6 +283,10 @@ export interface DesktopProviderModelConfig {
 	name?: string;
 	api?: string;
 	reasoning?: boolean;
+	/** Optional provider-specific mapping for Pi thinking levels. */
+	thinkingLevelMap?: Record<string, string | null>;
+	/** Provider compatibility flags (for example DeepSeek thinking format). */
+	compat?: Record<string, unknown>;
 	input?: string[];
 	contextWindow?: number;
 	maxTokens?: number;
@@ -318,6 +333,10 @@ export interface DesktopGitDiffInput {
 }
 
 export interface DesktopAddWorktreeInput {
+	branch: string;
+}
+
+export interface DesktopSwitchGitBranchInput {
 	branch: string;
 }
 
@@ -465,6 +484,7 @@ export type Unsubscribe = () => void;
 export interface DesktopApi {
 	bootstrap(): Promise<DesktopSnapshot>;
 	chooseWorkspace(): Promise<DesktopSnapshot>;
+	selectDirectory(): Promise<string | undefined>;
 	chooseImages(): Promise<DesktopImageAttachment[]>;
 	attachDroppedImages(files: File[]): Promise<DesktopImageAttachment[]>;
 	importDroppedFiles(files: File[], overwriteConflicts?: boolean): Promise<DesktopImportedFileResult[]>;
@@ -505,6 +525,8 @@ export interface DesktopApi {
 	listGitChanges(): Promise<DesktopGitChange[]>;
 	getGitDiff(input: DesktopGitDiffInput): Promise<string>;
 	listGitWorktrees(): Promise<DesktopGitWorktree[]>;
+	listGitBranches(): Promise<DesktopGitBranches>;
+	switchGitBranch(input: DesktopSwitchGitBranchInput): Promise<DesktopSnapshot>;
 	addGitWorktree(input: DesktopAddWorktreeInput): Promise<DesktopGitWorktree>;
 	removeGitWorktree(input: DesktopRemoveWorktreeInput): Promise<void>;
 	openWorkspacePath(input: DesktopOpenWorkspacePathInput): Promise<DesktopSnapshot>;
@@ -521,6 +543,7 @@ export interface DesktopApi {
 	installPlugin(input: DesktopPluginSourceInput): Promise<DesktopSnapshot>;
 	removePlugin(input: DesktopPluginSourceInput): Promise<DesktopSnapshot>;
 	togglePlugin(input: DesktopTogglePluginInput): Promise<DesktopSnapshot>;
+	reloadSession(): Promise<DesktopSnapshot>;
 	getPluginPackages(): Promise<DesktopPluginPackage[]>;
 	listSkillsDetailed(): Promise<DesktopSkillInfo[]>;
 	searchSkills(query: string): Promise<DesktopSkillSearchResult[]>;
@@ -745,7 +768,19 @@ function isDesktopProviderConfig(value: unknown): value is DesktopProviderConfig
 function isDesktopProviderModelConfig(value: unknown): value is DesktopProviderModelConfig {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
 	const model = value as Record<string, unknown>;
-	const modelKeys = ["id", "sourceId", "name", "api", "reasoning", "input", "contextWindow", "maxTokens", "cost"];
+	const modelKeys = [
+		"id",
+		"sourceId",
+		"name",
+		"api",
+		"reasoning",
+		"thinkingLevelMap",
+		"compat",
+		"input",
+		"contextWindow",
+		"maxTokens",
+		"cost",
+	];
 	if (!Object.keys(model).every((key) => modelKeys.includes(key))) return false;
 	if (typeof model.id !== "string" || model.id.length === 0 || model.id.length > 500) return false;
 	if (model.sourceId !== undefined && (typeof model.sourceId !== "string" || model.sourceId.length > 500))
@@ -753,6 +788,24 @@ function isDesktopProviderModelConfig(value: unknown): value is DesktopProviderM
 	if (model.name !== undefined && (typeof model.name !== "string" || model.name.length > 500)) return false;
 	if (model.api !== undefined && (typeof model.api !== "string" || model.api.length > 200)) return false;
 	if (model.reasoning !== undefined && typeof model.reasoning !== "boolean") return false;
+	if (model.thinkingLevelMap !== undefined) {
+		if (
+			typeof model.thinkingLevelMap !== "object" ||
+			model.thinkingLevelMap === null ||
+			Array.isArray(model.thinkingLevelMap)
+		)
+			return false;
+		if (
+			!Object.entries(model.thinkingLevelMap).every(
+				([key, value]) => key.length <= 50 && (typeof value === "string" || value === null),
+			)
+		)
+			return false;
+	}
+	if (model.compat !== undefined) {
+		if (typeof model.compat !== "object" || model.compat === null || Array.isArray(model.compat)) return false;
+		if (Object.keys(model.compat).some((key) => key.length > 100)) return false;
+	}
 	if (
 		model.input !== undefined &&
 		(!Array.isArray(model.input) ||

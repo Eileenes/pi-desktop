@@ -230,7 +230,16 @@ async function prepareImageAttachments(filePaths: string[]): Promise<DesktopImag
 		});
 	}
 	for (const attachment of selected) pendingImageAttachments.set(attachment.id, attachment);
-	return selected.map(({ id, name, mimeType, size }) => ({ id, name, mimeType, size }));
+	return selected.map(({ id, name, mimeType, size, image }) => ({
+		id,
+		name,
+		mimeType,
+		size,
+		thumbnailDataUrl: nativeImage
+			.createFromBuffer(Buffer.from(image.data, "base64"))
+			.resize({ width: 72, height: 72, quality: "good" })
+			.toDataURL(),
+	}));
 }
 
 function registerIpc(): void {
@@ -246,6 +255,11 @@ function registerIpc(): void {
 		});
 		if (result.canceled || !result.filePaths[0]) return getHost().getSnapshot();
 		return getHost().openWorkspace(result.filePaths[0]);
+	});
+	ipcMain.handle("pi-desktop:select-directory", async (event): Promise<string | undefined> => {
+		assertMainWindowSender(event);
+		const result = await dialog.showOpenDialog({ properties: ["openDirectory"], title: "选择本地目录" });
+		return result.canceled ? undefined : result.filePaths[0];
 	});
 	ipcMain.handle("pi-desktop:choose-images", async (event) => {
 		assertMainWindowSender(event);
@@ -616,6 +630,15 @@ function registerIpc(): void {
 		assertMainWindowSender(event);
 		return getHost().listGitWorktrees();
 	});
+	ipcMain.handle("pi-desktop:list-git-branches", async (event) => {
+		assertMainWindowSender(event);
+		return getHost().listGitBranches();
+	});
+	ipcMain.handle("pi-desktop:switch-git-branch", async (event, value: unknown): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		if (!isDesktopAddWorktreeInput(value)) throw new Error("无效的 Git 分支请求。");
+		return getHost().switchGitBranch(value.branch);
+	});
 	ipcMain.handle("pi-desktop:add-git-worktree", async (event, value: unknown) => {
 		assertMainWindowSender(event);
 		if (!isDesktopAddWorktreeInput(value)) {
@@ -760,6 +783,10 @@ function registerIpc(): void {
 			throw new Error("无效的插件启停请求。");
 		}
 		return getHost().togglePlugin(value.source, value.local, value.enabled);
+	});
+	ipcMain.handle("pi-desktop:reload-session", async (event): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		return getHost().reloadSession();
 	});
 	ipcMain.handle("pi-desktop:get-plugin-packages", async (event) => {
 		assertMainWindowSender(event);

@@ -89,6 +89,10 @@ export async function chooseWorkspace(): Promise<DesktopSnapshot> {
 	return next;
 }
 
+export function selectDirectory(): Promise<string | undefined> {
+	return window.piDesktop.selectDirectory();
+}
+
 export function chooseImages(): Promise<DesktopImageAttachment[]> {
 	return window.piDesktop.chooseImages();
 }
@@ -285,6 +289,16 @@ export function listGitWorktrees(): Promise<DesktopGitWorktree[]> {
 	return window.piDesktop.listGitWorktrees();
 }
 
+export function listGitBranches(): Promise<{ local: string[]; remote: string[] }> {
+	return window.piDesktop.listGitBranches();
+}
+
+export async function switchGitBranch(branch: string): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.switchGitBranch({ branch });
+	publish(next);
+	return next;
+}
+
 export function addGitWorktree(branch: string): Promise<DesktopGitWorktree> {
 	return window.piDesktop.addGitWorktree({ branch });
 }
@@ -365,6 +379,12 @@ export async function removePlugin(source: string, local: boolean): Promise<Desk
 
 export async function togglePlugin(source: string, local: boolean, enabled: boolean): Promise<DesktopSnapshot> {
 	const next = await window.piDesktop.togglePlugin({ source, local, enabled });
+	publish(next);
+	return next;
+}
+
+export async function reloadSession(): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.reloadSession();
 	publish(next);
 	return next;
 }

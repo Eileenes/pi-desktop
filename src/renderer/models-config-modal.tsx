@@ -276,6 +276,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 										}
 									>
 										<span>{model.name ?? model.id}</span>
+										{model.reasoning ? <span className="models-reasoning-badge">T</span> : null}
 									</button>
 								))}
 							</div>

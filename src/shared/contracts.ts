@@ -39,6 +39,7 @@ export interface DesktopSessionSnapshot {
 	thinkingLevel?: DesktopThinkingLevel;
 	availableThinkingLevels?: DesktopThinkingLevel[];
 	isCompacting?: boolean;
+	systemPrompt?: string;
 	messages: DesktopTranscriptMessage[];
 }
 
@@ -151,6 +152,7 @@ export interface DesktopSessionStats {
 export interface DesktopSnapshot {
 	workspacePath?: string;
 	projectTrusted: boolean;
+	userHomeName?: string;
 	pendingToolApprovals: DesktopToolApproval[];
 	pendingAuthenticationPrompts: DesktopAuthenticationPrompt[];
 	apiKeyProviders: DesktopApiKeyProvider[];
@@ -312,6 +314,8 @@ export interface DesktopApi {
 	newSession(): Promise<DesktopSnapshot>;
 	navigateTree(input: DesktopNavigateTreeInput): Promise<DesktopSnapshot>;
 	forkSession(): Promise<DesktopSnapshot>;
+	autoNameSession(): Promise<DesktopSnapshot>;
+	exportSession(): Promise<string>;
 	setModel(input: DesktopModelSelectionInput): Promise<DesktopSnapshot>;
 	setThinkingLevel(level: DesktopThinkingLevel): Promise<DesktopSnapshot>;
 	compact(): Promise<DesktopSnapshot>;

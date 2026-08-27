@@ -49,7 +49,7 @@ let tray: Tray | undefined;
 let isQuitting = false;
 let closeQuits = false;
 
-const TRAY_ICON_WHITE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><path fill="white" d="M9 2.25a6.75 6.75 0 1 0 0 13.5A6.75 6.75 0 0 0 9 2.25Zm0 2.1a4.65 4.65 0 1 1 0 9.3 4.65 4.65 0 0 1 0-9.3Z"/><circle cx="9" cy="9" r="2.05" fill="white"/></svg>`;
+const TRAY_ICON_WHITE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><path fill="#1a1a1a" d="M3 5h8v1.8H7.8v1.4h2.9V10H7.8v3H3V5Zm11 0h1.8v1.8H14V5Zm0 2.6h1.8V13H14V7.6Z" opacity="0.9"/></svg>`;
 const TRAY_ICON_COLOR_BASE64 =
 	"iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAABjklEQVR4nO2ZvW6DMBRGv5ZKvARlqxTBC2RJ361pJNKdJWVpprqvwEuwBnVmYWFGArWTo/J/DdjgKmdiMPcefTK2hYEbcrmbq9Bm8/QzNOZy+Z7cb1IBimQXY+VHvTRFtI6ouNDgOUXrUMXvqQVlyorUJwnLlhXpMyisSpbar1dYtSylb6fwUrJD/VuFl5bltHk8jCm02z3D87xJMmEYYr9/EX6vkfBa0uXUfRqLtYiwZVlg7AsAwNgnfN9vHee6Lk6ndwBAEAQ4nz/oxqhuKpWE15Yu568XeadbC/oKr3U6cLifvgnrwk1YNkqEi6K4PhuGMamWEuEsy67P2+0WlvUI27ZH1VIinKYpkiQBADiOA8YYjse3UbWUzeHD4RVxHKMsy0l1Kocf0c3DNE04jgOgmqIM+AFo1HmYk+c5oiiax4iI3svaHP++ZNB5HtaBhvDaUq776J8wsJ6U2zw6E15auqt/75RYSrqv7+AcVi091I/00amSpvQhrxKypan1//cdRx1tbpHaUHVPpx2/NvmcOC+ox8YAAAAASUVORK5CYII=";
 
@@ -296,6 +296,36 @@ function registerIpc(): void {
 	ipcMain.handle("pi-desktop:fork-session", async (event): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
 		return getHost().forkSession();
+	});
+	ipcMain.handle("pi-desktop:auto-name-session", async (event): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		return getHost().autoNameSession();
+	});
+	ipcMain.handle("pi-desktop:export-session", async (event): Promise<string> => {
+		assertMainWindowSender(event);
+		const snapshot = getHost().getSnapshot();
+		const session = snapshot.session;
+		if (!session) throw new Error("没有可导出的会话。");
+		const escapeHtml = (text: string): string =>
+			text.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;");
+		const body = session.messages
+			.map((message) => {
+				const label =
+					message.role === "user" ? "你" : message.role === "assistant" ? "助手" : (message.toolName ?? "系统");
+				return `<section class="msg ${message.role}"><h3>${escapeHtml(label)}${
+					message.timestamp ? `<time>${new Date(message.timestamp).toLocaleString()}</time>` : ""
+				}</h3><pre>${escapeHtml(message.text)}</pre></section>`;
+			})
+			.join("\n");
+		const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${escapeHtml(
+			session.name ?? "Pi 会话",
+		)}</title><style>body{font-family:-apple-system,'Segoe UI',sans-serif;max-width:820px;margin:0 auto;padding:32px 20px;color:#1a1a1a;background:#fff}h1{font-size:20px}section.msg{margin:0 0 20px;padding:12px 16px;border-radius:10px;background:#f5f5f5}section.msg.user{background:#e8f0fe}section.msg h3{margin:0 0 8px;font-size:12px;color:#666;display:flex;justify-content:space-between}section.msg pre{white-space:pre-wrap;word-break:break-word;margin:0;font:inherit;font-size:14px;line-height:1.65}</style></head><body><h1>${escapeHtml(
+			session.name ?? "Pi 会话",
+		)}</h1>${body}</body></html>`;
+		const filePath = join(app.getPath("temp"), `pi-session-${Date.now()}.html`);
+		await writeFile(filePath, html, { mode: 0o600 });
+		await getHost().openPath(filePath);
+		return filePath;
 	});
 	ipcMain.handle("pi-desktop:set-model", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);

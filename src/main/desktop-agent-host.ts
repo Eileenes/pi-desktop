@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
 import {
 	type AgentSession,
@@ -192,6 +192,7 @@ export class DesktopAgentHost {
 	getSnapshot(): DesktopSnapshot {
 		const snapshot: DesktopSnapshot = {
 			projectTrusted: this.projectTrusted,
+			userHomeName: basename(homedir()),
 			pendingToolApprovals: this.approvalQueue.getPendingApprovals(),
 			pendingAuthenticationPrompts: this.authenticationPromptQueue.getPendingPrompts(),
 			apiKeyProviders: this.getApiKeyProviders(),
@@ -226,6 +227,7 @@ export class DesktopAgentHost {
 			thinkingLevel: this.session.thinkingLevel,
 			availableThinkingLevels: this.session.getAvailableThinkingLevels(),
 			isCompacting: this.session.isCompacting,
+			systemPrompt: this.session.systemPrompt,
 			messages: (() => {
 				const forkPoints = this.session?.getUserMessagesForForking() ?? [];
 				let userIndex = 0;
@@ -582,6 +584,47 @@ export class DesktopAgentHost {
 		this.error = undefined;
 		try {
 			await this.session.compact();
+		} catch (error) {
+			this.error = error instanceof Error ? error.message : String(error);
+		}
+		return this.publish();
+	}
+
+	async autoNameSession(): Promise<DesktopSnapshot> {
+		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
+		if (this.session.isStreaming) throw new Error("请等待当前智能体任务完成后再生成标题。");
+		const model = this.session.model;
+		if (!model) throw new Error("请先配置并选择模型，再生成标题。");
+		const messages = this.session.messages;
+		const firstUser = [...messages]
+			.reverse()
+			.map((message, index) => toTranscriptMessage(message, index))
+			.find((message) => message.role === "user" && message.text.trim());
+		if (!firstUser) throw new Error("会话还没有消息，先发送一条消息再生成标题。");
+		const excerpt = firstUser.text.trim().slice(0, 500);
+		const modelRuntime = await this.getModelRuntime();
+		this.error = undefined;
+		try {
+			const reply = await modelRuntime.completeSimple(model, {
+				systemPrompt:
+					"You generate concise chat session titles. Reply with the title only: no quotes, no punctuation at the end, at most 4 words, same language as the input.",
+				messages: [
+					{
+						role: "user",
+						timestamp: Date.now(),
+						content: `Generate a session title (max 4 words, same language) for a conversation starting with:\n\n${excerpt}`,
+					},
+				],
+			});
+			const text = reply.content
+				.filter((block): block is { type: "text"; text: string } => block.type === "text")
+				.map((block) => block.text)
+				.join(" ")
+				.replace(/^["'“”\s]+|["'“”\s.。]+$/gu, "")
+				.slice(0, 60)
+				.trim();
+			if (!text) throw new Error("模型没有返回有效标题。");
+			this.session.setSessionName(text);
 		} catch (error) {
 			this.error = error instanceof Error ? error.message : String(error);
 		}

@@ -135,6 +135,16 @@ export async function forkSession(): Promise<DesktopSnapshot> {
 	return next;
 }
 
+export async function autoNameSession(): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.autoNameSession();
+	publish(next);
+	return next;
+}
+
+export function exportSession(): Promise<string> {
+	return window.piDesktop.exportSession();
+}
+
 export async function setModel(input: DesktopModelSelectionInput): Promise<DesktopSnapshot> {
 	const next = await window.piDesktop.setModel(input);
 	publish(next);

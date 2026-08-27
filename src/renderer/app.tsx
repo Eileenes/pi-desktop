@@ -17,10 +17,11 @@ import { ConversationNavigator } from "./conversation-navigator.tsx";
 import {
 	abortSession,
 	attachDroppedImages,
-	chooseImages,
+	autoNameSession,
 	chooseWorkspace,
 	compactSession,
 	decideToolApproval,
+	exportSession,
 	forkSession,
 	getDesktopSnapshot,
 	getDesktopStartupError,
@@ -58,6 +59,7 @@ import { WorktreeSection } from "./worktree-selector.tsx";
 type IconName =
 	| "branch"
 	| "bulb"
+	| "chart"
 	| "chat"
 	| "chevron"
 	| "close"
@@ -80,8 +82,10 @@ type IconName =
 	| "search"
 	| "send"
 	| "skill"
+	| "sparkles"
 	| "speaker"
 	| "sun"
+	| "terminal"
 	| "wrap"
 	| "wrench";
 type ConfigModal = "models" | "plugins" | "settings" | "skills";
@@ -243,8 +247,28 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 	if (name === "gear")
 		return (
 			<svg {...shared} aria-hidden="true">
+				<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
 				<circle cx="12" cy="12" r="3" />
-				<path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.1 2.1-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5v.2h-3v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1-2.1-2.1.1-.1A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.5-1H5.3v-3h.2A1.7 1.7 0 0 0 7 10a1.7 1.7 0 0 0-.3-1.9l-.1-.1 2.1-2.1.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5v-.2h3v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1 2.1 2.1-.1.1A1.7 1.7 0 0 0 19.4 10a1.7 1.7 0 0 0 1.5 1h.2v3h-.2a1.7 1.7 0 0 0-1.5 1Z" />
+			</svg>
+		);
+	if (name === "sparkles")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M12 3c.6 3.8 2.2 5.4 6 6-3.8.6-5.4 2.2-6 6-.6-3.8-2.2-5.4-6-6 3.8-.6 5.4-2.2 6-6Z" />
+				<path d="M5 17v4M3 19h4" />
+			</svg>
+		);
+	if (name === "chart")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M4 20V10M10 20V4M16 20v-7M21 20H3" />
+			</svg>
+		);
+	if (name === "terminal")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="m4 17 6-6-6-6" />
+				<path d="M12 19h8" />
 			</svg>
 		);
 	if (name === "image")
@@ -444,6 +468,18 @@ function formatByteSize(size: number): string {
 	if (size < 1024) return `${size} B`;
 	if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
 	return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatCompact(value: number): string {
+	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+	if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
+	return String(value);
+}
+
+function mentionNameStart(path: string, query: string): number {
+	const matchIndex = path.toLocaleLowerCase().indexOf(query);
+	if (matchIndex < 0) return 0;
+	return path.lastIndexOf("/", matchIndex) + 1;
 }
 
 function playCompletionTone(): void {
@@ -1082,6 +1118,7 @@ export function App() {
 	);
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 	const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
+	const [moreMenuOpen, setMoreMenuOpen] = useState(false);
 	const [trustDialogOpen, setTrustDialogOpen] = useState(false);
 	const [draft, setDraft] = useState("");
 	const [openingWorkspace, setOpeningWorkspace] = useState(false);
@@ -1102,7 +1139,6 @@ export function App() {
 	const [changingTrust, setChangingTrust] = useState(false);
 	const [settingUpProvider, setSettingUpProvider] = useState(false);
 	const [settingModel, setSettingModel] = useState(false);
-	const [choosingImages, setChoosingImages] = useState(false);
 	const [draggingImages, setDraggingImages] = useState(false);
 	const [attachments, setAttachments] = useState<DesktopImageAttachment[]>([]);
 	const [selectedProviderId, setSelectedProviderId] = useState("");
@@ -1118,10 +1154,9 @@ export function App() {
 	const [loadingFilePath, setLoadingFilePath] = useState<string>();
 	const [inspectorOpen, setInspectorOpen] = useState(false);
 	const [sidebarOpen, setSidebarOpen] = useState(true);
-	const [statsOpen, setStatsOpen] = useState(false);
 	const [configModal, setConfigModal] = useState<ConfigModal | undefined>();
-	const [branchMenuOpen, setBranchMenuOpen] = useState(false);
-	const [topMoreOpen, setTopMoreOpen] = useState(false);
+	const [topPanel, setTopPanel] = useState<"branches" | "session" | "system" | undefined>();
+	const [namingState, setNamingState] = useState<"idle" | "loading" | "success" | "error">("idle");
 	const [sessionSearch, setSessionSearch] = useState("");
 	const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
 	const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
@@ -1149,6 +1184,22 @@ export function App() {
 	const draftKey = `${DRAFT_STORAGE_PREFIX}${session?.id ?? snapshot.workspacePath ?? "new"}`;
 	const lastMessage = session?.messages.at(-1);
 	const messageSignature = `${session?.id ?? ""}:${session?.messages.length ?? 0}:${lastMessage?.id ?? ""}:${lastMessage?.text.length ?? 0}`;
+	const firstUserText = session?.messages.find((message) => message.role === "user")?.text.trim() ?? "";
+	const topBarTitle =
+		session?.name ??
+		(firstUserText ? (firstUserText.length > 40 ? `${firstUserText.slice(0, 40)}…` : firstUserText) : "新任务");
+	const topBarSubtitle = snapshot.workspacePath
+		? (snapshot.workspacePath.split(/[\\/]/u).filter(Boolean).at(-1) ?? snapshot.workspacePath)
+		: (snapshot.userHomeName ?? "Pi");
+	const stats = snapshot.sessionStats;
+	const statsSummary = (() => {
+		if (!stats || stats.tokens.total === 0) return undefined;
+		const parts = [`↑${formatCompact(stats.tokens.input)}`, `↓${formatCompact(stats.tokens.output)}`];
+		if (stats.cost > 0) parts.push(stats.cost >= 0.01 ? `$${stats.cost.toFixed(2)}` : "<$0.01");
+		if (stats.contextUsage?.percent !== null && stats.contextUsage?.percent !== undefined)
+			parts.push(`${stats.contextUsage.percent.toFixed(1)}% ctx`);
+		return parts.join(" · ");
+	})();
 	const transcriptItems = useMemo(() => partitionTranscript(session?.messages ?? []), [session?.messages]);
 	const conversationTurns = useMemo(() => buildConversationTurns(session?.messages ?? []), [session?.messages]);
 	const canSubmit =
@@ -1193,11 +1244,8 @@ export function App() {
 		),
 	].filter((command) => command.name.toLocaleLowerCase().startsWith(slashQuery));
 	const atQuery = draft.trimStart().startsWith("@") ? draft.trimStart().slice(1).toLocaleLowerCase() : "";
-	const atFiles = atQuery
-		? workspaceEntries
-				.filter(isFileEntry)
-				.filter((entry) => entry.path.toLocaleLowerCase().includes(atQuery))
-				.slice(0, 8)
+	const atEntries = atQuery
+		? workspaceEntries.filter((entry) => entry.path.toLocaleLowerCase().includes(atQuery)).slice(0, 12)
 		: [];
 	const hashQuery = draft.trimStart().startsWith("#") ? draft.trimStart().slice(1).toLocaleLowerCase() : "";
 	const hashSessions = hashQuery
@@ -1206,13 +1254,16 @@ export function App() {
 				.slice(0, 8)
 		: [];
 	const visibleSlashCommands = slashCommands.slice(0, 8);
-	const suggestionCount = slashQuery
-		? visibleSlashCommands.length
-		: hashQuery
-			? hashSessions.length
-			: atQuery
-				? atFiles.length
-				: 0;
+	const [menusDismissed, setMenusDismissed] = useState(false);
+	const suggestionCount = !menusDismissed
+		? slashQuery
+			? visibleSlashCommands.length
+			: hashQuery
+				? hashSessions.length
+				: atQuery
+					? atEntries.length
+					: 0
+		: 0;
 
 	useEffect(() => {
 		void startDesktopStore();
@@ -1242,12 +1293,12 @@ export function App() {
 		window.addEventListener("keydown", onKeyDown);
 		const onEscape = (event: KeyboardEvent) => {
 			if (event.key !== "Escape") return;
+			setMenusDismissed(true);
 			setComposerMenu(undefined);
-			setBranchMenuOpen(false);
-			setStatsOpen(false);
-			setTopMoreOpen(false);
+			setTopPanel(undefined);
 			setProjectMenuOpen(false);
 			setSessionMenuOpen(false);
+			setMoreMenuOpen(false);
 		};
 		window.addEventListener("keydown", onEscape);
 		return () => {
@@ -1273,20 +1324,22 @@ export function App() {
 		localStorage.setItem("pi-desktop-sidebar-view", sidebarView);
 	}, [sidebarView]);
 	useEffect(() => {
-		if (!projectMenuOpen && !sessionMenuOpen) return;
+		if (!projectMenuOpen && !sessionMenuOpen && !moreMenuOpen) return;
 		const close = (event: MouseEvent) => {
 			const target = event.target;
 			if (!(target instanceof Element)) {
 				setProjectMenuOpen(false);
 				setSessionMenuOpen(false);
+				setMoreMenuOpen(false);
 				return;
 			}
 			if (!target.closest(".project-menu-root")) setProjectMenuOpen(false);
 			if (!target.closest(".session-row-wrap.is-current")) setSessionMenuOpen(false);
+			if (!target.closest(".top-bar-more-wrap")) setMoreMenuOpen(false);
 		};
 		document.addEventListener("mousedown", close);
 		return () => document.removeEventListener("mousedown", close);
-	}, [projectMenuOpen, sessionMenuOpen]);
+	}, [projectMenuOpen, sessionMenuOpen, moreMenuOpen]);
 	useEffect(() => {
 		if (!snapshot.workspacePath) return;
 		setRecentWorkspaces((current) => {
@@ -1447,7 +1500,7 @@ export function App() {
 	}
 
 	async function handleNavigateTree(entryId: string): Promise<void> {
-		setBranchMenuOpen(false);
+		setTopPanel(undefined);
 		setActionError(undefined);
 		try {
 			await navigateTree({ entryId });
@@ -1457,7 +1510,7 @@ export function App() {
 	}
 
 	async function handleForkSession(): Promise<void> {
-		setBranchMenuOpen(false);
+		setTopPanel(undefined);
 		setActionError(undefined);
 		try {
 			await forkSession();
@@ -1467,6 +1520,7 @@ export function App() {
 	}
 
 	function selectComposerSuggestion(index: number): void {
+		setMenusDismissed(false);
 		if (slashQuery) {
 			const command = visibleSlashCommands[index];
 			if (!command) return;
@@ -1476,9 +1530,11 @@ export function App() {
 			if (!item) return;
 			setDraft((current) => current.replace(/#[^\s]*$/u, `#${item.name ?? item.firstMessage.slice(0, 40)} `));
 		} else if (atQuery) {
-			const file = atFiles[index];
-			if (!file) return;
-			setDraft((current) => current.replace(/@[^\s]*$/u, `@${file.path} `));
+			const entry = atEntries[index];
+			if (!entry) return;
+			setDraft((current) =>
+				current.replace(/@[^\s]*$/u, entry.type === "directory" ? `@${entry.path}/` : `@${entry.path} `),
+			);
 		}
 		promptRef.current?.focus();
 	}
@@ -1652,6 +1708,30 @@ export function App() {
 		}
 	}
 
+	async function handleAutoName(): Promise<void> {
+		if (!session || session.phase === "running" || namingState === "loading") return;
+		setNamingState("loading");
+		setActionError(undefined);
+		try {
+			await autoNameSession();
+			setNamingState("success");
+			window.setTimeout(() => setNamingState("idle"), 1600);
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : String(error));
+			setNamingState("error");
+			window.setTimeout(() => setNamingState("idle"), 2400);
+		}
+	}
+
+	async function handleExportSession(): Promise<void> {
+		setActionError(undefined);
+		try {
+			await exportSession();
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : String(error));
+		}
+	}
+
 	function handleToolPresetChange(next: "off" | "default" | "full"): void {
 		setToolPreset(next);
 		localStorage.setItem("pi-desktop-tool-preset", next);
@@ -1660,28 +1740,13 @@ export function App() {
 
 	async function handleDroppedImages(files: File[]): Promise<void> {
 		if (!files.length) return;
-		setChoosingImages(true);
 		setActionError(undefined);
 		try {
 			setAttachments(await attachDroppedImages(files));
 		} catch (error) {
 			setActionError(error instanceof Error ? error.message : String(error));
 		} finally {
-			setChoosingImages(false);
 			setDraggingImages(false);
-		}
-	}
-
-	async function handleChooseImages(): Promise<void> {
-		if (choosingImages || !session || session.phase === "running") return;
-		setChoosingImages(true);
-		setActionError(undefined);
-		try {
-			setAttachments(await chooseImages());
-		} catch (error) {
-			setActionError(error instanceof Error ? error.message : String(error));
-		} finally {
-			setChoosingImages(false);
 		}
 	}
 
@@ -1820,7 +1885,7 @@ export function App() {
 		try {
 			await navigateTree({ entryId });
 			await forkSession();
-			setBranchMenuOpen(false);
+			setTopPanel(undefined);
 		} catch (error) {
 			setActionError(error instanceof Error ? error.message : String(error));
 		}
@@ -1975,7 +2040,7 @@ export function App() {
 																type="button"
 																onClick={() => {
 																	setSessionMenuOpen(false);
-																	setStatsOpen(true);
+																	setTopPanel("session");
 																}}
 															>
 																会话统计
@@ -2257,18 +2322,6 @@ export function App() {
 						<span>{t("plugins")}</span>
 					</button>
 					<button
-						aria-label={t("sourceControl")}
-						aria-pressed={inspectorOpen && sidebarView === "files"}
-						className={`footer-button is-icon ${inspectorOpen && sidebarView === "files" ? "is-active" : ""}`}
-						type="button"
-						onClick={() => {
-							setSidebarView("files");
-							setInspectorOpen(true);
-						}}
-					>
-						<Icon name="branch" size={15} />
-					</button>
-					<button
 						aria-label={t("settings")}
 						className="footer-button is-icon is-settings"
 						type="button"
@@ -2309,30 +2362,30 @@ export function App() {
 							<Icon name="panel" size={16} />
 						</button>
 					) : null}
-					<div className="chat-title">
-						<strong>{session?.name ?? "新会话"}</strong>
-						<small>{formatWorkspace(snapshot.workspacePath)}</small>
+					<div className="chat-title" title={topBarTitle}>
+						<span>{topBarTitle}</span>
+						<small>{topBarSubtitle}</small>
 					</div>
 					<div className="top-bar-actions">
 						<button
 							className="native-toolbar-button"
 							type="button"
-							disabled={!session}
-							onClick={() => setStatsOpen(true)}
+							disabled={!session?.messages.length}
+							onClick={() => void handleExportSession()}
 						>
 							<Icon name="history" size={12} />
 							<span>{t("fullHistory")}</span>
 						</button>
 						<button
-							className={`native-toolbar-button ${branchMenuOpen ? "is-active" : ""}`}
+							className={`native-toolbar-button ${topPanel === "branches" ? "is-active" : ""}`}
 							type="button"
 							disabled={!snapshot.branchPoints?.length || session?.phase === "running"}
-							onClick={() => setBranchMenuOpen((current) => !current)}
+							onClick={() => setTopPanel((current) => (current === "branches" ? undefined : "branches"))}
 						>
 							<Icon name="branch" size={12} />
 							<span>{t("branches")}</span>
 						</button>
-						{branchMenuOpen ? (
+						{topPanel === "branches" ? (
 							<div className="branch-popover" role="menu" aria-label="分支">
 								<div className="branch-popover-header">
 									<strong>分支到消息</strong>
@@ -2357,33 +2410,71 @@ export function App() {
 						) : null}
 						<div className="top-bar-more-wrap">
 							<button
-								className={`native-toolbar-button ${topMoreOpen ? "is-active" : ""}`}
+								className={`native-toolbar-button app-topbar-more-trigger ${moreMenuOpen ? "is-active" : ""}`}
 								type="button"
-								aria-expanded={topMoreOpen}
-								onClick={() => setTopMoreOpen((current) => !current)}
+								aria-expanded={moreMenuOpen}
+								onClick={() => setMoreMenuOpen((open) => !open)}
 							>
 								<Icon name="more" size={12} />
 								<span>{t("more")}</span>
 							</button>
-							{topMoreOpen ? (
+							{moreMenuOpen ? (
 								<div className="top-bar-more-menu" role="menu">
 									<button
+										className="app-topbar-more-item"
 										type="button"
-										onClick={() => {
-											setTopMoreOpen(false);
-											setStatsOpen(true);
-										}}
+										disabled={!session?.messages.length || namingState === "loading"}
+										onClick={() => void handleAutoName()}
 									>
-										会话统计
+										<span className="app-topbar-more-icon">
+											<Icon name="sparkles" size={14} />
+										</span>
+										<span className="app-topbar-more-copy">
+											<span>
+												{namingState === "loading"
+													? "正在生成标题…"
+													: namingState === "success"
+														? "已生成标题"
+														: namingState === "error"
+															? "生成失败，请重试"
+															: "生成标题"}
+											</span>
+											<small>根据对话内容自动命名会话</small>
+										</span>
 									</button>
 									<button
+										className="app-topbar-more-item"
 										type="button"
+										disabled={!session}
 										onClick={() => {
-											setTopMoreOpen(false);
-											setConfigModal("settings");
+											setMoreMenuOpen(false);
+											setTopPanel((current) => (current === "system" ? undefined : "system"));
 										}}
 									>
-										设置
+										<span className="app-topbar-more-icon">
+											<Icon name="terminal" size={14} />
+										</span>
+										<span className="app-topbar-more-copy">
+											<span>系统提示词</span>
+											<small>{session?.systemPrompt ? "查看当前系统指令" : "未设置系统提示词"}</small>
+										</span>
+									</button>
+									<button
+										className="app-topbar-more-item"
+										type="button"
+										disabled={!session}
+										onClick={() => {
+											setMoreMenuOpen(false);
+											setTopPanel((current) => (current === "session" ? undefined : "session"));
+										}}
+									>
+										<span className="app-topbar-more-icon">
+											<Icon name="chart" size={14} />
+										</span>
+										<span className="app-topbar-more-copy">
+											<span>会话统计</span>
+											<small>{statsSummary ?? "暂无统计数据"}</small>
+										</span>
 									</button>
 								</div>
 							) : null}
@@ -2396,8 +2487,34 @@ export function App() {
 						>
 							<Icon name="panel" size={16} />
 						</button>
-						{statsOpen ? (
-							<SessionStatsPanel stats={snapshot.sessionStats} onClose={() => setStatsOpen(false)} />
+						{topPanel === "system" ? (
+							<div className="session-info-popover" role="dialog" aria-label="系统提示词">
+								<div className="session-info-header">
+									<strong>系统提示词</strong>
+									<button
+										className="icon-button compact"
+										type="button"
+										aria-label="关闭"
+										onClick={() => setTopPanel(undefined)}
+									>
+										×
+									</button>
+								</div>
+								{session?.systemPrompt ? (
+									<pre className="system-prompt-body">{session.systemPrompt}</pre>
+								) : (
+									<p className="stats-empty">系统提示词为空（工具已禁用）。</p>
+								)}
+							</div>
+						) : null}
+						{topPanel === "session" ? (
+							<SessionStatsPanel
+								stats={snapshot.sessionStats}
+								sessionPath={snapshot.sessions.find((item) => item.id === session?.id)?.path}
+								sessionId={session?.id}
+								sessionName={session?.name}
+								onClose={() => setTopPanel(undefined)}
+							/>
 						) : null}
 					</div>
 				</header>
@@ -2544,6 +2661,10 @@ export function App() {
 					<div className="composer-inner">
 						{slashQuery ? (
 							<div className="slash-menu" role="listbox" aria-label="斜杠命令">
+								<div className="slash-menu-header">
+									<span>{visibleSlashCommands.length} 个命令</span>
+									<small>Tab ↹ / Enter 选择 · Esc 关闭</small>
+								</div>
 								{slashCommands.length ? (
 									visibleSlashCommands.map((command, index) => (
 										<button
@@ -2566,6 +2687,10 @@ export function App() {
 						) : null}
 						{hashQuery ? (
 							<div className="slash-menu" role="listbox" aria-label="会话提及">
+								<div className="slash-menu-header">
+									<span>会话</span>
+									<small>Tab ↹ / Enter 选择 · Esc 关闭</small>
+								</div>
 								{hashSessions.length ? (
 									hashSessions.map((item, index) => (
 										<button
@@ -2588,23 +2713,46 @@ export function App() {
 						) : null}
 						{atQuery ? (
 							<div className="slash-menu" role="listbox" aria-label="文件提及">
-								{atFiles.length ? (
-									atFiles.map((file, index) => (
-										<button
-											aria-selected={suggestionIndex === index}
-											className={`slash-command ${suggestionIndex === index ? "is-selected" : ""}`}
-											key={file.path}
-											role="option"
-											type="button"
-											onMouseDown={(event) => event.preventDefault()}
-											onClick={() => selectComposerSuggestion(index)}
-										>
-											<span className="tree-file-icon">
-												<Icon name={fileIconFor(file.path)} size={13} />
-											</span>
-											<span>{file.path}</span>
-										</button>
-									))
+								<div className="slash-menu-header">
+									<span>项目文件</span>
+									<small>Tab ↹ / Enter 选择 · Esc 关闭</small>
+								</div>
+								{atEntries.length ? (
+									atEntries.map((entry, index) => {
+										const dirIndex = mentionNameStart(entry.path, atQuery);
+										return (
+											<button
+												aria-selected={suggestionIndex === index}
+												className={`slash-command ${suggestionIndex === index ? "is-selected" : ""}`}
+												key={entry.path}
+												role="option"
+												type="button"
+												onMouseDown={(event) => event.preventDefault()}
+												onClick={() => selectComposerSuggestion(index)}
+											>
+												<span className="tree-file-icon">
+													<Icon
+														name={entry.type === "directory" ? "folder" : fileIconFor(entry.path)}
+														size={13}
+													/>
+												</span>
+												<span className="mention-path">
+													{dirIndex > 0 ? (
+														<>
+															<small>{entry.path.slice(0, dirIndex)}</small>
+															{entry.path.slice(dirIndex)}
+															{entry.type === "directory" ? "/" : ""}
+														</>
+													) : (
+														<>
+															{entry.path}
+															{entry.type === "directory" ? "/" : ""}
+														</>
+													)}
+												</span>
+											</button>
+										);
+									})
 								) : (
 									<p className="slash-empty">
 										{workspaceEntries.length ? "没有匹配的项目文件。" : "正在读取项目文件…"}
@@ -2643,6 +2791,7 @@ export function App() {
 								onChange={(event) => {
 									setDraft(event.target.value);
 									setSuggestionIndex(0);
+									setMenusDismissed(false);
 									promptHistoryIndexRef.current = -1;
 									resizePrompt(event.currentTarget);
 								}}
@@ -2651,6 +2800,14 @@ export function App() {
 								}}
 								onCompositionEnd={() => {
 									composingRef.current = false;
+								}}
+								onPaste={(event) => {
+									const files = Array.from(event.clipboardData.files).filter((file) =>
+										file.type.startsWith("image/"),
+									);
+									if (files.length === 0) return;
+									event.preventDefault();
+									void handleDroppedImages(files);
 								}}
 								onKeyDown={(event) => {
 									if (suggestionCount > 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
@@ -2715,19 +2872,19 @@ export function App() {
 							{session?.phase === "running" ? (
 								<div className="composer-stream-actions">
 									<button
-										className="composer-action-button"
+										className="composer-steer-button"
 										type="button"
-										disabled={!canSubmit}
+										disabled={!draft.trim() || submitting}
 										onClick={() => void handleSteer()}
 									>
 										引导
 									</button>
-									<button className="send-button" type="submit" disabled={!canSubmit}>
+									<button className="composer-followup-button" type="submit" disabled={!canSubmit}>
 										{submitting ? "排队中" : "跟进"}
 									</button>
 								</div>
 							) : (
-								<button className="send-button" type="submit" disabled={!canSubmit}>
+								<button className="send-button composer-send-button" type="submit" disabled={!canSubmit}>
 									<Icon name="send" size={14} />
 									{submitting ? "正在发送" : t("send")}
 								</button>
@@ -2736,27 +2893,21 @@ export function App() {
 						<div className="composer-footer">
 							<div className="composer-footer-left">
 								<div className="composer-control-group">
-									{snapshot.workspacePath ? (
-										<button
-											aria-label={t("addImage")}
-											className="composer-icon-button"
-											disabled={!session || choosingImages || session.phase === "running"}
-											type="button"
-											onClick={() => void handleChooseImages()}
-										>
-											<Icon name="image" size={16} />
-										</button>
-									) : (
-										<button
-											className="composer-control-button"
-											type="button"
-											disabled={!canChooseWorkspace}
-											onClick={() => void handleChooseWorkspace()}
-										>
-											<Icon name="folder" size={15} />
-											<span>{formatWorkspace(undefined)}</span>
-										</button>
-									)}
+									<button
+										className="composer-control-button chat-project-context"
+										type="button"
+										disabled={!canChooseWorkspace}
+										title={snapshot.workspacePath ?? "选择项目文件夹"}
+										onClick={() => void handleChooseWorkspace()}
+									>
+										<Icon name="folder" size={15} />
+										<span>
+											{snapshot.workspacePath
+												? (snapshot.workspacePath.split(/[\\/]/u).filter(Boolean).at(-1) ??
+													snapshot.workspacePath)
+												: "选择项目"}
+										</span>
+									</button>
 									<button
 										className="composer-control-button"
 										type="button"
@@ -2766,6 +2917,10 @@ export function App() {
 										<Icon name="model" size={15} />
 										<span>{session?.model?.id ?? "模型"}</span>
 									</button>
+									<ContextUsageRing
+										stats={snapshot.sessionStats}
+										onToggle={() => setTopPanel((current) => (current === "session" ? undefined : "session"))}
+									/>
 								</div>
 								<div className="composer-control-group composer-control-group-right">
 									<button
@@ -2796,10 +2951,6 @@ export function App() {
 										<Icon name="compact" size={14} />
 										<span>{compacting ? "压缩中" : "压缩"}</span>
 									</button>
-									<ContextUsageRing
-										stats={snapshot.sessionStats}
-										onToggle={() => setStatsOpen((current) => !current)}
-									/>
 									<button
 										className="composer-control-button"
 										type="button"

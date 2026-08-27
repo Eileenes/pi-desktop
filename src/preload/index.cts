@@ -44,6 +44,8 @@ const desktopApi: DesktopApi = {
 	navigateTree: (input: DesktopNavigateTreeInput) =>
 		ipcRenderer.invoke("pi-desktop:navigate-tree", input) as Promise<DesktopSnapshot>,
 	forkSession: () => ipcRenderer.invoke("pi-desktop:fork-session") as Promise<DesktopSnapshot>,
+	autoNameSession: () => ipcRenderer.invoke("pi-desktop:auto-name-session") as Promise<DesktopSnapshot>,
+	exportSession: () => ipcRenderer.invoke("pi-desktop:export-session") as Promise<string>,
 	setModel: (input: DesktopModelSelectionInput) =>
 		ipcRenderer.invoke("pi-desktop:set-model", input) as Promise<DesktopSnapshot>,
 	setThinkingLevel: (level) => ipcRenderer.invoke("pi-desktop:set-thinking-level", level) as Promise<DesktopSnapshot>,

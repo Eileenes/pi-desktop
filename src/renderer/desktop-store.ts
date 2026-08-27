@@ -9,6 +9,9 @@ import type {
 	DesktopProviderConfig,
 	DesktopProviderModelConfig,
 	DesktopProviderSetupInput,
+	DesktopSkillInfo,
+	DesktopSkillSearchResult,
+	DesktopSkillUpdateResult,
 	DesktopSnapshot,
 	DesktopSnapshotListener,
 	DesktopToolApprovalDecisionInput,
@@ -145,6 +148,26 @@ export function exportSession(): Promise<string> {
 	return window.piDesktop.exportSession();
 }
 
+export async function renameSession(name: string): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.renameSession({ name });
+	publish(next);
+	return next;
+}
+
+export async function deleteSession(sessionPath: string): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.deleteSession({ sessionPath });
+	publish(next);
+	return next;
+}
+
+export function executeBashCommand(command: string, excludeFromContext: boolean): Promise<string> {
+	return window.piDesktop.executeBashCommand(command, excludeFromContext);
+}
+
+export function copyLastAnswer(): Promise<string> {
+	return window.piDesktop.copyLastAnswer();
+}
+
 export async function setModel(input: DesktopModelSelectionInput): Promise<DesktopSnapshot> {
 	const next = await window.piDesktop.setModel(input);
 	publish(next);
@@ -207,6 +230,10 @@ export function revealWorkspaceFile(path: string): Promise<void> {
 	return window.piDesktop.revealWorkspaceFile({ path });
 }
 
+export function saveWorkspaceFile(path: string): Promise<string> {
+	return window.piDesktop.saveWorkspaceFile({ path });
+}
+
 export function notifyComplete(): Promise<void> {
 	return window.piDesktop.notifyComplete();
 }
@@ -257,6 +284,13 @@ export function discoverModels(providerId: string, baseUrl: string, apiKey?: str
 	return window.piDesktop.discoverModels({ providerId, baseUrl, ...(apiKey ? { apiKey } : {}) });
 }
 
+export function lookupModelCatalog(
+	providerId: string,
+	modelId: string,
+): Promise<DesktopProviderModelConfig | undefined> {
+	return window.piDesktop.lookupModelCatalog({ providerId, modelId });
+}
+
 export async function logoutProvider(providerId: string): Promise<DesktopSnapshot> {
 	const next = await window.piDesktop.logoutProvider({ providerId });
 	publish(next);
@@ -296,6 +330,31 @@ export async function removePlugin(source: string, local: boolean): Promise<Desk
 
 export function getPluginPackages(): Promise<Array<{ source: string; scope: "user" | "project" }>> {
 	return window.piDesktop.getPluginPackages();
+}
+
+export function listSkillsDetailed(): Promise<DesktopSkillInfo[]> {
+	return window.piDesktop.listSkillsDetailed();
+}
+
+export function searchSkills(query: string): Promise<DesktopSkillSearchResult[]> {
+	return window.piDesktop.searchSkills(query);
+}
+
+export async function installSkill(pkg: string, scope: "global" | "project"): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.installSkill(pkg, scope);
+	publish(next);
+	return next;
+}
+
+export function checkSkillUpdates(target?: {
+	pkg: string;
+	scope: "global" | "project";
+}): Promise<DesktopSkillUpdateResult[]> {
+	return window.piDesktop.checkSkillUpdates(target);
+}
+
+export async function updateSkill(pkg: string, scope: "global" | "project"): Promise<string> {
+	return window.piDesktop.updateSkill(pkg, scope);
 }
 
 export async function openWorkspacePath(path: string): Promise<DesktopSnapshot> {

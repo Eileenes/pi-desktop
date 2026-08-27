@@ -13,17 +13,23 @@ import type {
 	DesktopModelTestInput,
 	DesktopModelTestResult,
 	DesktopNavigateTreeInput,
+	DesktopRenameSessionInput,
 	DesktopOpenSessionInput,
 	DesktopOpenWorkspacePathInput,
+	DesktopDeleteSessionInput,
 	DesktopPluginSourceInput,
 	DesktopPromptInput,
 	DesktopProviderConfig,
+	DesktopProviderModelConfig,
 	DesktopRemoveWorktreeInput,
 	DesktopProviderLogoutInput,
 	DesktopProviderSetupInput,
 	DesktopSaveModelsConfigInput,
 	DesktopSnapshot,
 	DesktopSnapshotListener,
+	DesktopSkillInfo,
+	DesktopSkillSearchResult,
+	DesktopSkillUpdateResult,
 	DesktopToggleSkillInput,
 	DesktopUpdateInfo,
 	DesktopWorkspaceFileInput,
@@ -46,6 +52,13 @@ const desktopApi: DesktopApi = {
 	forkSession: () => ipcRenderer.invoke("pi-desktop:fork-session") as Promise<DesktopSnapshot>,
 	autoNameSession: () => ipcRenderer.invoke("pi-desktop:auto-name-session") as Promise<DesktopSnapshot>,
 	exportSession: () => ipcRenderer.invoke("pi-desktop:export-session") as Promise<string>,
+	renameSession: (input: DesktopRenameSessionInput) =>
+		ipcRenderer.invoke("pi-desktop:rename-session", input) as Promise<DesktopSnapshot>,
+	deleteSession: (input: DesktopDeleteSessionInput) =>
+		ipcRenderer.invoke("pi-desktop:delete-session", input) as Promise<DesktopSnapshot>,
+	executeBashCommand: (command: string, excludeFromContext: boolean) =>
+		ipcRenderer.invoke("pi-desktop:execute-bash", { command, excludeFromContext }) as Promise<string>,
+	copyLastAnswer: () => ipcRenderer.invoke("pi-desktop:copy-last-answer") as Promise<string>,
 	setModel: (input: DesktopModelSelectionInput) =>
 		ipcRenderer.invoke("pi-desktop:set-model", input) as Promise<DesktopSnapshot>,
 	setThinkingLevel: (level) => ipcRenderer.invoke("pi-desktop:set-thinking-level", level) as Promise<DesktopSnapshot>,
@@ -66,6 +79,8 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:open-workspace-file", input) as Promise<void>,
 	revealWorkspaceFile: (input: DesktopWorkspaceFileInput) =>
 		ipcRenderer.invoke("pi-desktop:reveal-workspace-file", input) as Promise<void>,
+	saveWorkspaceFile: (input: DesktopWorkspaceFileInput) =>
+		ipcRenderer.invoke("pi-desktop:save-workspace-file", input) as Promise<string>,
 	openExternalUrl: (url: string) =>
 		ipcRenderer.invoke("pi-desktop:open-external-url", url) as Promise<void>,
 	notifyComplete: () => ipcRenderer.invoke("pi-desktop:notify-complete") as Promise<void>,
@@ -87,6 +102,8 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:save-models-config", input) as Promise<DesktopSnapshot>,
 	discoverModels: (input: DesktopDiscoverModelsInput) =>
 		ipcRenderer.invoke("pi-desktop:discover-models", input) as Promise<Array<{ id: string }>>,
+	lookupModelCatalog: (input: { providerId: string; modelId: string }) =>
+		ipcRenderer.invoke("pi-desktop:lookup-model-catalog", input) as Promise<DesktopProviderModelConfig | undefined>,
 	testModel: (input: DesktopModelTestInput) =>
 		ipcRenderer.invoke("pi-desktop:test-model", input) as Promise<DesktopModelTestResult>,
 	openCustomCss: () => ipcRenderer.invoke("pi-desktop:open-custom-css") as Promise<string>,
@@ -99,6 +116,14 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:remove-plugin", input) as Promise<DesktopSnapshot>,
 	getPluginPackages: () =>
 		ipcRenderer.invoke("pi-desktop:get-plugin-packages") as Promise<Array<{ source: string; scope: "user" | "project" }>>,
+	listSkillsDetailed: () => ipcRenderer.invoke("pi-desktop:list-skills-detailed") as Promise<DesktopSkillInfo[]>,
+	searchSkills: (query: string) => ipcRenderer.invoke("pi-desktop:search-skills", query) as Promise<DesktopSkillSearchResult[]>,
+	installSkill: (pkg: string, scope: "global" | "project") =>
+		ipcRenderer.invoke("pi-desktop:install-skill", { pkg, scope }) as Promise<DesktopSnapshot>,
+	checkSkillUpdates: (target?: { pkg: string; scope: "global" | "project" }) =>
+		ipcRenderer.invoke("pi-desktop:check-skill-updates", target) as Promise<DesktopSkillUpdateResult[]>,
+	updateSkill: (pkg: string, scope: "global" | "project") =>
+		ipcRenderer.invoke("pi-desktop:update-skill", { pkg, scope }) as Promise<string>,
 	onSnapshot(listener: DesktopSnapshotListener): Unsubscribe {
 		const subscription = (_event: IpcRendererEvent, snapshot: DesktopSnapshot) => listener(snapshot);
 		ipcRenderer.on("pi-desktop:snapshot", subscription);

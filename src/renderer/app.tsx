@@ -20,11 +20,15 @@ import {
 	autoNameSession,
 	chooseWorkspace,
 	compactSession,
+	copyLastAnswer,
 	decideToolApproval,
+	deleteSession,
+	executeBashCommand,
 	exportSession,
 	forkSession,
 	getDesktopSnapshot,
 	getDesktopStartupError,
+	getGitDiff,
 	listGitChanges,
 	listWorkspaceFiles,
 	navigateTree,
@@ -34,8 +38,10 @@ import {
 	openWorkspaceFile,
 	openWorkspacePath,
 	readWorkspaceFile,
+	renameSession,
 	respondToAuthenticationPrompt,
 	revealWorkspaceFile,
+	saveWorkspaceFile,
 	setModel,
 	setProjectTrust,
 	setThinkingLevel,
@@ -547,25 +553,190 @@ const ToolApprovalCard = memo(function ToolApprovalCard({ approval, resolving, o
 	);
 });
 
+const EDIT_TOOL_NAMES = new Set(["edit", "edit_file", "write", "multi_edit", "str_replace", "replace_editor"]);
+
+function parseEditToolDiff(
+	name: string,
+	input: string,
+): { lines: Array<{ kind: "add" | "del" | "ctx"; text: string; oldLine?: number; newLine?: number }> } | undefined {
+	if (!EDIT_TOOL_NAMES.has(name.toLowerCase())) return undefined;
+	try {
+		const parsed = JSON.parse(input) as Record<string, unknown>;
+		const keys = Object.keys(parsed);
+		const oldKey = keys.find((key) => /old|previous|search|before/iu.test(key) && typeof parsed[key] === "string");
+		const newKey = keys.find((key) => /new|replacement|replace|after/iu.test(key) && typeof parsed[key] === "string");
+		if (typeof parsed.oldText === "string" || typeof parsed.newText === "string") {
+			const oldText = typeof parsed.oldText === "string" ? parsed.oldText : "";
+			const newText = typeof parsed.newText === "string" ? parsed.newText : "";
+			return { lines: buildDiffLines(oldText, newText) };
+		}
+		if (oldKey && newKey) {
+			return { lines: buildDiffLines(parsed[oldKey] as string, parsed[newKey] as string) };
+		}
+		const content = parsed.content ?? parsed.text;
+		if (typeof content === "string" && (name.toLowerCase() === "write" || keys.length <= 2)) {
+			return { lines: buildDiffLines("", content) };
+		}
+	} catch {
+		return undefined;
+	}
+	return undefined;
+}
+
+function buildDiffLines(
+	oldText: string,
+	newText: string,
+): Array<{ kind: "add" | "del" | "ctx"; text: string; oldLine?: number; newLine?: number }> {
+	const oldLines = oldText ? oldText.split("\n") : [];
+	const newLines = newText ? newText.split("\n") : [];
+	const lines: Array<{ kind: "add" | "del" | "ctx"; text: string; oldLine?: number; newLine?: number }> = [];
+	let oldIndex = 0;
+	let newIndex = 0;
+	while (oldIndex < oldLines.length || newIndex < newLines.length) {
+		if (oldIndex < oldLines.length && newIndex < newLines.length && oldLines[oldIndex] === newLines[newIndex]) {
+			lines.push({
+				kind: "ctx",
+				text: oldLines[oldIndex],
+				oldLine: oldIndex + 1,
+				newLine: newIndex + 1,
+			});
+			oldIndex += 1;
+			newIndex += 1;
+		} else {
+			if (oldIndex < oldLines.length && (newIndex >= newLines.length || !newLines.includes(oldLines[oldIndex]))) {
+				lines.push({ kind: "del", text: oldLines[oldIndex], oldLine: oldIndex + 1 });
+				oldIndex += 1;
+			} else if (newIndex < newLines.length) {
+				lines.push({ kind: "add", text: newLines[newIndex], newLine: newIndex + 1 });
+				newIndex += 1;
+			} else {
+				break;
+			}
+		}
+	}
+	return lines;
+}
+
+const EditDiffView = memo(function EditDiffView({
+	lines,
+}: {
+	lines: Array<{ kind: "add" | "del" | "ctx"; text: string; oldLine?: number; newLine?: number }>;
+}) {
+	return (
+		// biome-ignore lint/a11y/useSemanticElements: diff 网格非标准表格结构
+		<div className="edit-diff" role="table" aria-label="文件变更">
+			{lines.map((line, index) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: diff 行顺序固定
+				<div className={`edit-diff-row is-${line.kind}`} key={index}>
+					<span className="edit-diff-num">{line.oldLine ?? ""}</span>
+					<span className="edit-diff-num">{line.newLine ?? ""}</span>
+					<span className="edit-diff-marker">{line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}</span>
+					<code>{line.text || " "}</code>
+				</div>
+			))}
+		</div>
+	);
+});
+
+function toolCallPreview(input: string): string {
+	try {
+		const parsed = JSON.parse(input) as Record<string, unknown>;
+		for (const key of ["command", "path", "file_path", "pattern", "query"]) {
+			const value = parsed[key];
+			if (typeof value === "string" && value.trim()) return value.trim().slice(0, 120);
+		}
+	} catch {
+		// 非 JSON 输入，退回原文。
+	}
+	return input.replace(/\s+/gu, " ").trim().slice(0, 120);
+}
+
 const TranscriptBlock = memo(function TranscriptBlock({ block }: { block: DesktopTranscriptBlock }) {
 	const [expanded, setExpanded] = useState(false);
 	if (block.type === "text") return <MarkdownBody text={block.text} />;
 	if (block.type === "image") return <span className="message-image-label">{block.label}</span>;
-	const label = block.type === "thinking" ? "思考过程" : `工具 · ${block.name}`;
-	const detail = block.type === "thinking" ? block.text : block.input;
+	if (block.type === "thinking") {
+		return (
+			<div className="message-block message-block-thinking">
+				<button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
+					<span className="entry-chevron">
+						<Icon name="chevron" size={11} />
+					</span>
+					思考过程
+					<span className="block-dim">{formatCompact(block.text.length)} 字符</span>
+				</button>
+				{expanded ? (
+					<pre>
+						<code>{block.text}</code>
+					</pre>
+				) : null}
+			</div>
+		);
+	}
+	const editDiff = parseEditToolDiff(block.name, block.input);
 	return (
-		<div className={`message-block message-block-${block.type}`}>
+		<div className={`message-block message-block-toolCall ${expanded ? "is-expanded" : ""}`}>
 			<button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
 				<span className="entry-chevron">
 					<Icon name="chevron" size={11} />
 				</span>
-				{label}
+				<code className="tool-name">{block.name}</code>
+				<span className="tool-preview">{toolCallPreview(block.input)}</span>
 			</button>
 			{expanded ? (
-				<pre>
-					<code>{detail}</code>
-				</pre>
+				editDiff ? (
+					<EditDiffView lines={editDiff.lines} />
+				) : (
+					<pre>
+						<code>{block.input}</code>
+					</pre>
+				)
 			) : null}
+		</div>
+	);
+});
+
+function formatUsageSummary(usage: NonNullable<DesktopTranscriptMessage["usage"]>): string {
+	const parts = [`${formatCompact(usage.input)} in · ${formatCompact(usage.output)} out`];
+	if (usage.cacheRead > 0) parts.push(`${formatCompact(usage.cacheRead)} cache R`);
+	if (usage.cacheWrite > 0) parts.push(`${formatCompact(usage.cacheWrite)} cache W`);
+	if (usage.cost > 0) parts.push(`$${usage.cost.toFixed(4)}`);
+	return parts.join(" · ");
+}
+
+const COLLAPSE_HEIGHT = 220;
+
+const UserMessageBody = memo(function UserMessageBody({ text }: { text: string }) {
+	const [collapsed, setCollapsed] = useState(false);
+	const [overflowing, setOverflowing] = useState(false);
+	const bodyRef = useRef<HTMLDivElement>(null);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: 仅在消息文本变化时测量一次高度
+	useEffect(() => {
+		const element = bodyRef.current;
+		if (!element) return;
+		setOverflowing(element.scrollHeight > COLLAPSE_HEIGHT + 40);
+		setCollapsed(element.scrollHeight > COLLAPSE_HEIGHT + 40);
+	}, [text]);
+
+	if (!overflowing) {
+		return (
+			<div className="message-user-body" ref={bodyRef}>
+				<MarkdownBody text={text} />
+			</div>
+		);
+	}
+	return (
+		<div className="message-user-body-wrap">
+			<div className={`message-user-body ${collapsed ? "is-collapsed" : ""}`} ref={bodyRef}>
+				<MarkdownBody text={text} />
+			</div>
+			<button type="button" className="message-user-expand" onClick={() => setCollapsed((current) => !current)}>
+				{collapsed ? "展开全部" : "收起"}
+				<span className="entry-chevron">
+					<Icon name="chevron" size={11} />
+				</span>
+			</button>
 		</div>
 	);
 });
@@ -573,11 +744,13 @@ const TranscriptBlock = memo(function TranscriptBlock({ block }: { block: Deskto
 const TranscriptMessage = memo(function TranscriptMessage({
 	message,
 	modelLabel,
+	isLastAssistant,
 	onEdit,
 	onFork,
 }: {
 	message: DesktopTranscriptMessage;
 	modelLabel?: string;
+	isLastAssistant?: boolean;
 	onEdit: (text: string) => void;
 	onFork: (entryId: string) => void;
 }) {
@@ -595,7 +768,7 @@ const TranscriptMessage = memo(function TranscriptMessage({
 			{isAssistant ? (
 				<div className="assistant-label">
 					<span>{modelLabel ?? "Pi"}</span>
-					{message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
+					{message.timestamp && isLastAssistant ? <time>{formatMessageTime(message.timestamp)}</time> : null}
 				</div>
 			) : null}
 			<div className="message-content">
@@ -604,25 +777,35 @@ const TranscriptMessage = memo(function TranscriptMessage({
 				) : isAssistant ? (
 					<MarkdownBody text={message.text || ""} />
 				) : (
-					<p>{message.text || "…"}</p>
+					<UserMessageBody text={message.text || "…"} />
 				)}
 			</div>
-			<div className="message-actions">
-				<button type="button" onClick={() => void copyMessage()} disabled={!message.text}>
-					{copied ? "已复制" : "复制"}
-				</button>
-				{!isAssistant && message.text ? (
-					<button type="button" onClick={() => onEdit(message.text)}>
-						编辑
+			{isAssistant && message.usage && (message.usage.input > 0 || message.usage.output > 0) ? (
+				<div className="message-usage">
+					<span>{formatUsageSummary(message.usage)}</span>
+					<button type="button" onClick={() => void copyMessage()}>
+						{copied ? "已复制" : "复制"}
 					</button>
-				) : null}
-				{!isAssistant && message.forkEntryId ? (
-					<button type="button" onClick={() => onFork(message.forkEntryId ?? "")}>
-						Fork
+					{message.timestamp && isLastAssistant ? <time>{formatMessageTime(message.timestamp)}</time> : null}
+				</div>
+			) : (
+				<div className="message-actions">
+					<button type="button" onClick={() => void copyMessage()} disabled={!message.text}>
+						{copied ? "已复制" : "复制"}
 					</button>
-				) : null}
-				{!isAssistant && message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
-			</div>
+					{!isAssistant && message.text ? (
+						<button type="button" onClick={() => onEdit(message.text)}>
+							编辑
+						</button>
+					) : null}
+					{!isAssistant && message.forkEntryId ? (
+						<button type="button" onClick={() => onFork(message.forkEntryId ?? "")}>
+							Fork
+						</button>
+					) : null}
+					{!isAssistant && message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
+				</div>
+			)}
 		</article>
 	);
 });
@@ -938,6 +1121,7 @@ function Inspector({
 	onClose,
 	onOpenFile,
 	onRevealFile,
+	onDownload,
 	onQuoteLine,
 }: {
 	tabs: FileTab[];
@@ -945,10 +1129,14 @@ function Inspector({
 	onClose: () => void;
 	onOpenFile: (path: string) => void;
 	onRevealFile: (path: string) => void;
+	onDownload: (path: string) => void;
 	onQuoteLine: (path: string, line: number) => void;
 }) {
-	const [mode, setMode] = useState<"preview" | "source">("source");
+	const [mode, setMode] = useState<"diff" | "preview" | "source">("source");
 	const [contentQuery, setContentQuery] = useState("");
+	const [wrapLines, setWrapLines] = useState(() => localStorage.getItem("pi-desktop-file-wrap") === "on");
+	const [diffText, setDiffText] = useState<string>();
+	const [diffLoading, setDiffLoading] = useState(false);
 	const activeTab = tabs.find((tab) => tab.path === activeTabPath);
 	const preview = activeTab?.preview;
 	const isPreviewable = preview ? isMarkdownFile(preview.path) : false;
@@ -956,9 +1144,29 @@ function Inspector({
 	const isAudio = preview ? preview.audioDataUrl !== undefined : false;
 	const previewPath = preview?.path;
 
+	const loadDiff = useCallback(async (path: string) => {
+		setDiffLoading(true);
+		try {
+			setDiffText(await getGitDiff(path));
+		} catch {
+			setDiffText("");
+		} finally {
+			setDiffLoading(false);
+		}
+	}, []);
+
+	useEffect(() => {
+		if (mode !== "diff" || !previewPath) return;
+		void loadDiff(previewPath);
+	}, [loadDiff, mode, previewPath]);
+
 	useEffect(() => {
 		setMode(isMarkdownFile(previewPath ?? "") ? "preview" : "source");
 	}, [previewPath]);
+
+	useEffect(() => {
+		localStorage.setItem("pi-desktop-file-wrap", wrapLines ? "on" : "off");
+	}, [wrapLines]);
 
 	const lineCount = preview ? preview.content.split(/\r\n|\r|\n/u).length : 0;
 	const sourceLines = useMemo(() => {
@@ -993,7 +1201,7 @@ function Inspector({
 					)}
 				</div>
 				<div className="inspector-header-actions">
-					{preview && isPreviewable ? (
+					{preview && !isImage && !isAudio ? (
 						<div className="inspector-segmented" role="tablist" aria-label="显示模式">
 							<button
 								aria-pressed={mode === "source"}
@@ -1003,15 +1211,46 @@ function Inspector({
 							>
 								源码
 							</button>
+							{isPreviewable ? (
+								<button
+									aria-pressed={mode === "preview"}
+									className={mode === "preview" ? "is-active" : ""}
+									type="button"
+									onClick={() => setMode("preview")}
+								>
+									预览
+								</button>
+							) : null}
 							<button
-								aria-pressed={mode === "preview"}
-								className={mode === "preview" ? "is-active" : ""}
+								aria-pressed={mode === "diff"}
+								className={mode === "diff" ? "is-active" : ""}
 								type="button"
-								onClick={() => setMode("preview")}
+								onClick={() => setMode("diff")}
 							>
-								预览
+								差异
 							</button>
 						</div>
+					) : null}
+					{preview && !isImage && !isAudio ? (
+						<button
+							className={`icon-button ${wrapLines ? "is-active" : ""}`}
+							type="button"
+							aria-label={wrapLines ? "关闭自动换行" : "开启自动换行"}
+							aria-pressed={wrapLines}
+							onClick={() => setWrapLines((current) => !current)}
+						>
+							<Icon name="wrap" size={16} />
+						</button>
+					) : null}
+					{preview ? (
+						<button
+							className="icon-button"
+							type="button"
+							aria-label="下载文件"
+							onClick={() => onDownload(preview.path)}
+						>
+							<Icon name="doc" size={16} />
+						</button>
 					) : null}
 					{preview ? (
 						<button
@@ -1063,8 +1302,24 @@ function Inspector({
 					<div className="file-preview-rendered">
 						<MarkdownBody text={preview.content} />
 					</div>
+				) : mode === "diff" ? (
+					diffLoading ? (
+						<p className="inspector-diff-empty">正在读取差异…</p>
+					) : diffText ? (
+						<div className="file-preview-source is-diff-view">
+							{diffText.split("\n").map((line, index) => (
+								// biome-ignore lint/suspicious/noArrayIndexKey: diff 行顺序固定
+								<span className={`source-line is-diff-line ${transcriptDiffLineClass(line)}`} key={index}>
+									<span className="source-line-number" />
+									<code>{line || " "}</code>
+								</span>
+							))}
+						</div>
+					) : (
+						<p className="inspector-diff-empty">该文件没有未提交的更改。</p>
+					)
 				) : (
-					<div className="file-preview-source">
+					<div className={`file-preview-source ${wrapLines ? "is-wrapped" : ""}`}>
 						{sourceLines.map((sourceLine) => (
 							<button
 								className={`source-line ${sourceLine.match ? "is-match" : ""}`}
@@ -1119,6 +1374,9 @@ export function App() {
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 	const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
 	const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+	const [renamingSession, setRenamingSession] = useState<{ path: string; name: string }>();
+	const [modelFilter, setModelFilter] = useState("");
+	const [projectRowMenuOpen, setProjectRowMenuOpen] = useState<string>();
 	const [trustDialogOpen, setTrustDialogOpen] = useState(false);
 	const [draft, setDraft] = useState("");
 	const [openingWorkspace, setOpeningWorkspace] = useState(false);
@@ -1146,6 +1404,17 @@ export function App() {
 	const [respondingToAuthenticationPromptId, setRespondingToAuthenticationPromptId] = useState<string>();
 	const [resolvingApprovalId, setResolvingApprovalId] = useState<string>();
 	const [actionError, setActionError] = useState<string>();
+	const [notices, setNotices] = useState<
+		Array<{ id: number; kind: "error" | "success" | "warning" | "accent"; text: string }>
+	>([]);
+	const noticeIdRef = useRef(0);
+	const pushNotice = useCallback((kind: "error" | "success" | "warning" | "accent", text: string) => {
+		const id = ++noticeIdRef.current;
+		setNotices((current) => [...current.slice(-4), { id, kind, text }]);
+		window.setTimeout(() => {
+			setNotices((current) => current.filter((notice) => notice.id !== id));
+		}, 5000);
+	}, []);
 	const [workspaceEntries, setWorkspaceEntries] = useState<DesktopWorkspaceEntry[]>([]);
 	const [fileTabs, setFileTabs] = useState<FileTab[]>([]);
 	const [activeTabPath, setActiveTabPath] = useState<string | undefined>();
@@ -1192,6 +1461,13 @@ export function App() {
 		? (snapshot.workspacePath.split(/[\\/]/u).filter(Boolean).at(-1) ?? snapshot.workspacePath)
 		: (snapshot.userHomeName ?? "Pi");
 	const stats = snapshot.sessionStats;
+	const filteredModels = (() => {
+		const query = modelFilter.trim().toLocaleLowerCase();
+		if (!query) return snapshot.availableModels;
+		return snapshot.availableModels.filter(
+			(model) => model.id.toLocaleLowerCase().includes(query) || model.name.toLocaleLowerCase().includes(query),
+		);
+	})();
 	const statsSummary = (() => {
 		if (!stats || stats.tokens.total === 0) return undefined;
 		const parts = [`↑${formatCompact(stats.tokens.input)}`, `↓${formatCompact(stats.tokens.output)}`];
@@ -1229,6 +1505,11 @@ export function App() {
 		session.phase !== "running";
 	const slashQuery = draft.trimStart().startsWith("/") ? draft.trimStart().slice(1).toLocaleLowerCase() : "";
 	const slashCommands = [
+		{ name: "compact", description: "压缩对话上下文，可附加指示" },
+		{ name: "name", description: "重命名当前会话" },
+		{ name: "copy", description: "复制最后一条回答" },
+		{ name: "session", description: "查看会话统计" },
+		{ name: "reload", description: "重新加载扩展与资源" },
 		{ name: "help", description: "显示桌面端可用命令" },
 		{ name: "model", description: "打开具体模型选择" },
 		{ name: "login", description: "配置模型服务商" },
@@ -1255,6 +1536,7 @@ export function App() {
 		: [];
 	const visibleSlashCommands = slashCommands.slice(0, 8);
 	const [menusDismissed, setMenusDismissed] = useState(false);
+	const [visibleItemCount, setVisibleItemCount] = useState(40);
 	const suggestionCount = !menusDismissed
 		? slashQuery
 			? visibleSlashCommands.length
@@ -1299,6 +1581,7 @@ export function App() {
 			setProjectMenuOpen(false);
 			setSessionMenuOpen(false);
 			setMoreMenuOpen(false);
+			setProjectRowMenuOpen(undefined);
 		};
 		window.addEventListener("keydown", onEscape);
 		return () => {
@@ -1324,22 +1607,26 @@ export function App() {
 		localStorage.setItem("pi-desktop-sidebar-view", sidebarView);
 	}, [sidebarView]);
 	useEffect(() => {
-		if (!projectMenuOpen && !sessionMenuOpen && !moreMenuOpen) return;
+		if (!projectMenuOpen && !sessionMenuOpen && !moreMenuOpen && !projectRowMenuOpen) return;
 		const close = (event: MouseEvent) => {
 			const target = event.target;
 			if (!(target instanceof Element)) {
 				setProjectMenuOpen(false);
 				setSessionMenuOpen(false);
 				setMoreMenuOpen(false);
+				setProjectRowMenuOpen(undefined);
 				return;
 			}
-			if (!target.closest(".project-menu-root")) setProjectMenuOpen(false);
+			if (!target.closest(".project-menu-root")) {
+				setProjectMenuOpen(false);
+				setProjectRowMenuOpen(undefined);
+			}
 			if (!target.closest(".session-row-wrap.is-current")) setSessionMenuOpen(false);
 			if (!target.closest(".top-bar-more-wrap")) setMoreMenuOpen(false);
 		};
 		document.addEventListener("mousedown", close);
 		return () => document.removeEventListener("mousedown", close);
-	}, [projectMenuOpen, sessionMenuOpen, moreMenuOpen]);
+	}, [projectMenuOpen, sessionMenuOpen, moreMenuOpen, projectRowMenuOpen]);
 	useEffect(() => {
 		if (!snapshot.workspacePath) return;
 		setRecentWorkspaces((current) => {
@@ -1373,6 +1660,7 @@ export function App() {
 			stickToBottomRef.current = true;
 			setAwayFromBottom(false);
 			setUnseenMessages(0);
+			setVisibleItemCount(40);
 			return;
 		}
 		if (previousMessageSignatureRef.current && previousMessageSignatureRef.current !== messageSignature) {
@@ -1556,6 +1844,46 @@ export function App() {
 			startTransition(() => setDraft(""));
 			return;
 		}
+		if (draft.startsWith("!") && !draft.startsWith("!!")) {
+			const command = draft.slice(1).trim();
+			if (command) {
+				setSubmitting(true);
+				setActionError(undefined);
+				try {
+					const output = await executeBashCommand(command, false);
+					pushNotice("success", output ? output.slice(0, 300) : "命令执行完成。");
+					startTransition(() => {
+						setDraft("");
+						localStorage.removeItem(draftKey);
+					});
+				} catch (error) {
+					pushNotice("error", error instanceof Error ? error.message : String(error));
+				} finally {
+					setSubmitting(false);
+				}
+			}
+			return;
+		}
+		if (draft.startsWith("!!")) {
+			const command = draft.slice(2).trim();
+			if (command) {
+				setSubmitting(true);
+				setActionError(undefined);
+				try {
+					const output = await executeBashCommand(command, true);
+					pushNotice("success", output ? output.slice(0, 300) : "命令执行完成（不进入上下文）。");
+					startTransition(() => {
+						setDraft("");
+						localStorage.removeItem(draftKey);
+					});
+				} catch (error) {
+					pushNotice("error", error instanceof Error ? error.message : String(error));
+				} finally {
+					setSubmitting(false);
+				}
+			}
+			return;
+		}
 		setSubmitting(true);
 		setActionError(undefined);
 		try {
@@ -1676,6 +2004,7 @@ export function App() {
 		setActionError(undefined);
 		try {
 			await setModel({ provider, modelId });
+			pushNotice("success", `模型已切换到 ${modelId}`);
 		} catch (error) {
 			setActionError(error instanceof Error ? error.message : String(error));
 		} finally {
@@ -1701,6 +2030,7 @@ export function App() {
 		setActionError(undefined);
 		try {
 			await compactSession();
+			pushNotice("success", "上下文压缩完成。");
 		} catch (error) {
 			setActionError(error instanceof Error ? error.message : String(error));
 		} finally {
@@ -1732,6 +2062,32 @@ export function App() {
 		}
 	}
 
+	async function handleRenameSubmit(): Promise<void> {
+		if (!renamingSession) return;
+		const name = renamingSession.name.trim();
+		if (!name) {
+			setRenamingSession(undefined);
+			return;
+		}
+		try {
+			await renameSession(name);
+			pushNotice("success", "会话已重命名。");
+		} catch (error) {
+			pushNotice("error", error instanceof Error ? error.message : String(error));
+		} finally {
+			setRenamingSession(undefined);
+		}
+	}
+
+	async function handleDeleteSession(sessionPath: string): Promise<void> {
+		try {
+			await deleteSession(sessionPath);
+			pushNotice("success", "会话已删除。");
+		} catch (error) {
+			pushNotice("error", error instanceof Error ? error.message : String(error));
+		}
+	}
+
 	function handleToolPresetChange(next: "off" | "default" | "full"): void {
 		setToolPreset(next);
 		localStorage.setItem("pi-desktop-tool-preset", next);
@@ -1752,11 +2108,48 @@ export function App() {
 
 	async function handleDesktopSlashCommand(text: string): Promise<boolean> {
 		if (!text.trimStart().startsWith("/")) return false;
-		const [command = "", argument = ""] = text.trimStart().slice(1).trim().split(/\s+/u, 2);
+		const [command = "", ...argumentParts] = text.trimStart().slice(1).trim().split(/\s+/u);
+		const argument = argumentParts.join(" ");
 		if (command === "help") {
-			setActionError(
-				"可用命令：/model、/login、/project、/files、/settings、/skills、/plugins、/trust；技能和插件命令可直接执行。",
+			pushNotice(
+				"accent",
+				"命令：/compact /name /copy /session /reload /model /login /project /files /settings /skills /plugins /trust；输入 ! 执行 shell 命令。",
 			);
+			return true;
+		}
+		if (command === "compact") {
+			await handleCompact();
+			return true;
+		}
+		if (command === "name") {
+			if (!argument) {
+				setConfigModal(undefined);
+				pushNotice("warning", "用法：/name 新名称");
+				return true;
+			}
+			try {
+				await renameSession(argument);
+				pushNotice("success", `会话已重命名为「${argument.slice(0, 40)}」`);
+			} catch (error) {
+				pushNotice("error", error instanceof Error ? error.message : String(error));
+			}
+			return true;
+		}
+		if (command === "copy") {
+			try {
+				await copyLastAnswer();
+				pushNotice("success", "已复制最后一条回答。");
+			} catch (error) {
+				pushNotice("error", error instanceof Error ? error.message : String(error));
+			}
+			return true;
+		}
+		if (command === "session") {
+			setTopPanel("session");
+			return true;
+		}
+		if (command === "reload") {
+			pushNotice("accent", "资源会在每次操作后自动重载，无需手动刷新。");
 			return true;
 		}
 		if (command === "model") {
@@ -1905,6 +2298,18 @@ export function App() {
 		}
 	}, []);
 
+	const handleDownloadFile = useCallback(
+		async (path: string): Promise<void> => {
+			try {
+				const saved = await saveWorkspaceFile(path);
+				if (saved) pushNotice("success", `已保存到 ${saved}`);
+			} catch (error) {
+				pushNotice("error", error instanceof Error ? error.message : String(error));
+			}
+		},
+		[pushNotice],
+	);
+
 	function beginResize(side: "sidebar" | "inspector", startX: number): void {
 		const startWidth = side === "sidebar" ? sidebarWidth : inspectorWidth;
 		const min = side === "sidebar" ? 220 : 300;
@@ -1999,6 +2404,43 @@ export function App() {
 									>
 										<Icon name="plus" size={13} />
 									</button>
+									<div className="sidebar-project-more-wrap project-menu-root">
+										<button
+											className="sidebar-project-tree-action"
+											type="button"
+											aria-label="项目操作"
+											aria-expanded={projectRowMenuOpen === root}
+											onClick={() =>
+												setProjectRowMenuOpen((current) => (current === root ? undefined : root))
+											}
+										>
+											<Icon name="more" size={13} />
+										</button>
+										{projectRowMenuOpen === root ? (
+											<div className="session-more-menu" role="menu">
+												<button
+													type="button"
+													disabled={session?.phase === "running"}
+													onClick={() => {
+														setProjectRowMenuOpen(undefined);
+														if (snapshot.workspacePath !== root) void handleSwitchWorkspacePath(root);
+														else void handleNewSession();
+													}}
+												>
+													新建会话
+												</button>
+												<button
+													type="button"
+													onClick={() => {
+														setProjectRowMenuOpen(undefined);
+														void handleRevealFile(root);
+													}}
+												>
+													在文件管理器中显示
+												</button>
+											</div>
+										) : null}
+									</div>
 								</div>
 								{!collapsed ? (
 									<div className="sidebar-project-tree-children">
@@ -2018,7 +2460,9 @@ export function App() {
 															isCurrent ? promptRef.current?.focus() : void handleOpenSession(item.path)
 														}
 													>
-														<span className="session-row-icon">
+														<span
+															className={`session-row-icon ${isCurrent && session?.phase === "running" ? "is-running" : ""}`}
+														>
 															<Icon name="chat" size={14} />
 														</span>
 														<span>{sessionTitle(item)}</span>
@@ -2040,6 +2484,17 @@ export function App() {
 																type="button"
 																onClick={() => {
 																	setSessionMenuOpen(false);
+																	const current = item.name ?? sessionTitle(item);
+																	setRenamingSession({ path: item.path, name: current });
+																	setSessionMenuOpen(false);
+																}}
+															>
+																重命名
+															</button>
+															<button
+																type="button"
+																onClick={() => {
+																	setSessionMenuOpen(false);
 																	setTopPanel("session");
 																}}
 															>
@@ -2054,6 +2509,17 @@ export function App() {
 																}}
 															>
 																Fork 为独立会话
+															</button>
+															<button
+																type="button"
+																className="is-danger"
+																disabled={session?.phase === "running"}
+																onClick={() => {
+																	setSessionMenuOpen(false);
+																	void handleDeleteSession(item.path);
+																}}
+															>
+																删除会话
 															</button>
 														</div>
 													) : null}
@@ -2120,6 +2586,7 @@ export function App() {
 	}
 
 	const effectiveSidebarView = snapshot.workspacePath ? sidebarView : "chats";
+	const bashMode = !attachments.length && draft.startsWith("!");
 	const macOSClassName = navigator.userAgent.includes("Macintosh") ? "is-macos" : "";
 
 	function renderProjectMenu() {
@@ -2535,6 +3002,22 @@ export function App() {
 							</button>
 						) : null}
 						{actionError ? <output className="notice notice-error">{actionError}</output> : null}
+						{notices.length ? (
+							// biome-ignore lint/a11y/useSemanticElements: 通知容器非单独状态区
+							<div className="notice-shelf" role="status">
+								{notices.map((notice) => (
+									<button
+										className={`notice-shelf-item is-${notice.kind}`}
+										key={notice.id}
+										type="button"
+										onClick={() => setNotices((current) => current.filter((item) => item.id !== notice.id))}
+									>
+										<span className="notice-dot" />
+										<span className="notice-text">{notice.text}</span>
+									</button>
+								))}
+							</div>
+						) : null}
 						{snapshot.pendingToolApprovals.length > 0 ? (
 							<section className="card-stack" aria-label="待处理的工具审批">
 								{snapshot.pendingToolApprovals.map((approval) => (
@@ -2559,8 +3042,17 @@ export function App() {
 							</section>
 						) : null}
 						<div className="transcript">
+							{visibleItemCount < transcriptItems.length ? (
+								<button
+									className="load-earlier"
+									type="button"
+									onClick={() => setVisibleItemCount((current) => current + 60)}
+								>
+									加载更早的消息 ({transcriptItems.length - visibleItemCount})
+								</button>
+							) : null}
 							{session?.messages.length
-								? transcriptItems.map((item) => {
+								? transcriptItems.slice(-visibleItemCount).map((item) => {
 										if (item.type === "process") {
 											return (
 												<div
@@ -2613,6 +3105,9 @@ export function App() {
 												<TranscriptMessage
 													message={item.message}
 													modelLabel={session.model?.id}
+													isLastAssistant={
+														item.message.id === lastMessage?.id && item.message.role === "assistant"
+													}
 													onEdit={handleEditMessage}
 													onFork={(entryId) => void handleForkFromMessage(entryId)}
 												/>
@@ -2620,12 +3115,33 @@ export function App() {
 										);
 									})
 								: null}
-							{session?.pendingMessages.map((message, index) => (
-								<div className="queued-message" key={`${message.behavior}:${index}:${message.text}`}>
-									<span>{message.behavior === "steer" ? "引导" : "跟进"}</span>
-									<p>{message.text}</p>
+							{session?.pendingMessages.length ? (
+								<div className="queued-panel">
+									<div className="queued-panel-header">
+										<span>QUEUED ({session.pendingMessages.length})</span>
+										<button
+											type="button"
+											onClick={() => {
+												const texts = session.pendingMessages.map((message) => message.text);
+												setDraft((current) =>
+													current ? `${texts.join("\n\n")}\n\n${current}` : texts.join("\n\n"),
+												);
+												promptRef.current?.focus();
+											}}
+										>
+											取回
+										</button>
+									</div>
+									{session.pendingMessages.map((message, index) => (
+										<div className="queued-message" key={`${message.behavior}:${index}:${message.text}`}>
+											<span className={message.behavior === "steer" ? "is-steer" : ""}>
+												{message.behavior === "steer" ? "引导" : "跟进"}
+											</span>
+											<p>{message.text}</p>
+										</div>
+									))}
 								</div>
-							))}
+							) : null}
 							{session?.phase === "running" ? (
 								<output className="agent-running-status">
 									<span className="status-indicator is-running" />
@@ -2783,6 +3299,12 @@ export function App() {
 								))}
 							</div>
 						) : null}
+						{bashMode ? (
+							<div className={`bash-mode-hint ${draft.startsWith("!!") ? "is-excluded" : ""}`}>
+								<Icon name="terminal" size={12} />
+								<span>{draft.startsWith("!!") ? "Shell · 输出不进入上下文" : "Shell · 输出发送给模型"}</span>
+							</div>
+						) : null}
 						<div className="composer-editor">
 							<textarea
 								ref={promptRef}
@@ -2921,18 +3443,41 @@ export function App() {
 									</button>
 									{composerMenu === "model" ? (
 										<div className="composer-popover" role="menu">
-											{snapshot.availableModels.map((model) => (
-												<button
-													key={getModelKey(model.provider, model.id)}
-													type="button"
-													onClick={() => {
-														setComposerMenu(undefined);
-														void handleChangeModel(getModelKey(model.provider, model.id));
+											{snapshot.availableModels.length > 8 ? (
+												<input
+													// biome-ignore lint/a11y/noAutofocus: 打开菜单即筛选，参考项目行为
+													autoFocus
+													className="composer-popover-filter"
+													placeholder="筛选模型"
+													value={modelFilter}
+													onChange={(event) => setModelFilter(event.target.value)}
+													onKeyDown={(event) => {
+														if (event.key === "Escape") {
+															event.stopPropagation();
+															setModelFilter("");
+															setComposerMenu(undefined);
+														}
 													}}
-												>
-													{model.provider} / {model.name}
-												</button>
-											))}
+												/>
+											) : null}
+											{filteredModels.length === 0 ? (
+												<p className="composer-popover-empty">没有匹配的模型。</p>
+											) : (
+												filteredModels.map((model) => (
+													<button
+														key={getModelKey(model.provider, model.id)}
+														type="button"
+														className={session?.model?.id === model.id ? "is-current" : ""}
+														onClick={() => {
+															setComposerMenu(undefined);
+															void handleChangeModel(getModelKey(model.provider, model.id));
+														}}
+													>
+														{session?.model?.id === model.id ? "✓ " : ""}
+														{model.provider} / {model.name}
+													</button>
+												))
+											)}
 										</div>
 									) : null}
 								</div>
@@ -3103,6 +3648,7 @@ export function App() {
 						onClose={() => setInspectorOpen(false)}
 						onOpenFile={(path) => void handleOpenFileWithDefaultApp(path)}
 						onRevealFile={(path) => void handleRevealFile(path)}
+						onDownload={(path) => void handleDownloadFile(path)}
 						onQuoteLine={handleQuoteLine}
 					/>
 				</aside>
@@ -3123,8 +3669,8 @@ export function App() {
 			) : null}
 			{configModal === "skills" ? (
 				<SkillsConfigModal
-					skills={snapshot.skills}
 					workspacePath={snapshot.workspacePath}
+					projectTrusted={snapshot.projectTrusted}
 					onClose={() => setConfigModal(undefined)}
 				/>
 			) : null}
@@ -3156,6 +3702,37 @@ export function App() {
 					onCancel={() => setTrustDialogOpen(false)}
 					onConfirm={() => void confirmProjectTrust()}
 				/>
+			) : null}
+			{renamingSession ? (
+				// biome-ignore lint/a11y/noStaticElementInteractions: 点击遮罩关闭对话框
+				<div
+					className="modal-backdrop"
+					onMouseDown={(event) => {
+						if (event.target === event.currentTarget) setRenamingSession(undefined);
+					}}
+				>
+					<div className="models-discard-dialog" role="dialog" aria-modal="true" aria-label="重命名会话">
+						<strong>重命名会话</strong>
+						<input
+							// biome-ignore lint/a11y/noAutofocus: 对话框打开即聚焦输入
+							autoFocus
+							value={renamingSession.name}
+							onChange={(event) => setRenamingSession({ ...renamingSession, name: event.target.value })}
+							onKeyDown={(event) => {
+								if (event.key === "Enter") void handleRenameSubmit();
+								if (event.key === "Escape") setRenamingSession(undefined);
+							}}
+						/>
+						<div>
+							<button className="outline-button" type="button" onClick={() => setRenamingSession(undefined)}>
+								取消
+							</button>
+							<button className="accent-button" type="button" onClick={() => void handleRenameSubmit()}>
+								保存
+							</button>
+						</div>
+					</div>
+				</div>
 			) : null}
 			<UpdateReminder onOpenSettings={() => setConfigModal("settings")} />
 		</main>

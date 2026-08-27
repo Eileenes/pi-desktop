@@ -20,6 +20,13 @@ export interface DesktopTranscriptMessage {
 	truncated?: boolean;
 	forkEntryId?: string;
 	timestamp?: number;
+	usage?: {
+		input: number;
+		output: number;
+		cacheRead: number;
+		cacheWrite: number;
+		cost: number;
+	};
 }
 
 export type DesktopThinkingLevel = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -84,6 +91,42 @@ export interface DesktopSkill {
 	description: string;
 	filePath: string;
 	disableModelInvocation: boolean;
+}
+
+export interface DesktopSkillInstallInfo {
+	package: string;
+	scope: "global" | "project";
+	source: string;
+	sourceType?: string;
+	skillsShUrl?: string;
+	skillPath?: string;
+	ref?: string;
+	versionHash?: string;
+	canCheckForUpdates: boolean;
+}
+
+export interface DesktopSkillInfo {
+	name: string;
+	description: string;
+	filePath: string;
+	disableModelInvocation: boolean;
+	scope: "global" | "project";
+	install?: DesktopSkillInstallInfo;
+}
+
+export interface DesktopSkillSearchResult {
+	package: string;
+	installs: string;
+	url: string;
+}
+
+export interface DesktopSkillUpdateResult {
+	package: string;
+	scope: "global" | "project";
+	state: "up-to-date" | "update-available" | "unsupported" | "error";
+	currentVersion?: string;
+	latestVersion?: string;
+	message?: string;
 }
 
 export interface DesktopPlugin {
@@ -252,6 +295,14 @@ export interface DesktopNavigateTreeInput {
 	entryId: string;
 }
 
+export interface DesktopRenameSessionInput {
+	name: string;
+}
+
+export interface DesktopDeleteSessionInput {
+	sessionPath: string;
+}
+
 export interface DesktopProjectTrustInput {
 	trusted: boolean;
 }
@@ -316,6 +367,10 @@ export interface DesktopApi {
 	forkSession(): Promise<DesktopSnapshot>;
 	autoNameSession(): Promise<DesktopSnapshot>;
 	exportSession(): Promise<string>;
+	renameSession(input: DesktopRenameSessionInput): Promise<DesktopSnapshot>;
+	deleteSession(input: DesktopDeleteSessionInput): Promise<DesktopSnapshot>;
+	executeBashCommand(command: string, excludeFromContext: boolean): Promise<string>;
+	copyLastAnswer(): Promise<string>;
 	setModel(input: DesktopModelSelectionInput): Promise<DesktopSnapshot>;
 	setThinkingLevel(level: DesktopThinkingLevel): Promise<DesktopSnapshot>;
 	compact(): Promise<DesktopSnapshot>;
@@ -328,6 +383,7 @@ export interface DesktopApi {
 	readWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<DesktopWorkspaceFilePreview>;
 	openWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<void>;
 	revealWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<void>;
+	saveWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<string>;
 	openExternalUrl(url: string): Promise<void>;
 	notifyComplete(): Promise<void>;
 	listGitChanges(): Promise<DesktopGitChange[]>;
@@ -341,6 +397,7 @@ export interface DesktopApi {
 	getModelsConfig(): Promise<DesktopProviderConfig[]>;
 	saveModelsConfig(input: DesktopSaveModelsConfigInput): Promise<DesktopSnapshot>;
 	discoverModels(input: DesktopDiscoverModelsInput): Promise<Array<{ id: string }>>;
+	lookupModelCatalog(input: { providerId: string; modelId: string }): Promise<DesktopProviderModelConfig | undefined>;
 	testModel(input: DesktopModelTestInput): Promise<DesktopModelTestResult>;
 	openCustomCss(): Promise<string>;
 	checkForUpdates(): Promise<DesktopUpdateInfo>;
@@ -348,6 +405,11 @@ export interface DesktopApi {
 	installPlugin(input: DesktopPluginSourceInput): Promise<DesktopSnapshot>;
 	removePlugin(input: DesktopPluginSourceInput): Promise<DesktopSnapshot>;
 	getPluginPackages(): Promise<Array<{ source: string; scope: "user" | "project" }>>;
+	listSkillsDetailed(): Promise<DesktopSkillInfo[]>;
+	searchSkills(query: string): Promise<DesktopSkillSearchResult[]>;
+	installSkill(pkg: string, scope: "global" | "project"): Promise<DesktopSnapshot>;
+	checkSkillUpdates(target?: { pkg: string; scope: "global" | "project" }): Promise<DesktopSkillUpdateResult[]>;
+	updateSkill(pkg: string, scope: "global" | "project"): Promise<string>;
 	onSnapshot(listener: DesktopSnapshotListener): Unsubscribe;
 }
 

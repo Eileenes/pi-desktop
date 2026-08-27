@@ -25,7 +25,10 @@ import type {
 	DesktopSessionInfo,
 	DesktopSessionPhase,
 	DesktopSessionStats,
-	DesktopSkill,
+	DesktopSkillInfo,
+	DesktopSkillInstallInfo,
+	DesktopSkillSearchResult,
+	DesktopSkillUpdateResult,
 	DesktopSnapshot,
 	DesktopTranscriptBlock,
 	DesktopTranscriptMessage,
@@ -42,6 +45,7 @@ import {
 } from "./git-integration.ts";
 import {
 	discoverModels as discoverModelsFromUrl,
+	lookupModelCatalog,
 	type ModelsJson,
 	type ModelsJsonProvider,
 	modelsJsonPathFor,
@@ -49,7 +53,14 @@ import {
 	writeModelsConfig,
 } from "./models-config-store.ts";
 import { SecurityAuditLog } from "./security-audit-log.ts";
-import { setSkillDisableModelInvocation } from "./skill-toggle.ts";
+import {
+	checkSkillUpdate,
+	installSkill,
+	listSkillsDetailed,
+	searchSkills,
+	toggleSkillFile,
+	updateSkillViaNpx,
+} from "./skills-service.ts";
 import { ToolApprovalQueue } from "./tool-approval-queue.ts";
 import { TrustedWorkspaceBrowser } from "./trusted-workspace-browser.ts";
 import { getWorkspaceKey, WorkspaceTrustStore } from "./workspace-trust-store.ts";
@@ -122,6 +133,22 @@ function toTranscriptMessage(message: unknown, index: number): DesktopTranscript
 	const blocks = contentToBlocks(value.content);
 	const text =
 		value.role === "bashExecution" && typeof value.output === "string" ? value.output : blocksToText(blocks);
+	const usage = (() => {
+		if (role !== "assistant" || typeof value.usage !== "object" || value.usage === null) return undefined;
+		const usageValue = value.usage as Record<string, unknown>;
+		const cost =
+			typeof usageValue.cost === "object" && usageValue.cost !== null
+				? (usageValue.cost as Record<string, unknown>)
+				: undefined;
+		const numberOr = (input: unknown): number => (typeof input === "number" && Number.isFinite(input) ? input : 0);
+		return {
+			input: numberOr(usageValue.input),
+			output: numberOr(usageValue.output),
+			cacheRead: numberOr(usageValue.cacheRead),
+			cacheWrite: numberOr(usageValue.cacheWrite),
+			cost: numberOr(cost?.total),
+		};
+	})();
 	return {
 		id: `${index}:${timestamp ?? ""}`,
 		role,
@@ -135,6 +162,7 @@ function toTranscriptMessage(message: unknown, index: number): DesktopTranscript
 		...(typeof value.cancelled === "boolean" ? { cancelled: value.cancelled } : {}),
 		...(typeof value.truncated === "boolean" ? { truncated: value.truncated } : {}),
 		...(timestamp === undefined ? {} : { timestamp }),
+		...(usage ? { usage } : {}),
 	};
 }
 
@@ -597,7 +625,6 @@ export class DesktopAgentHost {
 		if (!model) throw new Error("请先配置并选择模型，再生成标题。");
 		const messages = this.session.messages;
 		const firstUser = [...messages]
-			.reverse()
 			.map((message, index) => toTranscriptMessage(message, index))
 			.find((message) => message.role === "user" && message.text.trim());
 		if (!firstUser) throw new Error("会话还没有消息，先发送一条消息再生成标题。");
@@ -629,6 +656,51 @@ export class DesktopAgentHost {
 			this.error = error instanceof Error ? error.message : String(error);
 		}
 		return this.publish();
+	}
+
+	async renameSession(name: string): Promise<DesktopSnapshot> {
+		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
+		const trimmed = name.trim().slice(0, 120);
+		if (!trimmed) throw new Error("会话名称不能为空。");
+		this.session.setSessionName(trimmed);
+		return this.publish();
+	}
+
+	async deleteSession(sessionPath: string): Promise<DesktopSnapshot> {
+		if (this.session?.isStreaming) throw new Error("请等待当前智能体任务完成后再删除会话。");
+		const { unlink } = await import("node:fs/promises");
+		const realPath = resolve(sessionPath);
+		const directory = this.sessionDirectory ? resolve(this.sessionDirectory) : undefined;
+		if (!directory || !realPath.startsWith(directory + sep)) {
+			throw new Error("只能删除当前工作区目录中的会话文件。");
+		}
+		await unlink(realPath);
+		this.auditLog.write("workspace.trust", "denied", { deletedSession: basename(realPath) });
+		await this.refreshSessions();
+		const currentFile = this.session?.sessionManager.getSessionFile();
+		if (currentFile && resolve(currentFile) === realPath) {
+			await this.newSession();
+		}
+		return this.publish();
+	}
+
+	async executeBashCommand(command: string, excludeFromContext: boolean): Promise<string> {
+		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
+		const result = await this.session.executeBash(command, undefined, { excludeFromContext });
+		if (result.exitCode !== 0 && !result.output) {
+			throw new Error(`命令退出码 ${result.exitCode ?? "未知"}`);
+		}
+		return result.output;
+	}
+
+	async copyLastAnswer(): Promise<string> {
+		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
+		const last = [...this.session.messages].reverse().find((message) => message.role === "assistant");
+		if (!last) throw new Error("还没有可复制的回答。");
+		const transcript = toTranscriptMessage(last, 0);
+		const { clipboard } = await import("electron");
+		clipboard.writeText(transcript.text);
+		return transcript.text;
 	}
 
 	async setProjectTrust(trusted: boolean): Promise<DesktopSnapshot> {
@@ -841,6 +913,10 @@ export class DesktopAgentHost {
 		return discoverModelsFromUrl(baseUrl, apiKey ?? storedConfig.providers[providerId]?.apiKey);
 	}
 
+	async lookupModelCatalog(providerId: string, modelId: string): Promise<DesktopProviderModelConfig | undefined> {
+		return lookupModelCatalog(providerId, modelId);
+	}
+
 	async testModel(
 		provider: DesktopProviderConfig,
 		model: DesktopProviderModelConfig,
@@ -903,15 +979,68 @@ export class DesktopAgentHost {
 		if (this.session?.isStreaming) {
 			throw new Error("请等待当前智能体任务完成后，再修改技能。");
 		}
-		const skill = this.session?.resourceLoader
-			.getSkills()
-			.skills.find((candidate) => candidate.filePath === filePath);
-		if (!skill) throw new Error("只能修改当前会话已加载的技能。");
-		await setSkillDisableModelInvocation(skill.filePath, disable);
+		await toggleSkillFile(filePath, disable, {
+			...(this.workspacePath && this.projectTrusted
+				? { cwd: this.workspacePath, projectTrusted: true }
+				: { projectTrusted: false }),
+		});
+		this.auditLog.write("skill.toggle", "succeeded", { disabled: disable });
 		if (this.session) {
 			await this.session.resourceLoader.reload();
 		}
 		return this.publish();
+	}
+
+	async listSkillsDetailed(): Promise<DesktopSkillInfo[]> {
+		return listSkillsDetailed({
+			...(this.workspacePath ? { cwd: this.workspacePath } : {}),
+			projectTrusted: this.projectTrusted,
+		});
+	}
+
+	async searchSkills(query: string): Promise<DesktopSkillSearchResult[]> {
+		return searchSkills(query.trim());
+	}
+
+	async installSkill(pkg: string, scope: "global" | "project"): Promise<DesktopSnapshot> {
+		if (this.session?.isStreaming) {
+			throw new Error("请等待当前智能体任务完成后，再安装技能。");
+		}
+		if (scope === "project" && !this.projectTrusted) {
+			throw new Error("请先信任当前项目，再安装项目技能。");
+		}
+		this.auditLog.write("skill.install", "succeeded", { source: pkg, scope });
+		try {
+			await installSkill(pkg, scope, scope === "project" ? this.requireWorkspacePath() : undefined);
+			this.auditLog.write("skill.install", "succeeded", { source: pkg, scope });
+			if (this.session) await this.session.resourceLoader.reload();
+			return this.publish();
+		} catch (error) {
+			this.auditLog.write("skill.install", "failed", { source: pkg, scope });
+			throw error;
+		}
+	}
+
+	async checkSkillUpdates(target?: { pkg: string; scope: "global" | "project" }): Promise<DesktopSkillUpdateResult[]> {
+		const skills = await this.listSkillsDetailed();
+		const installs = skills
+			.map((skill) => skill.install)
+			.filter((install): install is DesktopSkillInstallInfo => install !== undefined)
+			.filter((install) => !target || (install.package === target.pkg && install.scope === target.scope));
+		if (target && installs.length === 0) throw new Error("找不到已安装的技能。");
+		return Promise.all(installs.map((install) => checkSkillUpdate(install)));
+	}
+
+	async updateSkill(pkg: string, scope: "global" | "project"): Promise<string> {
+		const skills = await this.listSkillsDetailed();
+		const install = skills
+			.map((skill) => skill.install)
+			.filter((entry): entry is DesktopSkillInstallInfo => entry !== undefined)
+			.find((entry) => entry.package === pkg && entry.scope === scope);
+		if (!install) throw new Error("找不到已安装的技能。");
+		const output = await updateSkillViaNpx(install);
+		if (this.session) await this.session.resourceLoader.reload();
+		return output;
 	}
 
 	async installPlugin(source: string, local: boolean): Promise<DesktopSnapshot> {
@@ -1183,7 +1312,7 @@ export class DesktopAgentHost {
 			});
 	}
 
-	private getSkills(): DesktopSkill[] {
+	private getSkills(): DesktopSkillInfo[] {
 		if (!this.session) return [];
 		return this.session.resourceLoader
 			.getSkills()
@@ -1192,6 +1321,7 @@ export class DesktopAgentHost {
 				description: skill.description,
 				filePath: skill.filePath,
 				disableModelInvocation: skill.disableModelInvocation,
+				scope: skill.sourceInfo?.scope === "project" ? ("project" as const) : ("global" as const),
 			}))
 			.sort((left, right) => left.name.localeCompare(right.name));
 	}

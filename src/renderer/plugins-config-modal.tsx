@@ -106,8 +106,9 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 
 	function renderPackageRow(pkg: InstalledPackage) {
 		const key = `${pkg.scope}\0${pkg.source}`;
-		const commandCount = plugins.find((plugin) => plugin.name.includes(pkg.source.split("/").at(-1) ?? pkg.source))
-			?.commands.length;
+		const matched = plugins.find((plugin) => plugin.name.includes(pkg.source.split("/").at(-1) ?? pkg.source));
+		const commandCount = matched?.commands.length;
+		const state = commandCount ? "loaded" : "installed";
 		return (
 			<button
 				key={key}
@@ -116,9 +117,9 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 				title={pkg.source}
 				onClick={() => setSelectedKey(key)}
 			>
-				<span className="resource-status-dot is-on" />
+				<span className={`resource-status-dot ${state === "loaded" ? "is-on" : "is-warning"}`} />
 				<span>{pkg.source}</span>
-				<small>{commandCount ? `${commandCount} cmd` : SCOPE_LABEL[pkg.scope]}</small>
+				<small>{commandCount ? `${commandCount} cmd` : "installed"}</small>
 			</button>
 		);
 	}
@@ -224,7 +225,9 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 							<h3 className="resource-detail-name">{selected.source}</h3>
 							<div className="resource-meta-grid">
 								<span>状态</span>
-								<strong>{selectedPlugin ? "已加载" : "已安装 · 未加载"}</strong>
+								<strong className={selectedPlugin ? "is-loaded" : undefined}>
+									{selectedPlugin ? "已加载" : "已安装 · 未加载"}
+								</strong>
 								<span>范围</span>
 								<strong>{selected.scope === "user" ? "全局" : "项目"}</strong>
 								<span>命令</span>
@@ -234,6 +237,9 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 									{selectedPlugin?.commands.length ? selectedPlugin.commands.join("  ") : "—"}
 								</strong>
 							</div>
+							{selectedPlugin ? (
+								<p className="resource-detail-note">重载说明：插件资源在每次会话操作后自动刷新。</p>
+							) : null}
 						</>
 					) : (
 						<div className="settings-empty-state">选择一个插件查看详情</div>

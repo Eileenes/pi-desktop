@@ -1010,7 +1010,7 @@ function registerIpc(): void {
 		return {
 			currentVersion: app.getVersion(),
 			...(latestVersion ? { latestVersion } : {}),
-			releaseUrl: release.html_url ?? "https://github.com/abcwyc/pi-agent-desktop/releases",
+			releaseUrl: release.html_url ?? "https://github.com/Eileenes/pi-desktop/releases",
 			updateAvailable: Boolean(latestVersion && isNewerVersion(latestVersion, app.getVersion())),
 			checkedAt: Date.now(),
 			...(latestReleaseAssets.length ? { assets: latestReleaseAssets } : {}),

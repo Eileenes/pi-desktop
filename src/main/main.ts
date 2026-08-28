@@ -17,6 +17,7 @@ import {
 	nativeImage,
 	Tray,
 } from "electron";
+import { autoUpdater } from "electron-updater";
 import type { Response as FetchResponse } from "undici-types";
 import {
 	type DesktopDirectoryEntry,
@@ -126,6 +127,35 @@ function publishSnapshot(snapshot: DesktopSnapshot): void {
 function sendWorkspaceChanges(changes: DesktopWorkspaceChange[]): void {
 	if (!mainWindow || mainWindow.isDestroyed()) return;
 	mainWindow.webContents.send("pi-desktop:workspace-changed", changes);
+}
+
+function configureAutoUpdater(): void {
+	if (!app.isPackaged) return;
+	autoUpdater.autoDownload = true;
+	autoUpdater.autoInstallOnAppQuit = true;
+	autoUpdater.logger = null;
+	autoUpdater.on("update-downloaded", async (info) => {
+		if (!mainWindow || mainWindow.isDestroyed()) return;
+		const result = await dialog.showMessageBox(mainWindow, {
+			type: "info",
+			buttons: ["立即重启安装", "稍后"],
+			defaultId: 0,
+			cancelId: 1,
+			title: "Pi Agent 有新版本",
+			message: `版本 ${info.version} 已下载完成。`,
+			detail: "重启应用后将完成更新。",
+		});
+		if (result.response === 0) {
+			isQuitting = true;
+			autoUpdater.quitAndInstall(false, true);
+		}
+	});
+	autoUpdater.on("error", (error) => {
+		console.error("自动更新失败:", error);
+	});
+	void autoUpdater.checkForUpdates().catch((error: unknown) => {
+		console.error("自动更新检查失败:", error);
+	});
 }
 
 function assertMainWindowSender(event: IpcMainInvokeEvent): void {
@@ -966,7 +996,7 @@ function registerIpc(): void {
 	});
 	ipcMain.handle("pi-desktop:check-for-updates", async (event) => {
 		assertMainWindowSender(event);
-		const response = (await fetch("https://api.github.com/repos/abcwyc/pi-agent-desktop/releases/latest", {
+		const response = (await fetch("https://api.github.com/repos/Eileenes/pi-desktop/releases/latest", {
 			headers: { Accept: "application/vnd.github+json", "User-Agent": "pi-agent-desktop" },
 		})) as FetchResponse;
 		if (!response.ok) throw new Error(`检查更新失败（HTTP ${response.status}）。`);
@@ -1144,6 +1174,7 @@ if (!hasSingleInstanceLock) {
 		);
 		mainWindow = createWindow();
 		createTray();
+		configureAutoUpdater();
 
 		app.on("activate", () => showMainWindow());
 	});

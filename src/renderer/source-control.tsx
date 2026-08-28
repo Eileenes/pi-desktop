@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { DesktopGitChange } from "../shared/contracts.ts";
 import { getGitDiff, listGitChanges } from "./desktop-store.ts";
+import { useI18n } from "./i18n.ts";
 
 const STATUS_LABELS: Record<DesktopGitChange["status"], string> = {
 	added: "A",
@@ -33,6 +34,7 @@ interface DiffTab {
 }
 
 export const SourceControl = memo(function SourceControl() {
+	const { t } = useI18n();
 	const [changes, setChanges] = useState<DesktopGitChange[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string>();
@@ -95,13 +97,18 @@ export const SourceControl = memo(function SourceControl() {
 	return (
 		<div className="source-control">
 			<div className="sidebar-section-title">
-				<span>更改 · {changes.length}</span>
-				<button className="icon-button compact" type="button" aria-label="刷新更改" onClick={() => void load()}>
+				<span>{t("changesWithCount", { count: changes.length })}</span>
+				<button
+					className="icon-button compact"
+					type="button"
+					aria-label={t("refreshChanges")}
+					onClick={() => void load()}
+				>
 					↻
 				</button>
 			</div>
 			{error ? <p className="sidebar-error">{error}</p> : null}
-			{loading ? <p className="sidebar-loading">正在读取 Git 状态…</p> : null}
+			{loading ? <p className="sidebar-loading">{t("loadingGitStatus")}</p> : null}
 			<div className="change-list">
 				{changes.map((change) => (
 					<button
@@ -114,11 +121,13 @@ export const SourceControl = memo(function SourceControl() {
 						<span>{change.path}</span>
 					</button>
 				))}
-				{!loading && !error && changes.length === 0 ? <p className="sidebar-loading">没有未提交的更改。</p> : null}
+				{!loading && !error && changes.length === 0 ? (
+					<p className="sidebar-loading">{t("noUncommittedChanges")}</p>
+				) : null}
 			</div>
 			{tabs.length ? (
 				<div className="diff-panel">
-					<div className="diff-tabs" role="tablist" aria-label="差异文件">
+					<div className="diff-tabs" role="tablist" aria-label={t("diffFiles")}>
 						{tabs.map((tab) => (
 							<div className={`diff-tab ${activePath === tab.path ? "is-active" : ""}`} key={tab.path}>
 								<button
@@ -129,7 +138,11 @@ export const SourceControl = memo(function SourceControl() {
 								>
 									{tab.path.split("/").at(-1)}
 								</button>
-								<button type="button" aria-label={`关闭 ${tab.path} 差异`} onClick={() => closeTab(tab.path)}>
+								<button
+									type="button"
+									aria-label={t("closeDiffAria", { path: tab.path })}
+									onClick={() => closeTab(tab.path)}
+								>
 									×
 								</button>
 							</div>
@@ -138,12 +151,12 @@ export const SourceControl = memo(function SourceControl() {
 					<div className="diff-panel-header">
 						<strong>{activePath}</strong>
 					</div>
-					{activeTab?.loading ? <p className="sidebar-loading">正在读取差异…</p> : null}
+					{activeTab?.loading ? <p className="sidebar-loading">{t("loadingDiff")}</p> : null}
 					{activeTab?.error ? <p className="sidebar-error">{activeTab.error}</p> : null}
 					{activeTab && !activeTab.loading && !activeTab.error ? (
 						<pre className="diff-view">
 							<code>
-								{(activeTab.content || "（没有文本差异）").split("\n").map((line, index) => (
+								{(activeTab.content || t("noTextDiff")).split("\n").map((line, index) => (
 									// biome-ignore lint/suspicious/noArrayIndexKey: diff 行顺序固定、不可重排
 									<span className={diffLineClass(line)} key={index}>
 										{line || " "}

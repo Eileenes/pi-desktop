@@ -10,7 +10,7 @@ describe("formatSessionReference", () => {
 });
 
 describe("expandSessionReferences", () => {
-	it("expands exact plain and quoted labels", () => {
+	it("expands confirmed plain labels and quoted labels", () => {
 		const candidates = [
 			{ label: "Build", path: "/sessions/build.jsonl" },
 			{ label: "Deploy notes", path: "/sessions/deploy.jsonl" },
@@ -18,19 +18,21 @@ describe("expandSessionReferences", () => {
 		const expanded = expandSessionReferences('Compare #Build with #"Deploy notes"', {
 			candidates,
 			load: (path) => (path.includes("build") ? "USER: build it" : "ASSISTANT: deploy it"),
+			confirmedLabels: ["Build"],
 		});
 
 		expect(expanded).toContain('<session_reference name="Build" trust="untrusted-history">');
 		expect(expanded).toContain('<session_reference name="Deploy notes" trust="untrusted-history">');
 	});
 
-	it("leaves unknown and ambiguous labels untouched", () => {
-		const text = "See #Unknown and #Duplicate";
+	it("leaves unknown, ambiguous, and unconfirmed labels untouched", () => {
+		const text = "See #Unknown and #Duplicate and #Build";
 		expect(
 			expandSessionReferences(text, {
 				candidates: [
 					{ label: "Duplicate", path: "/one" },
 					{ label: "duplicate", path: "/two" },
+					{ label: "Build", path: "/three" },
 				],
 				load: () => "content",
 			}),
@@ -44,6 +46,7 @@ describe("expandSessionReferences", () => {
 				{ label: "Two", path: "/two" },
 			],
 			load: () => "12345",
+			confirmedLabels: ["One", "Two"],
 			maxCharacters: 6,
 		});
 

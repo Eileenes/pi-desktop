@@ -1,4 +1,5 @@
 import { memo, type ReactNode, useEffect, useRef } from "react";
+import { useI18n } from "./i18n.ts";
 
 const FOCUSABLE_SELECTOR =
 	'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
@@ -14,6 +15,7 @@ interface ModalProps {
 }
 
 export const Modal = memo(function Modal({ title, subtitle, className, onClose, children }: ModalProps) {
+	const { t } = useI18n();
 	const panelRef = useRef<HTMLDivElement>(null);
 	const modalIdRef = useRef<string | undefined>(undefined);
 	if (!modalIdRef.current) modalIdRef.current = `modal-${++modalSequence}`;
@@ -91,7 +93,7 @@ export const Modal = memo(function Modal({ title, subtitle, className, onClose, 
 						<h2 className="modal-title">{title}</h2>
 						{subtitle ? <code className="modal-subtitle">{subtitle}</code> : null}
 					</div>
-					<button className="icon-button" type="button" aria-label="关闭" onClick={onClose}>
+					<button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}>
 						×
 					</button>
 				</header>

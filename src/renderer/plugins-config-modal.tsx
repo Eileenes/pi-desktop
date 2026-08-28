@@ -1,31 +1,56 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import type { DesktopPlugin, DesktopPluginPackage } from "../shared/contracts.ts";
-import { getPluginPackages, installPlugin, removePlugin, togglePlugin } from "./desktop-store.ts";
+import type {
+	DesktopPlugin,
+	DesktopPluginPackage,
+	DesktopPluginPackageFilterInput,
+	DesktopPluginPackageResourceFilters,
+} from "../shared/contracts.ts";
+import {
+	getPluginPackages,
+	installPlugin,
+	reloadSession,
+	removePlugin,
+	savePluginPackageFilters,
+	selectDirectory,
+	togglePlugin,
+} from "./desktop-store.ts";
+import { type I18n, type TranslationKey, useI18n } from "./i18n.ts";
 import { Modal } from "./modal.tsx";
 
 interface PluginsConfigModalProps {
 	plugins: DesktopPlugin[];
 	workspacePath?: string;
+	projectTrusted: boolean;
 	onClose: () => void;
 }
 
 const SCOPE_LABEL = { user: "GLOBAL", project: "PROJECT" } as const;
-const STATUS_LABEL: Record<DesktopPluginPackage["status"], string> = {
-	disabled: "已禁用",
-	error: "加载错误",
-	installed: "已安装",
-	loaded: "已加载",
-};
+function statusLabel(status: DesktopPluginPackage["status"], t: I18n["t"]): string {
+	switch (status) {
+		case "disabled":
+			return t("statusDisabled");
+		case "error":
+			return t("statusError");
+		case "installed":
+			return t("statusInstalled");
+		case "loaded":
+			return t("statusLoaded");
+		case "missing":
+			return t("statusMissing");
+	}
+}
 
 function packageKey(pkg: Pick<DesktopPluginPackage, "scope" | "source">): string {
 	return `${pkg.scope}\0${pkg.source}`;
 }
 
 function normalizeInstallSource(input: string): string {
-	return input.trim().replace(/^\$?\s*pi\s+install\s+/iu, "");
+	const value = input.trim();
+	const command = value.match(/^\$?\s*pi\s+install\s+(\S+)\s*$/iu);
+	return command?.[1] ?? value;
 }
 
-function resourceSummary(pkg: DesktopPluginPackage): string {
+function resourceSummary(pkg: DesktopPluginPackage, t: I18n["t"]): string {
 	const parts = [
 		[pkg.resources.extensions.length, "ext"],
 		[pkg.resources.skills.length, "sk"],
@@ -34,17 +59,130 @@ function resourceSummary(pkg: DesktopPluginPackage): string {
 	]
 		.filter(([count]) => Number(count) > 0)
 		.map(([count, label]) => `${count} ${label}`);
-	return parts.length ? parts.join(" · ") : "未发现资源";
+	return parts.length ? parts.join(" · ") : t("noResourcesFound");
+}
+
+function displayResourcePath(path: string, workspacePath?: string): string {
+	if (!workspacePath) return path;
+	const normalizedRoot = workspacePath.replace(/[\\/]+$/u, "");
+	if (path === normalizedRoot) return ".";
+	if (path.startsWith(`${normalizedRoot}/`) || path.startsWith(`${normalizedRoot}\\`)) {
+		return `./${path.slice(normalizedRoot.length).replace(/^[/\\]/u, "")}`;
+	}
+	return path.replace(/^\/Users\/[^/]+/u, "~");
+}
+
+const FILTER_KINDS = [
+	["extensions", "filterExtensions"],
+	["skills", "filterSkills"],
+	["prompts", "filterPrompts"],
+	["themes", "filterThemes"],
+] as const satisfies ReadonlyArray<readonly [keyof DesktopPluginPackageResourceFilters, TranslationKey]>;
+
+function parseFilterPatterns(text: string, t: I18n["t"]): string[] | string {
+	const seen = new Set<string>();
+	const patterns: string[] = [];
+	for (const line of text.split("\n")) {
+		const pattern = line.trim();
+		if (!pattern) continue;
+		if (pattern.length > 200) return t("patternTooLong", { pattern: pattern.slice(0, 40) });
+		if (seen.has(pattern)) continue;
+		seen.add(pattern);
+		patterns.push(pattern);
+	}
+	if (patterns.length > 100) return t("tooManyPatterns");
+	return patterns;
+}
+
+function PluginFilterEditor({
+	pkg,
+	busy,
+	onSave,
+}: {
+	pkg: DesktopPluginPackage;
+	busy: boolean;
+	onSave: (input: DesktopPluginPackageFilterInput) => Promise<void>;
+}) {
+	const { t } = useI18n();
+	const [autoload, setAutoload] = useState(pkg.autoload ?? true);
+	const [texts, setTexts] = useState<Record<keyof DesktopPluginPackageResourceFilters, string>>(() => ({
+		extensions: (pkg.filters?.extensions ?? []).join("\n"),
+		skills: (pkg.filters?.skills ?? []).join("\n"),
+		prompts: (pkg.filters?.prompts ?? []).join("\n"),
+		themes: (pkg.filters?.themes ?? []).join("\n"),
+	}));
+	const [saving, setSaving] = useState(false);
+	const [error, setError] = useState<string>();
+
+	async function handleSave(): Promise<void> {
+		setError(undefined);
+		const filters = {} as DesktopPluginPackageResourceFilters;
+		for (const [kind] of FILTER_KINDS) {
+			const parsed = parseFilterPatterns(texts[kind], t);
+			if (typeof parsed === "string") {
+				setError(parsed);
+				return;
+			}
+			filters[kind] = parsed;
+		}
+		setSaving(true);
+		try {
+			await onSave({ source: pkg.source, local: pkg.scope === "project", autoload, filters });
+		} finally {
+			setSaving(false);
+		}
+	}
+
+	return (
+		<div className="plugin-filter-editor">
+			<div className="plugin-filter-header">
+				<strong>{t("filterRules")}</strong>
+				<label className="plugin-filter-autoload">
+					<input
+						type="checkbox"
+						checked={autoload}
+						disabled={busy || saving}
+						onChange={(event) => setAutoload(event.target.checked)}
+					/>
+					{t("autoLoad")}
+				</label>
+			</div>
+			<p className="plugin-filter-hint">
+				{t("filterRulesHint1")} <code>*</code> {t("filterRulesHint2")}
+			</p>
+			<div className="plugin-filter-grid">
+				{FILTER_KINDS.map(([kind, labelKey]) => (
+					<label key={kind}>
+						<span>{t(labelKey)}</span>
+						<textarea
+							spellCheck={false}
+							value={texts[kind]}
+							disabled={busy || saving}
+							onChange={(event) => setTexts((current) => ({ ...current, [kind]: event.target.value }))}
+						/>
+					</label>
+				))}
+			</div>
+			{error ? <p className="is-error">{error}</p> : null}
+			<div className="plugin-filter-actions">
+				<button className="accent-button" type="button" disabled={busy || saving} onClick={() => void handleSave()}>
+					{saving ? t("saving") : t("saveFilters")}
+				</button>
+			</div>
+		</div>
+	);
 }
 
 export const PluginsConfigModal = memo(function PluginsConfigModal({
 	plugins,
 	workspacePath,
+	projectTrusted,
 	onClose,
 }: PluginsConfigModalProps) {
+	const { t } = useI18n();
 	const [packages, setPackages] = useState<DesktopPluginPackage[]>([]);
 	const [loading, setLoading] = useState(true);
-	const [selectedKey, setSelectedKey] = useState("add");
+	const [selectedKey, setSelectedKey] = useState<string>();
 	const [installSource, setInstallSource] = useState("");
 	const [installScope, setInstallScope] = useState<"user" | "project">("user");
 	const [busy, setBusy] = useState(false);
@@ -71,9 +209,19 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 		try {
 			const next = await getPluginPackages();
 			setPackages(next);
-			setSelectedKey((current) =>
-				current === "add" || next.some((pkg) => packageKey(pkg) === current) ? current : "add",
-			);
+			setSelectedKey((current) => {
+				if (current === "add") return current;
+				if (current === undefined) return next[0] ? packageKey(next[0]) : "add";
+				if (next.some((pkg) => packageKey(pkg) === current)) return current;
+				const [scope, ...sourceParts] = current.split("\0");
+				const source = sourceParts.join("\0");
+				const normalized = next.find(
+					(pkg) =>
+						pkg.scope === scope &&
+						(pkg.source === source || pkg.source.endsWith(source) || source.endsWith(pkg.source)),
+				);
+				return normalized ? packageKey(normalized) : next[0] ? packageKey(next[0]) : "add";
+			});
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		} finally {
@@ -108,11 +256,20 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 	async function handleInstall(): Promise<void> {
 		const source = normalizeInstallSource(installSource);
 		if (!source) return;
+		await run(
+			async () => {
+				await installPlugin(source, installScope === "project");
+				setInstallSource("");
+				setSelectedKey(`${installScope}\0${source}`);
+			},
+			t("installedPlugin", { source }),
+		);
+	}
+
+	async function handleSaveFilters(input: DesktopPluginPackageFilterInput): Promise<void> {
 		await run(async () => {
-			await installPlugin(source, installScope === "project");
-			setInstallSource("");
-			setSelectedKey(`${installScope}\0${source}`);
-		}, `已安装 ${source}`);
+			await savePluginPackageFilters(input);
+		}, t("filtersSaved"));
 	}
 
 	function renderPackageRow(pkg: DesktopPluginPackage) {
@@ -128,10 +285,13 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 				<span className="plugin-package-copy">
 					<strong>{pkg.packageName ?? pkg.source.split("/").at(-1) ?? pkg.source}</strong>
 					<small>{pkg.source}</small>
-					<small>{resourceSummary(pkg)}</small>
+					<small>{resourceSummary(pkg, t)}</small>
 					<small>
-						{[pkg.version ? `v${pkg.version}` : undefined, STATUS_LABEL[pkg.status]].filter(Boolean).join(" · ")}
+						{[pkg.version ? `v${pkg.version}` : undefined, statusLabel(pkg.status, t)]
+							.filter(Boolean)
+							.join(" · ")}
 					</small>
+					{pkg.filtered ? <small className="plugin-filtered-label">{t("filteredLabel")}</small> : null}
 				</span>
 			</button>
 		);
@@ -139,7 +299,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 
 	return (
 		<Modal
-			title="插件"
+			title={t("plugins")}
 			subtitle={workspacePath ?? "~/.pi/agent/plugins"}
 			className="resource-config-modal plugin-config-modal"
 			onClose={onClose}
@@ -147,7 +307,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 			<div className="resource-config-layout">
 				<aside className="resource-config-sidebar">
 					<div className="resource-config-scroll">
-						{loading ? <p className="modal-empty">正在加载插件…</p> : null}
+						{loading ? <p className="modal-empty">{t("loadingPlugins")}</p> : null}
 						{projectPackages.length ? (
 							<>
 								<div className="settings-group-label">PROJECT</div>
@@ -160,21 +320,27 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 								{userPackages.map(renderPackageRow)}
 							</>
 						) : null}
-						{!loading && packages.length === 0 ? <p className="modal-empty">尚未安装插件。</p> : null}
+						{!loading && packages.length === 0 ? <p className="modal-empty">{t("noPlugins")}</p> : null}
 					</div>
 					<button
 						className={`resource-config-add ${selectedKey === "add" ? "is-active" : ""}`}
 						type="button"
 						onClick={() => setSelectedKey("add")}
 					>
-						＋ 添加插件
+						{t("addPlugin")}
 					</button>
 				</aside>
 				<section className="resource-config-detail">
+					{workspacePath && !projectTrusted ? (
+						<div className="resource-trust-banner" aria-live="polite">
+							<strong>{t("projectNotTrustedTitle")}</strong>
+							<span>{t("projectNotTrustedHint")}</span>
+						</div>
+					) : null}
 					{selectedKey === "add" ? (
 						<div className="resource-add-panel plugin-add-panel">
-							<strong>添加插件</strong>
-							<p>支持 npm 包、Git URL、本地路径，也可直接粘贴 `pi install ...` 命令。</p>
+							<strong>{t("addPlugin")}</strong>
+							<p>{t("addPluginHint")}</p>
 							<a
 								href="https://pi.dev/packages"
 								onClick={(event) => {
@@ -182,16 +348,41 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 									void window.piDesktop.openExternalUrl("https://pi.dev/packages");
 								}}
 							>
-								浏览 pi.dev/packages
+								{t("browsePackages")}
 							</a>
 							<label>
-								源
-								<input
-									className="mono"
-									value={installSource}
-									placeholder="@scope/plugin、git:https://… 或 /path"
-									onChange={(event) => setInstallSource(event.target.value)}
-								/>
+								{t("sourceLabel")}
+								<div className="plugin-source-picker">
+									<input
+										className="mono"
+										value={installSource}
+										placeholder={t("sourcePlaceholder")}
+										onChange={(event) => setInstallSource(event.target.value)}
+										onBlur={(event) => setInstallSource(normalizeInstallSource(event.currentTarget.value))}
+										onKeyDown={(event) => {
+											if (event.key === "Enter") {
+												event.preventDefault();
+												void handleInstall();
+											}
+										}}
+									/>
+									<button
+										className="outline-button"
+										type="button"
+										disabled={busy}
+										onClick={() =>
+											void selectDirectory()
+												.then((path) => {
+													if (path) setInstallSource(path);
+												})
+												.catch((reason: unknown) => {
+													setError(reason instanceof Error ? reason.message : String(reason));
+												})
+										}
+									>
+										{t("browse")}
+									</button>
+								</div>
 							</label>
 							<div className="plugin-example-chips">
 								{[
@@ -210,15 +401,15 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 									className={installScope === "user" ? "is-active" : ""}
 									onClick={() => setInstallScope("user")}
 								>
-									全局
+									{t("global")}
 								</button>
 								<button
 									type="button"
 									className={installScope === "project" ? "is-active" : ""}
-									disabled={!workspacePath}
+									disabled={!workspacePath || !projectTrusted}
 									onClick={() => setInstallScope("project")}
 								>
-									项目
+									{t("project")}
 								</button>
 							</div>
 							<button
@@ -227,7 +418,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 								disabled={!normalizeInstallSource(installSource) || busy}
 								onClick={() => void handleInstall()}
 							>
-								{busy ? "安装中…" : "安装插件"}
+								{busy ? t("installing") : t("installPluginAction")}
 							</button>
 						</div>
 					) : selected ? (
@@ -252,23 +443,28 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 														selected.scope === "project",
 														event.target.checked,
 													).then(() => undefined),
-												event.target.checked ? "插件已启用" : "插件已禁用",
+												event.target.checked ? t("pluginEnabled") : t("pluginDisabled"),
 											)
 										}
 									/>
-									<span>{selected.enabled ? "启用" : "禁用"}</span>
+									<span>{selected.enabled ? t("enable") : t("disable")}</span>
 								</label>
 							</div>
 							<div className="resource-meta-grid">
-								<span>状态</span>
-								<strong className={`is-${selected.status}`}>{STATUS_LABEL[selected.status]}</strong>
-								<span>版本</span>
-								<strong>{selected.version ?? "—"}</strong>
-								<span>包名</span>
+								<span>{t("statusLabel")}</span>
+								<strong className={`is-${selected.status}`}>{statusLabel(selected.status, t)}</strong>
+								<span>{t("versionLabel")}</span>
+								<strong>
+									{selected.version ? t("installedVersion", { version: selected.version }) : "—"}
+									{selected.configuredVersion
+										? t("configuredVersion", { version: selected.configuredVersion })
+										: ""}
+								</strong>
+								<span>{t("packageNameLabel")}</span>
 								<strong className="is-mono">{selected.packageName ?? selected.source}</strong>
-								<span>安装路径</span>
+								<span>{t("installedPathLabel")}</span>
 								<strong className={`is-mono ${selected.installedPath ? "" : "is-error"}`}>
-									{selected.installedPath ?? "安装路径缺失"}
+									{selected.installedPath ?? t("missingInstallPath")}
 								</strong>
 								<span>CWD</span>
 								<strong className="is-mono">{workspacePath ?? "—"}</strong>
@@ -281,12 +477,20 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 												{kind.toUpperCase()} <span>{paths.length}</span>
 											</summary>
 											{paths.map((path) => (
-												<code key={path}>{path}</code>
+												<code key={path} title={path}>
+													{displayResourcePath(path, workspacePath)}
+												</code>
 											))}
 										</details>
 									) : null,
 								)}
 							</div>
+							<PluginFilterEditor
+								key={packageKey(selected)}
+								busy={busy}
+								pkg={selected}
+								onSave={handleSaveFilters}
+							/>
 							{selected.diagnostics.length ? (
 								<div className="plugin-diagnostics">
 									{selected.diagnostics.map((diagnostic, index) => (
@@ -306,11 +510,23 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 										void run(
 											() =>
 												installPlugin(selected.source, selected.scope === "project").then(() => undefined),
-											"插件已更新并重载",
+											t("pluginUpdated"),
 										)
 									}
 								>
-									更新 / 重载
+									{t("update")}
+								</button>
+								<button
+									className="outline-button"
+									type="button"
+									disabled={busy}
+									onClick={() =>
+										void run(async () => {
+											await reloadSession();
+										}, t("sessionReloaded"))
+									}
+								>
+									{t("reloadSessionButton")}
 								</button>
 								<button
 									className="danger-button"
@@ -324,15 +540,15 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 										void run(async () => {
 											await removePlugin(selected.source, selected.scope === "project");
 											setSelectedKey("add");
-										}, "插件已移除");
+										}, t("pluginRemoved"));
 									}}
 								>
-									{removeArmed ? "再次点击确认移除" : "移除"}
+									{removeArmed ? t("clickAgainToRemove") : t("remove")}
 								</button>
 							</div>
 						</div>
 					) : (
-						<div className="settings-empty-state">选择一个插件查看详情</div>
+						<div className="settings-empty-state">{t("selectPluginHint")}</div>
 					)}
 				</section>
 			</div>
@@ -344,16 +560,22 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 						<span className="is-success">{success}</span>
 					) : (
 						<span>
-							{packages.length} 个包 · {loadedResourceCount} 个资源 · {plugins.length} 个扩展
+							{t("footerSummary", {
+								packages: packages.length,
+								resources: loadedResourceCount,
+								extensions: plugins.length,
+							})}
 						</span>
 					)}
 				</div>
-				{diagnosticCount ? <span className="plugin-diagnostic-count">{diagnosticCount} 条诊断</span> : null}
+				{diagnosticCount ? (
+					<span className="plugin-diagnostic-count">{t("diagnosticCount", { count: diagnosticCount })}</span>
+				) : null}
 				<button className="outline-button" type="button" disabled={loading} onClick={() => void load()}>
-					刷新
+					{t("refresh")}
 				</button>
 				<button className="outline-button" type="button" onClick={onClose}>
-					关闭
+					{t("close")}
 				</button>
 			</footer>
 		</Modal>

@@ -149,10 +149,11 @@ describe("isDesktopAuthenticationPromptResponseInput", () => {
 });
 
 describe("isDesktopRemoveWorktreeInput", () => {
-	it("accepts only an exact bounded path payload", () => {
+	it("accepts a bounded path payload with optional force", () => {
 		expect(isDesktopRemoveWorktreeInput({ path: "/tmp/project-worktrees/feature" })).toBe(true);
+		expect(isDesktopRemoveWorktreeInput({ path: "/tmp/project-worktrees/feature", force: true })).toBe(true);
 		expect(isDesktopRemoveWorktreeInput({ path: "" })).toBe(false);
-		expect(isDesktopRemoveWorktreeInput({ path: "/tmp/tree", force: true })).toBe(false);
+		expect(isDesktopRemoveWorktreeInput({ path: "/tmp/tree", force: "yes" })).toBe(false);
 		expect(isDesktopRemoveWorktreeInput({ path: "x".repeat(2001) })).toBe(false);
 	});
 });

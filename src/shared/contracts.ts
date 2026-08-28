@@ -4,11 +4,11 @@ export type DesktopTranscriptBlock =
 	| { type: "text"; text: string }
 	| { type: "thinking"; text: string }
 	| { type: "toolCall"; id: string; name: string; input: string }
-	| { type: "image"; label: string };
+	| { type: "image"; label: string; thumbnailDataUrl?: string };
 
 export interface DesktopTranscriptMessage {
 	id: string;
-	role: "assistant" | "system" | "tool" | "user";
+	role: "assistant" | "custom" | "system" | "tool" | "user";
 	text: string;
 	blocks?: DesktopTranscriptBlock[];
 	toolName?: string;
@@ -20,6 +20,11 @@ export interface DesktopTranscriptMessage {
 	truncated?: boolean;
 	fullOutputAvailable?: boolean;
 	forkEntryId?: string;
+	stopReason?: string;
+	errorMessage?: string;
+	customType?: string;
+	display?: string;
+	details?: string;
 	timestamp?: number;
 	usage?: {
 		input: number;
@@ -67,6 +72,8 @@ export interface DesktopSessionInfo {
 	id: string;
 	name?: string;
 	cwd: string;
+	projectRoot?: string;
+	worktreeBranch?: string;
 	created: number;
 	modified: number;
 	messageCount: number;
@@ -125,6 +132,10 @@ export interface DesktopSkillInfo {
 	filePath: string;
 	disableModelInvocation: boolean;
 	scope: "global" | "project";
+	/** False when the skill failed to parse and is dormant (unavailable). */
+	available?: boolean;
+	/** Parse failure reason for dormant skills. */
+	error?: string;
 	install?: DesktopSkillInstallInfo;
 }
 
@@ -148,11 +159,26 @@ export interface DesktopPlugin {
 	commands: string[];
 }
 
+export interface DesktopPluginPackageResourceFilters {
+	extensions: string[];
+	skills: string[];
+	prompts: string[];
+	themes: string[];
+}
+
 export interface DesktopPluginPackage {
 	source: string;
 	scope: "user" | "project";
-	status: "disabled" | "error" | "installed" | "loaded";
+	status: "disabled" | "error" | "installed" | "loaded" | "missing";
 	enabled: boolean;
+	/** Resource filters from the package manager settings. */
+	filtered?: boolean;
+	/** Whether the package configuration allows automatic loading; undefined for plain string sources. */
+	autoload?: boolean;
+	/** Configured resource filter patterns, when the package uses object-form configuration. */
+	filters?: DesktopPluginPackageResourceFilters;
+	/** Version recorded by the package configuration, when available. */
+	configuredVersion?: string;
 	installedPath?: string;
 	packageName?: string;
 	version?: string;
@@ -165,11 +191,40 @@ export interface DesktopPluginPackage {
 	diagnostics: Array<{ type: "error" | "warning"; message: string; path?: string }>;
 }
 
+export interface DesktopPluginPackageFilterInput {
+	source: string;
+	local: boolean;
+	autoload: boolean;
+	filters: DesktopPluginPackageResourceFilters;
+}
+
 export interface DesktopImageAttachment {
 	id: string;
 	name: string;
 	mimeType: string;
 	size: number;
+	/** Small preview generated in the main process; original bytes never cross the bridge. */
+	thumbnailDataUrl?: string;
+}
+
+export interface DesktopRestoreImageAttachmentsInput {
+	ids: string[];
+}
+
+export interface DesktopRestoreMessageImagesInput {
+	messageId: string;
+}
+
+export interface DesktopDirectoryEntry {
+	name: string;
+	path: string;
+}
+
+export interface DesktopDirectoryListing {
+	path: string;
+	parentPath?: string;
+	directories: DesktopDirectoryEntry[];
+	drives?: DesktopDirectoryEntry[];
 }
 
 export interface DesktopAuthenticationPrompt {
@@ -190,6 +245,15 @@ export interface DesktopWorkspaceEntry {
 	name: string;
 	type: "directory" | "file";
 	depth: number;
+}
+
+export interface DesktopWorkspaceDirectoryListing {
+	/** Workspace-relative directory path ("" for the project root). */
+	path: string;
+	directories: DesktopWorkspaceEntry[];
+	files: DesktopWorkspaceEntry[];
+	/** True when the directory has more entries than the listing cap. */
+	truncated?: boolean;
 }
 
 export interface DesktopWorkspaceFilePreview {
@@ -229,6 +293,17 @@ export interface DesktopSessionStats {
 	};
 }
 
+export interface DesktopModelScopeStatus {
+	/** Non-empty enabledModels patterns configured by the user. */
+	patterns: string[];
+	/** Resolution diagnostics (for example an unmatched wildcard). */
+	warnings: string[];
+	/** Number of models matched by the scope; 0 means fallback to all authenticated models. */
+	matched: number;
+	/** Thinking levels fixed by `provider/model:level` rules. */
+	fixedLevels: Array<{ provider: string; modelId: string; level: string }>;
+}
+
 export interface DesktopSnapshot {
 	workspacePath?: string;
 	projectTrusted: boolean;
@@ -236,6 +311,7 @@ export interface DesktopSnapshot {
 	extensionStatuses?: DesktopExtensionStatus[];
 	extensionWidgets?: DesktopExtensionWidget[];
 	extensionEditorRequest?: DesktopExtensionEditorRequest;
+	modelScope?: DesktopModelScopeStatus;
 	pendingToolApprovals: DesktopToolApproval[];
 	pendingAuthenticationPrompts: DesktopAuthenticationPrompt[];
 	apiKeyProviders: DesktopApiKeyProvider[];
@@ -243,9 +319,19 @@ export interface DesktopSnapshot {
 	skills: DesktopSkill[];
 	plugins: DesktopPlugin[];
 	providerSetupInProgress: boolean;
+	/** Human-readable OAuth/device-code instructions while provider setup is active. */
+	authenticationNotice?: string;
+	/** URL emitted by the provider's OAuth/device-code flow, when available. */
+	authenticationUrl?: string;
+	/** Device-code value emitted by OAuth providers, kept separate for copy/paste UX. */
+	authenticationUserCode?: string;
+	/** Absolute expiry timestamp for the current device code, when supplied by the provider. */
+	authenticationExpiresAt?: number;
 	sessions: DesktopSessionInfo[];
 	sessionStats?: DesktopSessionStats;
 	branchPoints?: DesktopBranchPoint[];
+	branchTree?: DesktopSessionTreeNode[];
+	branchActiveLeafId?: string | null;
 	notice?: string;
 	session?: DesktopSessionSnapshot;
 }
@@ -253,6 +339,16 @@ export interface DesktopSnapshot {
 export interface DesktopBranchPoint {
 	entryId: string;
 	text: string;
+}
+
+export interface DesktopSessionTreeNode {
+	entry: {
+		id: string;
+		type: string;
+		role?: string;
+		text?: string;
+	};
+	children: DesktopSessionTreeNode[];
 }
 
 export interface DesktopGitChange {
@@ -263,6 +359,16 @@ export interface DesktopGitChange {
 export interface DesktopGitWorktree {
 	path: string;
 	branch: string;
+	isMain: boolean;
+}
+
+export interface DesktopRemoveWorktreeResult {
+	dirty?: boolean;
+}
+
+export interface DesktopGitBranches {
+	local: string[];
+	remote: string[];
 }
 
 export interface DesktopProviderModelConfig {
@@ -272,6 +378,10 @@ export interface DesktopProviderModelConfig {
 	name?: string;
 	api?: string;
 	reasoning?: boolean;
+	/** Optional provider-specific mapping for Pi thinking levels. */
+	thinkingLevelMap?: Record<string, string | null>;
+	/** Provider compatibility flags (for example DeepSeek thinking format). */
+	compat?: Record<string, unknown>;
 	input?: string[];
 	contextWindow?: number;
 	maxTokens?: number;
@@ -291,6 +401,11 @@ export interface DesktopProviderConfig {
 
 export interface DesktopSaveModelsConfigInput {
 	providers: DesktopProviderConfig[];
+}
+
+export interface DesktopModelScope {
+	patterns: string[];
+	warnings: string[];
 }
 
 export interface DesktopDiscoverModelsInput {
@@ -321,8 +436,13 @@ export interface DesktopAddWorktreeInput {
 	branch: string;
 }
 
+export interface DesktopSwitchGitBranchInput {
+	branch: string;
+}
+
 export interface DesktopRemoveWorktreeInput {
 	path: string;
+	force?: boolean;
 }
 
 export interface DesktopOpenWorkspacePathInput {
@@ -332,6 +452,8 @@ export interface DesktopOpenWorkspacePathInput {
 export interface DesktopPromptInput {
 	text: string;
 	attachmentIds?: string[];
+	/** Labels explicitly selected from the session mention menu. */
+	sessionReferenceLabels?: string[];
 	streamingBehavior?: "steer" | "followUp";
 }
 
@@ -388,12 +510,31 @@ export interface DesktopModelTestResult {
 	error?: string;
 }
 
+export interface DesktopUpdateAsset {
+	name: string;
+	sizeBytes: number;
+	url: string;
+}
+
 export interface DesktopUpdateInfo {
 	currentVersion: string;
 	latestVersion?: string;
 	releaseUrl: string;
 	updateAvailable: boolean;
 	checkedAt: number;
+	/** Release assets matching the current platform; URLs are resolved by the main process. */
+	assets?: DesktopUpdateAsset[];
+}
+
+export type DesktopUpdateDownloadState =
+	| { phase: "idle" }
+	| { phase: "downloading"; assetName: string; receivedBytes: number; totalBytes?: number }
+	| { phase: "completed"; assetName: string; savedPath: string }
+	| { phase: "cancelled"; assetName: string }
+	| { phase: "failed"; assetName: string; message: string };
+
+export interface DesktopUpdateDownloadInput {
+	assetName: string;
 }
 
 export interface DesktopAuthenticationPromptResponseInput {
@@ -455,6 +596,7 @@ export interface DesktopBashOutputInput {
 
 export interface DesktopImportedFileResult {
 	name: string;
+	path?: string;
 	conflict?: boolean;
 	error?: string;
 }
@@ -465,9 +607,18 @@ export type Unsubscribe = () => void;
 export interface DesktopApi {
 	bootstrap(): Promise<DesktopSnapshot>;
 	chooseWorkspace(): Promise<DesktopSnapshot>;
+	browseDirectories(path?: string): Promise<DesktopDirectoryListing>;
+	selectDirectory(): Promise<string | undefined>;
 	chooseImages(): Promise<DesktopImageAttachment[]>;
 	attachDroppedImages(files: File[]): Promise<DesktopImageAttachment[]>;
-	importDroppedFiles(files: File[], overwriteConflicts?: boolean): Promise<DesktopImportedFileResult[]>;
+	restoreImageAttachments(input: DesktopRestoreImageAttachmentsInput): Promise<DesktopImageAttachment[]>;
+	restoreMessageImages(input: DesktopRestoreMessageImagesInput): Promise<DesktopImageAttachment[]>;
+	discardImageAttachment(id: string): Promise<void>;
+	importDroppedFiles(
+		files: File[],
+		overwriteConflicts?: boolean,
+		targetDirectory?: string,
+	): Promise<DesktopImportedFileResult[]>;
 	prompt(input: DesktopPromptInput): Promise<DesktopSnapshot>;
 	abort(): Promise<DesktopSnapshot>;
 	openSession(input: DesktopOpenSessionInput): Promise<DesktopSnapshot>;
@@ -488,9 +639,11 @@ export interface DesktopApi {
 	setProjectTrust(input: DesktopProjectTrustInput): Promise<DesktopSnapshot>;
 	decideToolApproval(input: DesktopToolApprovalDecisionInput): Promise<DesktopSnapshot>;
 	startProviderSetup(input: DesktopProviderSetupInput): Promise<DesktopSnapshot>;
+	cancelProviderSetup(): Promise<DesktopSnapshot>;
 	logoutProvider(input: DesktopProviderLogoutInput): Promise<DesktopSnapshot>;
 	respondToAuthenticationPrompt(input: DesktopAuthenticationPromptResponseInput): Promise<DesktopSnapshot>;
 	listWorkspaceFiles(): Promise<DesktopWorkspaceEntry[]>;
+	listWorkspaceDirectory(path?: string): Promise<DesktopWorkspaceDirectoryListing>;
 	searchWorkspaceFiles(query: string): Promise<DesktopWorkspaceEntry[]>;
 	readWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<DesktopWorkspaceFilePreview>;
 	openWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<void>;
@@ -505,22 +658,34 @@ export interface DesktopApi {
 	listGitChanges(): Promise<DesktopGitChange[]>;
 	getGitDiff(input: DesktopGitDiffInput): Promise<string>;
 	listGitWorktrees(): Promise<DesktopGitWorktree[]>;
+	listGitBranches(): Promise<DesktopGitBranches>;
+	fetchGitBranches(): Promise<void>;
+	switchGitBranch(input: DesktopSwitchGitBranchInput): Promise<DesktopSnapshot>;
 	addGitWorktree(input: DesktopAddWorktreeInput): Promise<DesktopGitWorktree>;
-	removeGitWorktree(input: DesktopRemoveWorktreeInput): Promise<void>;
+	removeGitWorktree(input: DesktopRemoveWorktreeInput): Promise<DesktopRemoveWorktreeResult>;
 	openWorkspacePath(input: DesktopOpenWorkspacePathInput): Promise<DesktopSnapshot>;
 	setCloseQuits(closeQuits: boolean): Promise<void>;
 	quitApp(): Promise<void>;
 	getModelsConfig(): Promise<DesktopProviderConfig[]>;
 	saveModelsConfig(input: DesktopSaveModelsConfigInput): Promise<DesktopSnapshot>;
+	getModelScope(): Promise<DesktopModelScope>;
+	saveModelScope(patterns: string[]): Promise<DesktopModelScope>;
 	discoverModels(input: DesktopDiscoverModelsInput): Promise<Array<{ id: string }>>;
 	lookupModelCatalog(input: { providerId: string; modelId: string }): Promise<DesktopProviderModelConfig | undefined>;
 	testModel(input: DesktopModelTestInput): Promise<DesktopModelTestResult>;
 	openCustomCss(): Promise<string>;
 	checkForUpdates(): Promise<DesktopUpdateInfo>;
+	downloadUpdate(input: DesktopUpdateDownloadInput): Promise<DesktopUpdateDownloadState>;
+	cancelUpdateDownload(): Promise<void>;
+	getUpdateDownloadState(): Promise<DesktopUpdateDownloadState>;
+	installUpdate(): Promise<void>;
+	onUpdateDownloadProgress(listener: (state: DesktopUpdateDownloadState) => void): Unsubscribe;
 	toggleSkill(input: DesktopToggleSkillInput): Promise<DesktopSnapshot>;
 	installPlugin(input: DesktopPluginSourceInput): Promise<DesktopSnapshot>;
 	removePlugin(input: DesktopPluginSourceInput): Promise<DesktopSnapshot>;
 	togglePlugin(input: DesktopTogglePluginInput): Promise<DesktopSnapshot>;
+	savePluginPackageFilters(input: DesktopPluginPackageFilterInput): Promise<DesktopSnapshot>;
+	reloadSession(): Promise<DesktopSnapshot>;
 	getPluginPackages(): Promise<DesktopPluginPackage[]>;
 	listSkillsDetailed(): Promise<DesktopSkillInfo[]>;
 	searchSkills(query: string): Promise<DesktopSkillSearchResult[]>;
@@ -545,7 +710,16 @@ export function isDesktopPromptInput(value: unknown): value is DesktopPromptInpu
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
 	const input = value as Record<string, unknown>;
 	const keys = Object.keys(input);
-	if (!keys.every((key) => key === "text" || key === "attachmentIds" || key === "streamingBehavior")) return false;
+	if (
+		!keys.every(
+			(key) =>
+				key === "text" ||
+				key === "attachmentIds" ||
+				key === "sessionReferenceLabels" ||
+				key === "streamingBehavior",
+		)
+	)
+		return false;
 	if (typeof input.text !== "string") return false;
 	if (
 		input.streamingBehavior !== undefined &&
@@ -553,11 +727,20 @@ export function isDesktopPromptInput(value: unknown): value is DesktopPromptInpu
 		input.streamingBehavior !== "followUp"
 	)
 		return false;
-	if (input.attachmentIds === undefined) return true;
+	if (
+		input.attachmentIds !== undefined &&
+		(!Array.isArray(input.attachmentIds) ||
+			input.attachmentIds.length > 10 ||
+			!input.attachmentIds.every((id) => typeof id === "string" && id.length > 0 && id.length <= 200))
+	)
+		return false;
 	return (
-		Array.isArray(input.attachmentIds) &&
-		input.attachmentIds.length <= 10 &&
-		input.attachmentIds.every((id) => typeof id === "string" && id.length > 0 && id.length <= 200)
+		input.sessionReferenceLabels === undefined ||
+		(Array.isArray(input.sessionReferenceLabels) &&
+			input.sessionReferenceLabels.length <= 20 &&
+			input.sessionReferenceLabels.every(
+				(label) => typeof label === "string" && label.length > 0 && label.length <= 200,
+			))
 	);
 }
 
@@ -605,12 +788,43 @@ export function isDesktopAddWorktreeInput(value: unknown): value is DesktopAddWo
 	);
 }
 
-export function isDesktopRemoveWorktreeInput(value: unknown): value is DesktopRemoveWorktreeInput {
+export function isDesktopRestoreImageAttachmentsInput(value: unknown): value is DesktopRestoreImageAttachmentsInput {
 	return (
-		isExactRecord(value, ["path"]) &&
-		typeof value.path === "string" &&
-		value.path.length > 0 &&
-		value.path.length <= 2000
+		isExactRecord(value, ["ids"]) &&
+		Array.isArray(value.ids) &&
+		value.ids.length <= 10 &&
+		value.ids.every((id) => typeof id === "string" && /^[0-9a-f-]{36}$/iu.test(id))
+	);
+}
+
+export function isDesktopRestoreMessageImagesInput(value: unknown): value is DesktopRestoreMessageImagesInput {
+	return (
+		isExactRecord(value, ["messageId"]) &&
+		typeof value.messageId === "string" &&
+		value.messageId.length <= 120 &&
+		/^\d+:/u.test(value.messageId)
+	);
+}
+
+export function isDesktopUpdateDownloadInput(value: unknown): value is DesktopUpdateDownloadInput {
+	return (
+		isExactRecord(value, ["assetName"]) &&
+		typeof value.assetName === "string" &&
+		value.assetName.length > 0 &&
+		value.assetName.length <= 300 &&
+		/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(value.assetName)
+	);
+}
+
+export function isDesktopRemoveWorktreeInput(value: unknown): value is DesktopRemoveWorktreeInput {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	const input = value as Record<string, unknown>;
+	if (!Object.keys(input).every((key) => key === "path" || key === "force")) return false;
+	return (
+		typeof input.path === "string" &&
+		input.path.length > 0 &&
+		input.path.length <= 2000 &&
+		(input.force === undefined || typeof input.force === "boolean")
 	);
 }
 
@@ -653,6 +867,39 @@ export function isDesktopPluginSourceInput(value: unknown): value is DesktopPlug
 		value.source.length <= 2000 &&
 		typeof value.local === "boolean"
 	);
+}
+
+function isValidFilterPatternList(value: unknown): value is string[] {
+	return (
+		Array.isArray(value) &&
+		value.length <= 100 &&
+		value.every(
+			(pattern) =>
+				typeof pattern === "string" &&
+				pattern.length > 0 &&
+				pattern.length <= 200 &&
+				!pattern.includes("\0") &&
+				!/[\p{C}]/u.test(pattern),
+		)
+	);
+}
+
+export function isDesktopPluginPackageFilterInput(value: unknown): value is DesktopPluginPackageFilterInput {
+	if (!isExactRecord(value, ["source", "local", "autoload", "filters"])) return false;
+	if (typeof value.source !== "string" || value.source.length === 0 || value.source.length > 2000) return false;
+	if (typeof value.local !== "boolean" || typeof value.autoload !== "boolean") return false;
+	if (typeof value.filters !== "object" || value.filters === null || Array.isArray(value.filters)) return false;
+	const filters = value.filters as Record<string, unknown>;
+	if (
+		!isExactRecord(filters, ["extensions", "skills", "prompts", "themes"]) ||
+		!isValidFilterPatternList(filters.extensions) ||
+		!isValidFilterPatternList(filters.skills) ||
+		!isValidFilterPatternList(filters.prompts) ||
+		!isValidFilterPatternList(filters.themes)
+	) {
+		return false;
+	}
+	return true;
 }
 
 export function isDesktopSaveModelsConfigInput(value: unknown): value is DesktopSaveModelsConfigInput {
@@ -745,7 +992,19 @@ function isDesktopProviderConfig(value: unknown): value is DesktopProviderConfig
 function isDesktopProviderModelConfig(value: unknown): value is DesktopProviderModelConfig {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
 	const model = value as Record<string, unknown>;
-	const modelKeys = ["id", "sourceId", "name", "api", "reasoning", "input", "contextWindow", "maxTokens", "cost"];
+	const modelKeys = [
+		"id",
+		"sourceId",
+		"name",
+		"api",
+		"reasoning",
+		"thinkingLevelMap",
+		"compat",
+		"input",
+		"contextWindow",
+		"maxTokens",
+		"cost",
+	];
 	if (!Object.keys(model).every((key) => modelKeys.includes(key))) return false;
 	if (typeof model.id !== "string" || model.id.length === 0 || model.id.length > 500) return false;
 	if (model.sourceId !== undefined && (typeof model.sourceId !== "string" || model.sourceId.length > 500))
@@ -753,6 +1012,24 @@ function isDesktopProviderModelConfig(value: unknown): value is DesktopProviderM
 	if (model.name !== undefined && (typeof model.name !== "string" || model.name.length > 500)) return false;
 	if (model.api !== undefined && (typeof model.api !== "string" || model.api.length > 200)) return false;
 	if (model.reasoning !== undefined && typeof model.reasoning !== "boolean") return false;
+	if (model.thinkingLevelMap !== undefined) {
+		if (
+			typeof model.thinkingLevelMap !== "object" ||
+			model.thinkingLevelMap === null ||
+			Array.isArray(model.thinkingLevelMap)
+		)
+			return false;
+		if (
+			!Object.entries(model.thinkingLevelMap).every(
+				([key, value]) => key.length <= 50 && (typeof value === "string" || value === null),
+			)
+		)
+			return false;
+	}
+	if (model.compat !== undefined) {
+		if (typeof model.compat !== "object" || model.compat === null || Array.isArray(model.compat)) return false;
+		if (Object.keys(model.compat).some((key) => key.length > 100)) return false;
+	}
 	if (
 		model.input !== undefined &&
 		(!Array.isArray(model.input) ||
@@ -800,5 +1077,18 @@ export function isDesktopWorkspaceFileInput(value: unknown): value is DesktopWor
 		!value.path.startsWith("/") &&
 		!value.path.includes("\0") &&
 		!value.path.split("/").includes("..")
+	);
+}
+
+export function isDesktopWorkspaceDirectoryPath(value: unknown): value is string {
+	return (
+		typeof value === "string" &&
+		value.length > 0 &&
+		value.length <= 2_000 &&
+		!value.includes("\\") &&
+		!value.startsWith("/") &&
+		!value.endsWith("/") &&
+		!value.includes("\0") &&
+		value.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..")
 	);
 }

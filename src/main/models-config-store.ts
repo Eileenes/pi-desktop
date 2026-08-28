@@ -9,6 +9,8 @@ export interface ModelsJsonModel {
 	name?: string;
 	api?: string;
 	reasoning?: boolean;
+	thinkingLevelMap?: Record<string, string | null>;
+	compat?: Record<string, unknown>;
 	input?: string[];
 	contextWindow?: number;
 	maxTokens?: number;
@@ -45,6 +47,8 @@ function mergeModel(current: ModelsJsonModel | undefined, edited: DesktopProvide
 	setOptional(next, "name", edited.name);
 	setOptional(next, "api", edited.api);
 	setOptional(next, "reasoning", edited.reasoning);
+	setOptional(next, "thinkingLevelMap", edited.thinkingLevelMap);
+	setOptional(next, "compat", edited.compat);
 	setOptional(next, "input", edited.input);
 	setOptional(next, "contextWindow", edited.contextWindow);
 	setOptional(next, "maxTokens", edited.maxTokens);
@@ -112,6 +116,8 @@ export interface ModelCatalogEntry {
 	id: string;
 	name?: string;
 	reasoning?: boolean;
+	thinkingLevelMap?: Record<string, string | null>;
+	compat?: Record<string, unknown>;
 	input?: string[];
 	contextWindow?: number;
 	maxTokens?: number;
@@ -140,6 +146,20 @@ function toCatalogEntry(raw: Record<string, unknown>): ModelCatalogEntry | undef
 		id: raw.id,
 		...(typeof raw.name === "string" && raw.name ? { name: raw.name } : {}),
 		...(raw.reasoning === true ? { reasoning: true } : {}),
+		...(typeof raw.thinkingLevelMap === "object" &&
+		raw.thinkingLevelMap !== null &&
+		!Array.isArray(raw.thinkingLevelMap)
+			? {
+					thinkingLevelMap: Object.fromEntries(
+						Object.entries(raw.thinkingLevelMap).filter(
+							([, value]) => typeof value === "string" || value === null,
+						),
+					),
+				}
+			: {}),
+		...(typeof raw.compat === "object" && raw.compat !== null && !Array.isArray(raw.compat)
+			? { compat: raw.compat as Record<string, unknown> }
+			: {}),
 		...(Array.isArray(raw.input)
 			? { input: raw.input.filter((item): item is string => typeof item === "string") }
 			: {}),

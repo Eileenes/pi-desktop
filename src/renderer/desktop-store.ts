@@ -1,5 +1,6 @@
 import type {
 	DesktopAuthenticationPromptResponseInput,
+	DesktopDirectoryListing,
 	DesktopExtensionUiListener,
 	DesktopGitChange,
 	DesktopGitWorktree,
@@ -8,20 +9,28 @@ import type {
 	DesktopNavigateTreeInput,
 	DesktopOpenSessionInput,
 	DesktopPluginPackage,
+	DesktopPluginPackageFilterInput,
 	DesktopProviderConfig,
 	DesktopProviderModelConfig,
 	DesktopProviderSetupInput,
+	DesktopRemoveWorktreeResult,
+	DesktopRestoreImageAttachmentsInput,
+	DesktopRestoreMessageImagesInput,
 	DesktopSkillInfo,
 	DesktopSkillSearchResult,
 	DesktopSkillUpdateResult,
 	DesktopSnapshot,
 	DesktopSnapshotListener,
 	DesktopToolApprovalDecisionInput,
+	DesktopUpdateDownloadInput,
+	DesktopUpdateDownloadState,
 	DesktopWorkspaceChange,
+	DesktopWorkspaceDirectoryListing,
 	DesktopWorkspaceEntry,
 	DesktopWorkspaceFilePreview,
 	Unsubscribe,
 } from "../shared/contracts.ts";
+import { getAppLanguage, translate } from "./i18n.ts";
 
 let snapshot: DesktopSnapshot = {
 	apiKeyProviders: [],
@@ -74,7 +83,7 @@ export async function startDesktopStore(): Promise<void> {
 			startupError = message;
 			publish({
 				...snapshot,
-				notice: `Pi 桌面端初始化失败：${message}。请解决问题后重试。`,
+				notice: translate(getAppLanguage(), "startupFailed", { message }),
 			});
 		} finally {
 			if (!started) startPromise = undefined;
@@ -89,6 +98,14 @@ export async function chooseWorkspace(): Promise<DesktopSnapshot> {
 	return next;
 }
 
+export function browseDirectories(path?: string): Promise<DesktopDirectoryListing> {
+	return window.piDesktop.browseDirectories(path);
+}
+
+export function selectDirectory(): Promise<string | undefined> {
+	return window.piDesktop.selectDirectory();
+}
+
 export function chooseImages(): Promise<DesktopImageAttachment[]> {
 	return window.piDesktop.chooseImages();
 }
@@ -97,18 +114,34 @@ export function attachDroppedImages(files: File[]): Promise<DesktopImageAttachme
 	return window.piDesktop.attachDroppedImages(files);
 }
 
-export function importDroppedFiles(files: File[], overwriteConflicts = false) {
-	return window.piDesktop.importDroppedFiles(files, overwriteConflicts);
+export function restoreImageAttachments(ids: string[]): Promise<DesktopImageAttachment[]> {
+	const input: DesktopRestoreImageAttachmentsInput = { ids };
+	return window.piDesktop.restoreImageAttachments(input);
+}
+
+export function restoreMessageImages(messageId: string): Promise<DesktopImageAttachment[]> {
+	const input: DesktopRestoreMessageImagesInput = { messageId };
+	return window.piDesktop.restoreMessageImages(input);
+}
+
+export function discardImageAttachment(id: string): Promise<void> {
+	return window.piDesktop.discardImageAttachment(id);
+}
+
+export function importDroppedFiles(files: File[], overwriteConflicts = false, targetDirectory?: string) {
+	return window.piDesktop.importDroppedFiles(files, overwriteConflicts, targetDirectory);
 }
 
 export async function submitPrompt(
 	text: string,
 	attachmentIds: string[],
 	streamingBehavior?: "steer" | "followUp",
+	sessionReferenceLabels: string[] = [],
 ): Promise<DesktopSnapshot> {
 	const next = await window.piDesktop.prompt({
 		text,
 		...(attachmentIds.length ? { attachmentIds } : {}),
+		...(sessionReferenceLabels.length ? { sessionReferenceLabels } : {}),
 		...(streamingBehavior === undefined ? {} : { streamingBehavior }),
 	});
 	publish(next);
@@ -237,6 +270,12 @@ export async function startProviderSetup(input: DesktopProviderSetupInput): Prom
 	return next;
 }
 
+export async function cancelProviderSetup(): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.cancelProviderSetup();
+	publish(next);
+	return next;
+}
+
 export async function respondToAuthenticationPrompt(
 	input: DesktopAuthenticationPromptResponseInput,
 ): Promise<DesktopSnapshot> {
@@ -247,6 +286,10 @@ export async function respondToAuthenticationPrompt(
 
 export function listWorkspaceFiles(): Promise<DesktopWorkspaceEntry[]> {
 	return window.piDesktop.listWorkspaceFiles();
+}
+
+export function listWorkspaceDirectory(path?: string): Promise<DesktopWorkspaceDirectoryListing> {
+	return window.piDesktop.listWorkspaceDirectory(path);
 }
 
 export function searchWorkspaceFiles(query: string): Promise<DesktopWorkspaceEntry[]> {
@@ -285,12 +328,26 @@ export function listGitWorktrees(): Promise<DesktopGitWorktree[]> {
 	return window.piDesktop.listGitWorktrees();
 }
 
+export function listGitBranches(): Promise<{ local: string[]; remote: string[] }> {
+	return window.piDesktop.listGitBranches();
+}
+
+export function fetchGitBranches(): Promise<void> {
+	return window.piDesktop.fetchGitBranches();
+}
+
+export async function switchGitBranch(branch: string): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.switchGitBranch({ branch });
+	publish(next);
+	return next;
+}
+
 export function addGitWorktree(branch: string): Promise<DesktopGitWorktree> {
 	return window.piDesktop.addGitWorktree({ branch });
 }
 
-export function removeGitWorktree(path: string): Promise<void> {
-	return window.piDesktop.removeGitWorktree({ path });
+export function removeGitWorktree(path: string, force = false): Promise<DesktopRemoveWorktreeResult> {
+	return window.piDesktop.removeGitWorktree({ path, ...(force ? { force: true } : {}) });
 }
 
 export function setCloseQuits(closeQuits: boolean): Promise<void> {
@@ -313,6 +370,14 @@ export async function saveModelsConfig(providers: DesktopProviderConfig[]): Prom
 	const next = await window.piDesktop.saveModelsConfig({ providers });
 	publish(next);
 	return next;
+}
+
+export function getModelScope() {
+	return window.piDesktop.getModelScope();
+}
+
+export function saveModelScope(patterns: string[]) {
+	return window.piDesktop.saveModelScope(patterns);
 }
 
 export function discoverModels(providerId: string, baseUrl: string, apiKey?: string): Promise<Array<{ id: string }>> {
@@ -345,6 +410,27 @@ export function checkForUpdates() {
 	return window.piDesktop.checkForUpdates();
 }
 
+export function downloadUpdate(assetName: string): Promise<DesktopUpdateDownloadState> {
+	const input: DesktopUpdateDownloadInput = { assetName };
+	return window.piDesktop.downloadUpdate(input);
+}
+
+export function cancelUpdateDownload(): Promise<void> {
+	return window.piDesktop.cancelUpdateDownload();
+}
+
+export function getUpdateDownloadState(): Promise<DesktopUpdateDownloadState> {
+	return window.piDesktop.getUpdateDownloadState();
+}
+
+export function installUpdate(): Promise<void> {
+	return window.piDesktop.installUpdate();
+}
+
+export function onUpdateDownloadProgress(listener: (state: DesktopUpdateDownloadState) => void): Unsubscribe {
+	return window.piDesktop.onUpdateDownloadProgress(listener);
+}
+
 export async function toggleSkill(filePath: string, disable: boolean): Promise<DesktopSnapshot> {
 	const next = await window.piDesktop.toggleSkill({ filePath, disable });
 	publish(next);
@@ -365,6 +451,18 @@ export async function removePlugin(source: string, local: boolean): Promise<Desk
 
 export async function togglePlugin(source: string, local: boolean, enabled: boolean): Promise<DesktopSnapshot> {
 	const next = await window.piDesktop.togglePlugin({ source, local, enabled });
+	publish(next);
+	return next;
+}
+
+export async function savePluginPackageFilters(input: DesktopPluginPackageFilterInput): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.savePluginPackageFilters(input);
+	publish(next);
+	return next;
+}
+
+export async function reloadSession(): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.reloadSession();
 	publish(next);
 	return next;
 }

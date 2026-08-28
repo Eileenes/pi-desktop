@@ -2,18 +2,26 @@ import { lstat, readdir, readFile, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { inflateRawSync } from "node:zlib";
 import { shell } from "electron";
-import type { DesktopWorkspaceEntry, DesktopWorkspaceFilePreview } from "../shared/contracts.ts";
+import type {
+	DesktopWorkspaceDirectoryListing,
+	DesktopWorkspaceEntry,
+	DesktopWorkspaceFilePreview,
+} from "../shared/contracts.ts";
 
 const IGNORED_DIRECTORY_NAMES = new Set([".git", "node_modules"]);
 const MAX_DIRECTORY_DEPTH = 4;
 const MAX_ENTRIES = 600;
 const MAX_SEARCH_ENTRIES = 5_000;
 const MAX_SEARCH_DEPTH = 8;
-const MAX_FILE_BYTES = 200_000;
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_DIRECTORY_LISTING_ENTRIES = 2_000;
+const MAX_FILE_BYTES = 256 * 1024;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 const IMAGE_MIME_TYPES: Record<string, string> = {
+	avif: "image/avif",
+	bmp: "image/bmp",
 	gif: "image/gif",
+	ico: "image/x-icon",
 	jpeg: "image/jpeg",
 	jpg: "image/jpeg",
 	png: "image/png",
@@ -27,7 +35,11 @@ const AUDIO_MIME_TYPES: Record<string, string> = {
 	m4a: "audio/mp4",
 	mp3: "audio/mpeg",
 	ogg: "audio/ogg",
+	oga: "audio/ogg",
+	opus: "audio/opus",
 	wav: "audio/wav",
+	weba: "audio/webm",
+	webm: "audio/webm",
 };
 
 const AUDIO_MAX_BYTES = 20 * 1024 * 1024;
@@ -193,6 +205,52 @@ export class TrustedWorkspaceBrowser {
 		return entries;
 	}
 
+	/** List a single directory of the trusted workspace for lazy tree browsing. */
+	async listDirectory(directoryPath = ""): Promise<DesktopWorkspaceDirectoryListing> {
+		const normalized = directoryPath.replaceAll("\\", "/").replace(/^\/+|\/+$/gu, "");
+		if (normalized.split("/").includes("..") || isIgnoredPath(normalized)) {
+			throw new Error("Pi 桌面端无法浏览该受保护项目路径。");
+		}
+		const workspacePath = await realpath(this.workspacePath);
+		const candidatePath = resolve(workspacePath, normalized);
+		if (normalized && !isWithinWorkspace(workspacePath, candidatePath)) {
+			throw new Error("目录路径必须位于所选项目目录内。");
+		}
+		const directoryStats = await lstat(candidatePath);
+		if (directoryStats.isSymbolicLink() || !directoryStats.isDirectory()) {
+			throw new Error("Pi 桌面端只能浏览项目内的普通目录。");
+		}
+		const resolvedDirectory = await realpath(candidatePath);
+		if (resolvedDirectory !== workspacePath && !isWithinWorkspace(workspacePath, resolvedDirectory)) {
+			throw new Error("解析后的目录路径位于所选项目目录外。");
+		}
+
+		const entries = await readdir(resolvedDirectory, { withFileTypes: true });
+		const depth = normalized ? normalized.split("/").length : 0;
+		const directories: DesktopWorkspaceEntry[] = [];
+		const files: DesktopWorkspaceEntry[] = [];
+		entries.sort((left, right) => {
+			if (left.isDirectory() !== right.isDirectory()) return left.isDirectory() ? -1 : 1;
+			return left.name.localeCompare(right.name);
+		});
+		let truncated = false;
+		for (const entry of entries) {
+			if (entry.isSymbolicLink()) continue;
+			const entryPath = normalized ? `${normalized}/${entry.name}` : entry.name;
+			if (isIgnoredPath(entryPath)) continue;
+			if (directories.length + files.length >= MAX_DIRECTORY_LISTING_ENTRIES) {
+				truncated = true;
+				break;
+			}
+			if (entry.isDirectory()) {
+				directories.push({ path: entryPath, name: entry.name, type: "directory", depth });
+			} else if (entry.isFile()) {
+				files.push({ path: entryPath, name: entry.name, type: "file", depth });
+			}
+		}
+		return { path: normalized, directories, files, ...(truncated ? { truncated: true } : {}) };
+	}
+
 	async read(path: string): Promise<DesktopWorkspaceFilePreview> {
 		const { resolvedFilePath, workspacePath } = await this.resolveValidatedFile(path);
 
@@ -200,7 +258,7 @@ export class TrustedWorkspaceBrowser {
 		if (mimeType) {
 			const fileStats = await lstat(resolvedFilePath);
 			if (fileStats.size > MAX_IMAGE_BYTES) {
-				throw new Error("该图片超过了 5 MB 的预览上限。");
+				throw new Error("该图片超过了 10 MB 的预览上限。");
 			}
 			const imageContent = await readFile(resolvedFilePath);
 			return {
@@ -254,7 +312,7 @@ export class TrustedWorkspaceBrowser {
 
 		const fileStats = await lstat(resolvedFilePath);
 		if (fileStats.size > MAX_FILE_BYTES) {
-			throw new Error("该文件超过了 200 KB 的预览上限。");
+			throw new Error("该文件超过了 256 KB 的预览上限。");
 		}
 
 		const content = await readFile(resolvedFilePath);

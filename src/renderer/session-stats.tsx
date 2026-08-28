@@ -1,5 +1,6 @@
 import { memo, useState } from "react";
 import type { DesktopSessionStats } from "../shared/contracts.ts";
+import { useI18n } from "./i18n.ts";
 
 const RING_SIZE = 14;
 const RING_STROKE = 2;
@@ -37,6 +38,7 @@ interface ContextUsageRingProps {
 }
 
 export const ContextUsageRing = memo(function ContextUsageRing({ stats, onToggle }: ContextUsageRingProps) {
+	const { t } = useI18n();
 	const usage = stats?.contextUsage;
 	const hasUsage = usage !== undefined;
 	const percent = usage?.percent ?? null;
@@ -44,7 +46,9 @@ export const ContextUsageRing = memo(function ContextUsageRing({ stats, onToggle
 
 	if (hasUsage && usage) {
 		tooltipParts.push(
-			percent !== null ? `${percent.toFixed(1)}% 上下文` : `— / ${formatCompact(usage.contextWindow)}`,
+			percent !== null
+				? t("contextPercent", { percent: percent.toFixed(1) })
+				: `— / ${formatCompact(usage.contextWindow)}`,
 		);
 		if (stats && stats.tokens.total > 0) {
 			tooltipParts.push(`${formatCompact(stats.tokens.total)} token`);
@@ -62,7 +66,7 @@ export const ContextUsageRing = memo(function ContextUsageRing({ stats, onToggle
 		<button
 			className={`context-ring ${!hasUsage ? "is-inert" : ""}`}
 			type="button"
-			aria-label={tooltipParts.join(" · ") || "上下文用量"}
+			aria-label={tooltipParts.join(" · ") || t("contextUsage")}
 			title={tooltipParts.join(" · ")}
 			onClick={onToggle}
 		>
@@ -92,6 +96,7 @@ export const ContextUsageRing = memo(function ContextUsageRing({ stats, onToggle
 });
 
 function CopyRow({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
+	const { t } = useI18n();
 	const [copied, setCopied] = useState(false);
 	return (
 		<div className="stats-info-row">
@@ -100,7 +105,7 @@ function CopyRow({ label, value, mono = true }: { label: string; value: string; 
 				{value}
 			</span>
 			<button
-				aria-label={`复制 ${label}`}
+				aria-label={t("copyAria", { label })}
 				className="stats-copy-button"
 				type="button"
 				onClick={() => {
@@ -130,82 +135,83 @@ export const SessionStatsPanel = memo(function SessionStatsPanel({
 	sessionPath,
 	onClose,
 }: SessionStatsPanelProps) {
+	const { t } = useI18n();
 	return (
-		<div className="session-info-popover" role="dialog" aria-label="会话统计">
+		<div className="session-info-popover" role="dialog" aria-label={t("sessionStats")}>
 			<div className="session-info-header">
-				<strong>会话统计</strong>
-				<button className="icon-button compact" type="button" aria-label="关闭" onClick={onClose}>
+				<strong>{t("sessionStats")}</strong>
+				<button className="icon-button compact" type="button" aria-label={t("close")} onClick={onClose}>
 					×
 				</button>
 			</div>
 			{!stats ? (
-				<p className="stats-empty">正在加载会话统计…</p>
+				<p className="stats-empty">{t("loadingSessionStats")}</p>
 			) : (
 				<div className="session-info-grid">
 					<section className="session-info-section">
-						<h4>会话信息</h4>
-						{sessionName ? <CopyRow label="名称" value={sessionName} mono={false} /> : null}
-						{sessionPath ? <CopyRow label="文件" value={abbreviatePath(sessionPath)} /> : null}
+						<h4>{t("sessionInfo")}</h4>
+						{sessionName ? <CopyRow label={t("name")} value={sessionName} mono={false} /> : null}
+						{sessionPath ? <CopyRow label={t("file")} value={abbreviatePath(sessionPath)} /> : null}
 						{sessionId ? <CopyRow label="ID" value={sessionId} /> : null}
 					</section>
 					<section className="session-info-section">
-						<h4>消息</h4>
+						<h4>{t("messages")}</h4>
 						<div className="stats-info-row">
-							<span>用户</span>
+							<span>{t("user")}</span>
 							<span className="stats-info-value">{formatToken(stats.userMessages)}</span>
 						</div>
 						<div className="stats-info-row">
-							<span>助手</span>
+							<span>{t("assistant")}</span>
 							<span className="stats-info-value">{formatToken(stats.assistantMessages)}</span>
 						</div>
 						<div className="stats-info-row">
-							<span>工具调用</span>
+							<span>{t("toolCalls")}</span>
 							<span className="stats-info-value">{formatToken(stats.toolCalls)}</span>
 						</div>
 						<div className="stats-info-row">
-							<span>工具结果</span>
+							<span>{t("toolResults")}</span>
 							<span className="stats-info-value">{formatToken(stats.toolResults)}</span>
 						</div>
 						<div className="stats-info-row">
-							<span>总计</span>
+							<span>{t("total")}</span>
 							<span className="stats-info-value">{formatToken(stats.totalMessages)}</span>
 						</div>
 					</section>
 					<section className="session-info-section">
 						<h4>Token</h4>
 						<div className="stats-info-row">
-							<span>输入</span>
+							<span>{t("tokenInput")}</span>
 							<span className="stats-info-value">{formatToken(stats.tokens.input)}</span>
 						</div>
 						<div className="stats-info-row">
-							<span>输出</span>
+							<span>{t("tokenOutput")}</span>
 							<span className="stats-info-value">{formatToken(stats.tokens.output)}</span>
 						</div>
 						{stats.tokens.cacheRead > 0 ? (
 							<div className="stats-info-row">
-								<span>缓存读</span>
+								<span>{t("cacheRead")}</span>
 								<span className="stats-info-value">{formatToken(stats.tokens.cacheRead)}</span>
 							</div>
 						) : null}
 						{stats.tokens.cacheWrite > 0 ? (
 							<div className="stats-info-row">
-								<span>缓存写</span>
+								<span>{t("cacheWrite")}</span>
 								<span className="stats-info-value">{formatToken(stats.tokens.cacheWrite)}</span>
 							</div>
 						) : null}
 						<div className="stats-info-row">
-							<span>总计</span>
+							<span>{t("total")}</span>
 							<span className="stats-info-value">{formatToken(stats.tokens.total)}</span>
 						</div>
 						{stats.cost > 0 ? (
 							<div className="stats-info-row">
-								<span>成本</span>
+								<span>{t("cost")}</span>
 								<span className="stats-info-value">${stats.cost.toFixed(4)}</span>
 							</div>
 						) : null}
 						{stats.contextUsage ? (
 							<div className="stats-info-row">
-								<span>上下文</span>
+								<span>{t("context")}</span>
 								<span className="stats-info-value">
 									{stats.contextUsage.percent === null ? "—" : `${stats.contextUsage.percent.toFixed(1)}%`} /{" "}
 									{formatCompact(stats.contextUsage.contextWindow)}

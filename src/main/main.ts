@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readdir, readFile, realpath, stat, unlink, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	app,
@@ -16,6 +17,8 @@ import {
 } from "electron";
 import type { Response as FetchResponse } from "undici-types";
 import {
+	type DesktopDirectoryEntry,
+	type DesktopDirectoryListing,
 	type DesktopImageAttachment,
 	type DesktopSnapshot,
 	type DesktopWorkspaceChange,
@@ -29,20 +32,28 @@ import {
 	isDesktopOpenExternalUrlInput,
 	isDesktopOpenSessionInput,
 	isDesktopOpenWorkspacePathInput,
+	isDesktopPluginPackageFilterInput,
 	isDesktopPluginSourceInput,
 	isDesktopProjectTrustInput,
 	isDesktopPromptInput,
 	isDesktopProviderLogoutInput,
 	isDesktopProviderSetupInput,
 	isDesktopRemoveWorktreeInput,
+	isDesktopRestoreImageAttachmentsInput,
+	isDesktopRestoreMessageImagesInput,
 	isDesktopSaveModelsConfigInput,
 	isDesktopToggleSkillInput,
 	isDesktopToolApprovalDecisionInput,
+	isDesktopUpdateDownloadInput,
+	isDesktopWorkspaceDirectoryPath,
 	isDesktopWorkspaceFileInput,
 } from "../shared/contracts.ts";
 import { isNewerVersion } from "../shared/version.ts";
 import { DesktopAgentHost, type DesktopPromptImage } from "./desktop-agent-host.ts";
+import { DesktopUpdateDownloader, selectUpdateAssets } from "./desktop-updater.ts";
 import { importDroppedFiles } from "./dropped-file-import.ts";
+import { getImageMimeType, imageExtensionFor } from "./image-mime.ts";
+import { loadWindowState, trackWindowState, type WindowStateTracker } from "./window-state.ts";
 
 const currentDirectory = fileURLToPath(new URL(".", import.meta.url));
 let mainWindow: BrowserWindow | undefined;
@@ -50,6 +61,9 @@ let host: DesktopAgentHost | undefined;
 let tray: Tray | undefined;
 let isQuitting = false;
 let closeQuits = false;
+let windowStateTracker: WindowStateTracker | undefined;
+let updateDownloader: DesktopUpdateDownloader | undefined;
+let latestReleaseAssets: ReturnType<typeof selectUpdateAssets> = [];
 
 const TRAY_ICON_WHITE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><path fill="#1a1a1a" d="M3 5h8v1.8H7.8v1.4h2.9V10H7.8v3H3V5Zm11 0h1.8v1.8H14V5Zm0 2.6h1.8V13H14V7.6Z" opacity="0.9"/></svg>`;
 const TRAY_ICON_COLOR_BASE64 =
@@ -79,6 +93,18 @@ interface PendingImageAttachment {
 
 const pendingImageAttachments = new Map<string, PendingImageAttachment>();
 
+function pendingImageDirectory(): string {
+	return join(app.getPath("userData"), "pending-images");
+}
+
+function pendingImagePaths(id: string): { data: string; metadata: string } {
+	const directory = pendingImageDirectory();
+	return {
+		data: join(directory, `${id}.bin`),
+		metadata: join(directory, `${id}.json`),
+	};
+}
+
 function getHost(): DesktopAgentHost {
 	if (!host) {
 		host = new DesktopAgentHost(join(app.getPath("userData"), "agent"));
@@ -90,7 +116,7 @@ function publishSnapshot(snapshot: DesktopSnapshot): void {
 	if (!mainWindow || mainWindow.isDestroyed()) return;
 	mainWindow.webContents.send("pi-desktop:snapshot", snapshot);
 	const folderName = snapshot.workspacePath?.split(/[\\/]/u).filter(Boolean).at(-1);
-	const title = folderName ? `${folderName} - Pi Desktop` : "Pi Desktop";
+	const title = folderName ? `${folderName} - Pi Agent` : "Pi Agent";
 	if (mainWindow.getTitle() !== title) mainWindow.setTitle(title);
 }
 
@@ -111,45 +137,14 @@ function isExactRecord(value: unknown, keys: readonly string[]): value is Record
 	return actualKeys.length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 }
 
-function getImageMimeType(content: Buffer): string | undefined {
-	if (
-		content.length >= 8 &&
-		content[0] === 0x89 &&
-		content[1] === 0x50 &&
-		content[2] === 0x4e &&
-		content[3] === 0x47 &&
-		content[4] === 0x0d &&
-		content[5] === 0x0a &&
-		content[6] === 0x1a &&
-		content[7] === 0x0a
-	) {
-		return "image/png";
-	}
-	if (content.length >= 3 && content[0] === 0xff && content[1] === 0xd8 && content[2] === 0xff) {
-		return "image/jpeg";
-	}
-	if (
-		content.length >= 6 &&
-		(content.subarray(0, 6).toString("ascii") === "GIF87a" || content.subarray(0, 6).toString("ascii") === "GIF89a")
-	) {
-		return "image/gif";
-	}
-	if (
-		content.length >= 12 &&
-		content.subarray(0, 4).toString("ascii") === "RIFF" &&
-		content.subarray(8, 12).toString("ascii") === "WEBP"
-	) {
-		return "image/webp";
-	}
-	return undefined;
-}
-
 function createWindow(): BrowserWindow {
+	const state = loadWindowState();
 	const window = new BrowserWindow({
-		width: 1440,
-		height: 920,
-		minWidth: 980,
-		minHeight: 680,
+		...(state.x !== undefined && state.y !== undefined ? { x: state.x, y: state.y } : {}),
+		width: state.width,
+		height: state.height,
+		minWidth: 900,
+		minHeight: 600,
 		backgroundColor: "#161615",
 		...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const } : {}),
 		show: false,
@@ -160,6 +155,8 @@ function createWindow(): BrowserWindow {
 			sandbox: true,
 		},
 	});
+	if (state.maximized) window.maximize();
+	windowStateTracker = trackWindowState(window);
 
 	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 	window.webContents.on("will-navigate", (event) => event.preventDefault());
@@ -208,6 +205,42 @@ function createTray(): void {
 	tray.on("click", () => showMainWindow());
 }
 
+async function persistImageAttachments(selected: PendingImageAttachment[]): Promise<DesktopImageAttachment[]> {
+	await mkdir(pendingImageDirectory(), { recursive: true, mode: 0o700 });
+	for (const attachment of selected) {
+		pendingImageAttachments.set(attachment.id, attachment);
+		const paths = pendingImagePaths(attachment.id);
+		const thumbnailDataUrl = nativeImage
+			.createFromBuffer(Buffer.from(attachment.image.data, "base64"))
+			.resize({ width: 72, height: 72, quality: "good" })
+			.toDataURL();
+		await Promise.all([
+			writeFile(paths.data, Buffer.from(attachment.image.data, "base64"), { mode: 0o600 }),
+			writeFile(
+				paths.metadata,
+				JSON.stringify({
+					id: attachment.id,
+					name: attachment.name,
+					mimeType: attachment.mimeType,
+					size: attachment.size,
+					thumbnailDataUrl,
+				}),
+				{ mode: 0o600 },
+			),
+		]);
+	}
+	return selected.map(({ id, name, mimeType, size, image }) => ({
+		id,
+		name,
+		mimeType,
+		size,
+		thumbnailDataUrl: nativeImage
+			.createFromBuffer(Buffer.from(image.data, "base64"))
+			.resize({ width: 72, height: 72, quality: "good" })
+			.toDataURL(),
+	}));
+}
+
 async function prepareImageAttachments(filePaths: string[]): Promise<DesktopImageAttachment[]> {
 	if (filePaths.length > MAX_IMAGE_ATTACHMENTS) {
 		throw new Error(`一次最多选择 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
@@ -229,8 +262,102 @@ async function prepareImageAttachments(filePaths: string[]): Promise<DesktopImag
 			image: { data: content.toString("base64"), mimeType },
 		});
 	}
-	for (const attachment of selected) pendingImageAttachments.set(attachment.id, attachment);
-	return selected.map(({ id, name, mimeType, size }) => ({ id, name, mimeType, size }));
+	return persistImageAttachments(selected);
+}
+
+async function restoreImageAttachments(ids: string[]): Promise<DesktopImageAttachment[]> {
+	const restored: DesktopImageAttachment[] = [];
+	for (const id of ids.slice(0, MAX_IMAGE_ATTACHMENTS)) {
+		if (!/^[0-9a-f-]{36}$/iu.test(id)) continue;
+		try {
+			const paths = pendingImagePaths(id);
+			const metadata = JSON.parse(await readFile(paths.metadata, "utf8")) as Partial<DesktopImageAttachment>;
+			if (
+				metadata.id !== id ||
+				typeof metadata.name !== "string" ||
+				typeof metadata.mimeType !== "string" ||
+				!metadata.mimeType.startsWith("image/") ||
+				typeof metadata.size !== "number" ||
+				metadata.size <= 0 ||
+				metadata.size > MAX_IMAGE_BYTES
+			) {
+				continue;
+			}
+			const content = await readFile(paths.data);
+			if (content.length !== metadata.size || getImageMimeType(content) !== metadata.mimeType) continue;
+			const attachment: PendingImageAttachment = {
+				id,
+				name: metadata.name,
+				mimeType: metadata.mimeType,
+				size: content.length,
+				image: { data: content.toString("base64"), mimeType: metadata.mimeType },
+			};
+			pendingImageAttachments.set(id, attachment);
+			restored.push({
+				id,
+				name: attachment.name,
+				mimeType: attachment.mimeType,
+				size: attachment.size,
+				...(typeof metadata.thumbnailDataUrl === "string"
+					? { thumbnailDataUrl: metadata.thumbnailDataUrl }
+					: {
+							thumbnailDataUrl: nativeImage
+								.createFromBuffer(content)
+								.resize({ width: 72, height: 72, quality: "good" })
+								.toDataURL(),
+						}),
+			});
+		} catch {
+			// Drafts can outlive their files; silently drop unavailable images.
+		}
+	}
+	return restored;
+}
+
+async function browseDirectories(directory?: string): Promise<DesktopDirectoryListing> {
+	const requested = directory?.trim();
+	if (process.platform === "win32" && !requested) {
+		const drives = await Promise.all(
+			"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map(async (letter) => {
+				const path = `${letter}:\\`;
+				try {
+					const entry = await stat(path);
+					return entry.isDirectory() ? { name: `${letter}:`, path } : undefined;
+				} catch {
+					return undefined;
+				}
+			}),
+		);
+		return {
+			path: "",
+			directories: [],
+			drives: drives.filter((entry): entry is DesktopDirectoryEntry => entry !== undefined),
+		};
+	}
+	const expanded =
+		!requested || requested === "~"
+			? homedir()
+			: requested.startsWith("~/")
+				? join(homedir(), requested.slice(2))
+				: requested;
+	const currentPath = await realpath(resolve(expanded));
+	const entries = await readdir(currentPath, { withFileTypes: true });
+	const directories = entries
+		.filter((entry) => entry.isDirectory())
+		.map((entry) => ({ name: entry.name, path: join(currentPath, entry.name) }))
+		.sort((left, right) => left.name.localeCompare(right.name));
+	const parent = dirname(currentPath);
+	return {
+		path: currentPath,
+		...(parent === currentPath ? {} : { parentPath: parent }),
+		directories,
+	};
+}
+
+async function removePendingImageAttachment(id: string): Promise<void> {
+	pendingImageAttachments.delete(id);
+	const paths = pendingImagePaths(id);
+	await Promise.all([unlink(paths.data).catch(() => {}), unlink(paths.metadata).catch(() => {})]);
 }
 
 function registerIpc(): void {
@@ -246,6 +373,18 @@ function registerIpc(): void {
 		});
 		if (result.canceled || !result.filePaths[0]) return getHost().getSnapshot();
 		return getHost().openWorkspace(result.filePaths[0]);
+	});
+	ipcMain.handle("pi-desktop:browse-directories", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (value !== undefined && (typeof value !== "string" || value.length === 0 || value.length > 4000)) {
+			throw new Error("无效的目录浏览请求。");
+		}
+		return browseDirectories(value as string | undefined);
+	});
+	ipcMain.handle("pi-desktop:select-directory", async (event): Promise<string | undefined> => {
+		assertMainWindowSender(event);
+		const result = await dialog.showOpenDialog({ properties: ["openDirectory"], title: "选择本地目录" });
+		return result.canceled ? undefined : result.filePaths[0];
 	});
 	ipcMain.handle("pi-desktop:choose-images", async (event) => {
 		assertMainWindowSender(event);
@@ -268,22 +407,75 @@ function registerIpc(): void {
 		}
 		return prepareImageAttachments(value);
 	});
+	ipcMain.handle("pi-desktop:restore-image-attachments", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (!isDesktopRestoreImageAttachmentsInput(value)) {
+			throw new Error("无效的图片草稿恢复请求。");
+		}
+		return restoreImageAttachments(value.ids);
+	});
+	ipcMain.handle("pi-desktop:restore-message-images", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (!isDesktopRestoreMessageImagesInput(value)) {
+			throw new Error("无效的消息图片恢复请求。");
+		}
+		const images = getHost().getMessageImages(value.messageId);
+		if (images.length > MAX_IMAGE_ATTACHMENTS) {
+			throw new Error(`一次最多恢复 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
+		}
+		const selected: PendingImageAttachment[] = images.map((image, index) => {
+			const content = Buffer.from(image.data, "base64");
+			if (content.length === 0 || content.length > MAX_IMAGE_BYTES) {
+				throw new Error("消息中的图片超过 10 MB，无法恢复。");
+			}
+			const mimeType = getImageMimeType(content);
+			if (!mimeType) throw new Error("仅支持恢复 PNG、JPEG、GIF 和 WebP 图片。");
+			return {
+				id: randomUUID(),
+				name: `message-image-${index + 1}.${imageExtensionFor(mimeType)}`,
+				mimeType,
+				size: content.length,
+				image: { data: content.toString("base64"), mimeType },
+			};
+		});
+		return persistImageAttachments(selected);
+	});
+	ipcMain.handle("pi-desktop:discard-image-attachment", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (typeof value !== "string" || !/^[0-9a-f-]{36}$/iu.test(value)) {
+			throw new Error("无效的图片附件请求。");
+		}
+		await removePendingImageAttachment(value);
+	});
 	ipcMain.handle("pi-desktop:import-dropped-files", async (event, value: unknown) => {
 		assertMainWindowSender(event);
 		const host = getHost();
 		if (!host.getSnapshot().projectTrusted) {
 			throw new Error("请先信任当前项目，再导入文件。");
 		}
+		if (typeof value !== "object" || value === null || Array.isArray(value)) {
+			throw new Error("无效的拖放文件请求。");
+		}
+		const importInput = value as { paths?: unknown; overwriteConflicts?: unknown; targetDirectory?: unknown };
 		if (
-			!isExactRecord(value, ["paths", "overwriteConflicts"]) ||
-			!Array.isArray(value.paths) ||
-			value.paths.length > 20 ||
-			!value.paths.every((path) => typeof path === "string" && path.length > 0 && path.length <= 4000) ||
-			typeof value.overwriteConflicts !== "boolean"
+			!Object.keys(importInput).every(
+				(key) => key === "paths" || key === "overwriteConflicts" || key === "targetDirectory",
+			) ||
+			!Array.isArray(importInput.paths) ||
+			importInput.paths.length > 20 ||
+			!importInput.paths.every((path) => typeof path === "string" && path.length > 0 && path.length <= 4000) ||
+			typeof importInput.overwriteConflicts !== "boolean" ||
+			(importInput.targetDirectory !== undefined &&
+				(typeof importInput.targetDirectory !== "string" || importInput.targetDirectory.length > 2000))
 		) {
 			throw new Error("无效的拖放文件请求。");
 		}
-		return importDroppedFiles(host.requireWorkspacePath(), value.paths as string[], value.overwriteConflicts);
+		return importDroppedFiles(
+			host.requireWorkspacePath(),
+			importInput.paths as string[],
+			importInput.overwriteConflicts,
+			typeof importInput.targetDirectory === "string" ? importInput.targetDirectory : "",
+		);
 	});
 	ipcMain.handle("pi-desktop:prompt", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
@@ -301,8 +493,13 @@ function registerIpc(): void {
 			if (!attachment) throw new Error("所选图片已失效，请重新选择。");
 			return attachment.image;
 		});
-		const snapshot = await getHost().prompt(text, images, value.streamingBehavior);
-		for (const id of attachmentIds) pendingImageAttachments.delete(id);
+		const snapshot = await getHost().prompt(
+			text,
+			images,
+			value.streamingBehavior,
+			value.sessionReferenceLabels ?? [],
+		);
+		await Promise.all(attachmentIds.map((id) => removePendingImageAttachment(id)));
 		return snapshot;
 	});
 	ipcMain.handle("pi-desktop:abort", async (event): Promise<DesktopSnapshot> => {
@@ -500,6 +697,10 @@ function registerIpc(): void {
 		}
 		return getHost().startProviderSetup(value.providerId, value.authType);
 	});
+	ipcMain.handle("pi-desktop:cancel-provider-setup", (event): DesktopSnapshot => {
+		assertMainWindowSender(event);
+		return getHost().cancelProviderSetup();
+	});
 	ipcMain.handle("pi-desktop:logout-provider", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
 		if (!isDesktopProviderLogoutInput(value)) throw new Error("无效的模型服务商注销请求。");
@@ -515,6 +716,14 @@ function registerIpc(): void {
 	ipcMain.handle("pi-desktop:list-workspace-files", async (event) => {
 		assertMainWindowSender(event);
 		return getHost().listWorkspaceFiles();
+	});
+	ipcMain.handle("pi-desktop:list-workspace-directory", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (value === undefined || value === "") return getHost().listWorkspaceDirectory("");
+		if (!isDesktopWorkspaceDirectoryPath(value)) {
+			throw new Error("无效的项目目录请求。");
+		}
+		return getHost().listWorkspaceDirectory(value);
 	});
 	ipcMain.handle("pi-desktop:search-workspace-files", async (event, value: unknown) => {
 		assertMainWindowSender(event);
@@ -616,6 +825,19 @@ function registerIpc(): void {
 		assertMainWindowSender(event);
 		return getHost().listGitWorktrees();
 	});
+	ipcMain.handle("pi-desktop:list-git-branches", async (event) => {
+		assertMainWindowSender(event);
+		return getHost().listGitBranches();
+	});
+	ipcMain.handle("pi-desktop:fetch-git-branches", async (event): Promise<void> => {
+		assertMainWindowSender(event);
+		await getHost().fetchGitBranches();
+	});
+	ipcMain.handle("pi-desktop:switch-git-branch", async (event, value: unknown): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		if (!isDesktopAddWorktreeInput(value)) throw new Error("无效的 Git 分支请求。");
+		return getHost().switchGitBranch(value.branch);
+	});
 	ipcMain.handle("pi-desktop:add-git-worktree", async (event, value: unknown) => {
 		assertMainWindowSender(event);
 		if (!isDesktopAddWorktreeInput(value)) {
@@ -634,11 +856,13 @@ function registerIpc(): void {
 			defaultId: 0,
 			cancelId: 0,
 			title: "移除 Worktree",
-			message: `确定移除 ${value.path}？`,
-			detail: "Git 将拒绝删除包含未提交修改的 Worktree。",
+			message: value.force ? `强制移除 ${value.path}？` : `确定移除 ${value.path}？`,
+			detail: value.force
+				? "这会丢弃该 Worktree 中所有未提交和未跟踪的文件，且无法撤销。"
+				: "如果 Worktree 有未提交修改，下一步会提供强制移除选项。",
 		});
-		if (confirmed.response !== 1) return;
-		return getHost().removeGitWorktree(value.path);
+		if (confirmed.response !== 1) return {};
+		return getHost().removeGitWorktree(value.path, value.force === true);
 	});
 	ipcMain.handle("pi-desktop:open-workspace-path", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
@@ -657,6 +881,24 @@ function registerIpc(): void {
 			throw new Error("无效的模型配置。");
 		}
 		return getHost().saveModelsConfig(value.providers);
+	});
+	ipcMain.handle("pi-desktop:get-model-scope", async (event) => {
+		assertMainWindowSender(event);
+		return getHost().getModelScope();
+	});
+	ipcMain.handle("pi-desktop:save-model-scope", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (
+			!isExactRecord(value, ["patterns"]) ||
+			!Array.isArray(value.patterns) ||
+			value.patterns.length > 100 ||
+			!value.patterns.every(
+				(pattern) => typeof pattern === "string" && pattern.trim().length > 0 && pattern.length <= 500,
+			)
+		) {
+			throw new Error("无效的可用模型范围。");
+		}
+		return getHost().saveModelScope(value.patterns);
 	});
 	ipcMain.handle("pi-desktop:discover-models", async (event, value: unknown) => {
 		assertMainWindowSender(event);
@@ -692,26 +934,53 @@ function registerIpc(): void {
 		try {
 			await readFile(cssPath);
 		} catch {
-			await writeFile(cssPath, "/* Pi Desktop custom styles */\n", { mode: 0o600 });
+			await writeFile(cssPath, "/* Pi Agent custom styles */\n", { mode: 0o600 });
 		}
 		await getHost().openPath(cssPath);
 		return cssPath;
 	});
 	ipcMain.handle("pi-desktop:check-for-updates", async (event) => {
 		assertMainWindowSender(event);
-		const response = (await fetch("https://api.github.com/repos/Eileenes/pi-desktop/releases/latest", {
-			headers: { Accept: "application/vnd.github+json", "User-Agent": "pi-desktop" },
+		const response = (await fetch("https://api.github.com/repos/abcwyc/pi-agent-desktop/releases/latest", {
+			headers: { Accept: "application/vnd.github+json", "User-Agent": "pi-agent-desktop" },
 		})) as FetchResponse;
 		if (!response.ok) throw new Error(`检查更新失败（HTTP ${response.status}）。`);
-		const release = (await response.json()) as { tag_name?: string; html_url?: string };
+		const release = (await response.json()) as {
+			tag_name?: string;
+			html_url?: string;
+			assets?: Array<{ name?: unknown; size?: unknown; browser_download_url?: unknown }>;
+		};
 		const latestVersion = release.tag_name?.replace(/^v/u, "");
+		latestReleaseAssets = selectUpdateAssets(release.assets ?? []);
 		return {
 			currentVersion: app.getVersion(),
 			...(latestVersion ? { latestVersion } : {}),
-			releaseUrl: release.html_url ?? "https://github.com/Eileenes/pi-desktop/releases",
+			releaseUrl: release.html_url ?? "https://github.com/abcwyc/pi-agent-desktop/releases",
 			updateAvailable: Boolean(latestVersion && isNewerVersion(latestVersion, app.getVersion())),
 			checkedAt: Date.now(),
+			...(latestReleaseAssets.length ? { assets: latestReleaseAssets } : {}),
 		};
+	});
+	ipcMain.handle("pi-desktop:download-update", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (!isDesktopUpdateDownloadInput(value)) {
+			throw new Error("无效的更新下载请求。");
+		}
+		if (!updateDownloader) throw new Error("更新组件尚未就绪。");
+		return updateDownloader.download(value.assetName, latestReleaseAssets);
+	});
+	ipcMain.handle("pi-desktop:cancel-update-download", (event): void => {
+		assertMainWindowSender(event);
+		updateDownloader?.cancel();
+	});
+	ipcMain.handle("pi-desktop:get-update-download-state", (event) => {
+		assertMainWindowSender(event);
+		return updateDownloader?.getState() ?? { phase: "idle" };
+	});
+	ipcMain.handle("pi-desktop:install-update", async (event): Promise<void> => {
+		assertMainWindowSender(event);
+		if (!updateDownloader) throw new Error("更新组件尚未就绪。");
+		await updateDownloader.install();
 	});
 	ipcMain.handle("pi-desktop:toggle-skill", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
@@ -760,6 +1029,17 @@ function registerIpc(): void {
 			throw new Error("无效的插件启停请求。");
 		}
 		return getHost().togglePlugin(value.source, value.local, value.enabled);
+	});
+	ipcMain.handle("pi-desktop:save-plugin-filters", async (event, value: unknown): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		if (!isDesktopPluginPackageFilterInput(value)) {
+			throw new Error("无效的插件过滤配置。");
+		}
+		return getHost().savePluginPackageFilters(value);
+	});
+	ipcMain.handle("pi-desktop:reload-session", async (event): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		return getHost().reloadSession();
 	});
 	ipcMain.handle("pi-desktop:get-plugin-packages", async (event) => {
 		assertMainWindowSender(event);
@@ -834,6 +1114,9 @@ if (!hasSingleInstanceLock) {
 				mainWindow.webContents.send("pi-desktop:extension-ui", event);
 			}
 		});
+		updateDownloader = new DesktopUpdateDownloader(join(app.getPath("userData"), "updates"), () =>
+			mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+		);
 		mainWindow = createWindow();
 		createTray();
 
@@ -846,6 +1129,7 @@ if (!hasSingleInstanceLock) {
 
 	app.on("before-quit", () => {
 		isQuitting = true;
+		windowStateTracker?.flush();
 		void host?.dispose();
 	});
 }

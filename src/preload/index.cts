@@ -7,10 +7,12 @@ import type {
 	DesktopAddWorktreeInput,
 	DesktopDiscoverModelsInput,
 	DesktopGitChange,
+	DesktopGitBranches,
 	DesktopGitDiffInput,
 	DesktopGitWorktree,
 	DesktopImageAttachment,
 	DesktopModelSelectionInput,
+	DesktopModelScope,
 	DesktopModelTestInput,
 	DesktopModelTestResult,
 	DesktopNavigateTreeInput,
@@ -19,16 +21,22 @@ import type {
 	DesktopOpenSessionInput,
 	DesktopOpenWorkspacePathInput,
 	DesktopDeleteSessionInput,
+	DesktopDirectoryListing,
 	DesktopExtensionCustomInput,
 	DesktopExtensionDialogResponseInput,
 	DesktopExtensionUiEvent,
 	DesktopExtensionUiListener,
 	DesktopWorkspaceChange,
+	DesktopWorkspaceDirectoryListing,
 	DesktopPluginSourceInput,
 	DesktopPluginPackage,
+	DesktopPluginPackageFilterInput,
 	DesktopPromptInput,
+	DesktopRestoreImageAttachmentsInput,
+	DesktopRestoreMessageImagesInput,
 	DesktopProviderConfig,
 	DesktopProviderModelConfig,
+	DesktopRemoveWorktreeResult,
 	DesktopRemoveWorktreeInput,
 	DesktopProviderLogoutInput,
 	DesktopProviderSetupInput,
@@ -40,6 +48,8 @@ import type {
 	DesktopSkillUpdateResult,
 	DesktopToggleSkillInput,
 	DesktopTogglePluginInput,
+	DesktopUpdateDownloadInput,
+	DesktopUpdateDownloadState,
 	DesktopUpdateInfo,
 	DesktopWorkspaceFileInput,
 	Unsubscribe,
@@ -48,13 +58,21 @@ import type {
 const desktopApi: DesktopApi = {
 	bootstrap: () => ipcRenderer.invoke("pi-desktop:bootstrap") as Promise<DesktopSnapshot>,
 	chooseWorkspace: () => ipcRenderer.invoke("pi-desktop:choose-workspace") as Promise<DesktopSnapshot>,
+	browseDirectories: (path?: string) => ipcRenderer.invoke("pi-desktop:browse-directories", path) as Promise<DesktopDirectoryListing>,
+	selectDirectory: () => ipcRenderer.invoke("pi-desktop:select-directory") as Promise<string | undefined>,
 	chooseImages: () => ipcRenderer.invoke("pi-desktop:choose-images") as Promise<DesktopImageAttachment[]>,
 	attachDroppedImages: (files: File[]) =>
 		ipcRenderer.invoke("pi-desktop:attach-dropped-images", files.map((file) => webUtils.getPathForFile(file))) as Promise<DesktopImageAttachment[]>,
-	importDroppedFiles: (files: File[], overwriteConflicts = false) =>
+	restoreImageAttachments: (input: DesktopRestoreImageAttachmentsInput) =>
+		ipcRenderer.invoke("pi-desktop:restore-image-attachments", input) as Promise<DesktopImageAttachment[]>,
+	restoreMessageImages: (input: DesktopRestoreMessageImagesInput) =>
+		ipcRenderer.invoke("pi-desktop:restore-message-images", input) as Promise<DesktopImageAttachment[]>,
+	discardImageAttachment: (id: string) => ipcRenderer.invoke("pi-desktop:discard-image-attachment", id) as Promise<void>,
+	importDroppedFiles: (files: File[], overwriteConflicts = false, targetDirectory?: string) =>
 		ipcRenderer.invoke("pi-desktop:import-dropped-files", {
 			paths: files.map((file) => webUtils.getPathForFile(file)),
 			overwriteConflicts,
+			...(targetDirectory ? { targetDirectory } : {}),
 		}),
 	prompt: (input: DesktopPromptInput) => ipcRenderer.invoke("pi-desktop:prompt", input) as Promise<DesktopSnapshot>,
 	abort: () => ipcRenderer.invoke("pi-desktop:abort") as Promise<DesktopSnapshot>,
@@ -87,11 +105,14 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:decide-tool-approval", input) as Promise<DesktopSnapshot>,
 	startProviderSetup: (input: DesktopProviderSetupInput) =>
 		ipcRenderer.invoke("pi-desktop:start-provider-setup", input) as Promise<DesktopSnapshot>,
+	cancelProviderSetup: () => ipcRenderer.invoke("pi-desktop:cancel-provider-setup") as Promise<DesktopSnapshot>,
 	logoutProvider: (input: DesktopProviderLogoutInput) =>
 		ipcRenderer.invoke("pi-desktop:logout-provider", input) as Promise<DesktopSnapshot>,
 	respondToAuthenticationPrompt: (input: DesktopAuthenticationPromptResponseInput) =>
 		ipcRenderer.invoke("pi-desktop:respond-to-authentication-prompt", input) as Promise<DesktopSnapshot>,
 	listWorkspaceFiles: () => ipcRenderer.invoke("pi-desktop:list-workspace-files"),
+	listWorkspaceDirectory: (path?: string) =>
+		ipcRenderer.invoke("pi-desktop:list-workspace-directory", path) as Promise<DesktopWorkspaceDirectoryListing>,
 	searchWorkspaceFiles: (query: string) => ipcRenderer.invoke("pi-desktop:search-workspace-files", query),
 	readWorkspaceFile: (input: DesktopWorkspaceFileInput) =>
 		ipcRenderer.invoke("pi-desktop:read-workspace-file", input),
@@ -109,10 +130,14 @@ const desktopApi: DesktopApi = {
 	getGitDiff: (input: DesktopGitDiffInput) =>
 		ipcRenderer.invoke("pi-desktop:git-diff", input) as Promise<string>,
 	listGitWorktrees: () => ipcRenderer.invoke("pi-desktop:list-git-worktrees") as Promise<DesktopGitWorktree[]>,
+	listGitBranches: () => ipcRenderer.invoke("pi-desktop:list-git-branches") as Promise<DesktopGitBranches>,
+	fetchGitBranches: () => ipcRenderer.invoke("pi-desktop:fetch-git-branches") as Promise<void>,
+	switchGitBranch: (input) =>
+		ipcRenderer.invoke("pi-desktop:switch-git-branch", input) as Promise<DesktopSnapshot>,
 	addGitWorktree: (input: DesktopAddWorktreeInput) =>
 		ipcRenderer.invoke("pi-desktop:add-git-worktree", input) as Promise<DesktopGitWorktree>,
 	removeGitWorktree: (input: DesktopRemoveWorktreeInput) =>
-		ipcRenderer.invoke("pi-desktop:remove-git-worktree", input) as Promise<void>,
+		ipcRenderer.invoke("pi-desktop:remove-git-worktree", input) as Promise<DesktopRemoveWorktreeResult>,
 	openWorkspacePath: (input: DesktopOpenWorkspacePathInput) =>
 		ipcRenderer.invoke("pi-desktop:open-workspace-path", input) as Promise<DesktopSnapshot>,
 	setCloseQuits: (closeQuits: boolean) =>
@@ -121,6 +146,9 @@ const desktopApi: DesktopApi = {
 	getModelsConfig: () => ipcRenderer.invoke("pi-desktop:get-models-config") as Promise<DesktopProviderConfig[]>,
 	saveModelsConfig: (input: DesktopSaveModelsConfigInput) =>
 		ipcRenderer.invoke("pi-desktop:save-models-config", input) as Promise<DesktopSnapshot>,
+	getModelScope: () => ipcRenderer.invoke("pi-desktop:get-model-scope") as Promise<DesktopModelScope>,
+	saveModelScope: (patterns: string[]) =>
+		ipcRenderer.invoke("pi-desktop:save-model-scope", { patterns }) as Promise<DesktopModelScope>,
 	discoverModels: (input: DesktopDiscoverModelsInput) =>
 		ipcRenderer.invoke("pi-desktop:discover-models", input) as Promise<Array<{ id: string }>>,
 	lookupModelCatalog: (input: { providerId: string; modelId: string }) =>
@@ -129,6 +157,18 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:test-model", input) as Promise<DesktopModelTestResult>,
 	openCustomCss: () => ipcRenderer.invoke("pi-desktop:open-custom-css") as Promise<string>,
 	checkForUpdates: () => ipcRenderer.invoke("pi-desktop:check-for-updates") as Promise<DesktopUpdateInfo>,
+	downloadUpdate: (input: DesktopUpdateDownloadInput) =>
+		ipcRenderer.invoke("pi-desktop:download-update", input) as Promise<DesktopUpdateDownloadState>,
+	cancelUpdateDownload: () =>
+		ipcRenderer.invoke("pi-desktop:cancel-update-download") as Promise<void>,
+	getUpdateDownloadState: () =>
+		ipcRenderer.invoke("pi-desktop:get-update-download-state") as Promise<DesktopUpdateDownloadState>,
+	installUpdate: () => ipcRenderer.invoke("pi-desktop:install-update") as Promise<void>,
+	onUpdateDownloadProgress(listener: (state: DesktopUpdateDownloadState) => void): Unsubscribe {
+		const subscription = (_event: IpcRendererEvent, state: DesktopUpdateDownloadState) => listener(state);
+		ipcRenderer.on("pi-desktop:update-download-progress", subscription);
+		return () => ipcRenderer.removeListener("pi-desktop:update-download-progress", subscription);
+	},
 	respondToExtensionDialog: (input: DesktopExtensionDialogResponseInput) =>
 		ipcRenderer.invoke("pi-desktop:respond-to-extension-dialog", input) as Promise<void>,
 	sendExtensionCustomInput: (input: DesktopExtensionCustomInput) =>
@@ -151,6 +191,9 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:remove-plugin", input) as Promise<DesktopSnapshot>,
 	togglePlugin: (input: DesktopTogglePluginInput) =>
 		ipcRenderer.invoke("pi-desktop:toggle-plugin", input) as Promise<DesktopSnapshot>,
+	savePluginPackageFilters: (input: DesktopPluginPackageFilterInput) =>
+		ipcRenderer.invoke("pi-desktop:save-plugin-filters", input) as Promise<DesktopSnapshot>,
+	reloadSession: () => ipcRenderer.invoke("pi-desktop:reload-session") as Promise<DesktopSnapshot>,
 	getPluginPackages: () =>
 		ipcRenderer.invoke("pi-desktop:get-plugin-packages") as Promise<DesktopPluginPackage[]>,
 	listSkillsDetailed: () => ipcRenderer.invoke("pi-desktop:list-skills-detailed") as Promise<DesktopSkillInfo[]>,

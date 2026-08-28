@@ -7,6 +7,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useI18n } from "./i18n.ts";
 import type { ConversationTurn } from "./transcript-group.ts";
 
 interface ConversationNavigatorProps {
@@ -22,6 +23,7 @@ function nearestTurnIndex(event: ReactPointerEvent<HTMLDivElement>, count: numbe
 }
 
 export function ConversationNavigator({ turns, scrollContainerRef, onSelect }: ConversationNavigatorProps) {
+	const { t } = useI18n();
 	const [activeIndex, setActiveIndex] = useState(0);
 	const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 	const [isHovering, setIsHovering] = useState(false);
@@ -92,7 +94,7 @@ export function ConversationNavigator({ turns, scrollContainerRef, onSelect }: C
 			<div
 				className="conversation-navigator-track"
 				role="slider"
-				aria-label="对话定位"
+				aria-label={t("conversationLocate")}
 				aria-valuemin={1}
 				aria-valuemax={turns.length}
 				aria-valuenow={activeIndex + 1}

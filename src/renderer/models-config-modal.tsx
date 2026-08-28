@@ -1,29 +1,51 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import type { DesktopApiKeyProvider, DesktopProviderConfig, DesktopProviderModelConfig } from "../shared/contracts.ts";
+import type { CSSProperties, ReactElement } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+	DesktopApiKeyProvider,
+	DesktopAuthenticationPrompt,
+	DesktopProviderConfig,
+	DesktopProviderModelConfig,
+} from "../shared/contracts.ts";
 import {
 	discoverModels,
+	getModelScope,
 	getModelsConfig,
 	logoutProvider,
 	lookupModelCatalog,
+	openExternalUrl,
+	saveModelScope,
 	saveModelsConfig,
 	testModel,
 } from "./desktop-store.ts";
+import { useI18n } from "./i18n.ts";
 import { Modal } from "./modal.tsx";
+import { ProviderIconMark } from "./provider-icons.tsx";
 
 interface ModelsConfigModalProps {
 	providers: DesktopApiKeyProvider[];
 	selectedProviderId: string;
 	providerSetupInProgress: boolean;
 	settingUpProvider: boolean;
+	authenticationPrompt?: DesktopAuthenticationPrompt;
+	authenticationNotice?: string;
+	authenticationUrl?: string;
+	authenticationUserCode?: string;
+	authenticationExpiresAt?: number;
+	authenticationResponse: string;
+	authenticationResolving: boolean;
 	onChangeProvider: (providerId: string) => void;
 	onStartProviderSetup: (providerId: string, authType: "api_key" | "oauth") => void;
+	onChangeAuthenticationResponse: (response: string) => void;
+	onSubmitAuthentication: (id: string, response: string) => Promise<void>;
+	onCancelProviderSetup: () => void;
 	onClose: () => void;
 }
 
 type Selection =
 	| { type: "managed"; providerId: string }
 	| { type: "provider"; providerId: string }
-	| { type: "model"; providerId: string; modelIndex: number };
+	| { type: "model"; providerId: string; modelIndex: number }
+	| { type: "scope" };
 
 type DiscoveryState =
 	| { phase: "idle" }
@@ -33,6 +55,183 @@ type DiscoveryState =
 
 const API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"];
 const COST_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const THINKING_LEVEL_COLORS: Record<(typeof THINKING_LEVELS)[number], string> = {
+	off: "var(--text-dim)",
+	minimal: "#6b7280",
+	low: "var(--accent)",
+	medium: "#a78bfa",
+	high: "#f472b6",
+	xhigh: "#fb923c",
+	max: "var(--danger)",
+};
+
+const PROVIDER_MARKS: Record<string, { label: string; color: string }> = {
+	anthropic: { label: "A", color: "#d97757" },
+	openai: { label: "O", color: "#10a37f" },
+	"openai-codex": { label: "O", color: "#10a37f" },
+	google: { label: "G", color: "#4285f4" },
+	"google-vertex": { label: "G", color: "#4285f4" },
+	deepseek: { label: "D", color: "#4b7bec" },
+	groq: { label: "G", color: "#f55036" },
+	mistral: { label: "M", color: "#f59e0b" },
+	moonshotai: { label: "K", color: "#7c3aed" },
+	minimax: { label: "M", color: "#ef4444" },
+	openrouter: { label: "R", color: "#8b5cf6" },
+	xai: { label: "X", color: "#111827" },
+	qwen: { label: "Q", color: "#2563eb" },
+	zhipu: { label: "Z", color: "#2563eb" },
+	cohere: { label: "C", color: "#d946ef" },
+	perplexity: { label: "P", color: "#20b8cd" },
+	together: { label: "T", color: "#f97316" },
+	grok: { label: "G", color: "#111827" },
+};
+
+function ProviderMark({ providerId, name }: { providerId: string; name: string }): ReactElement {
+	const icon = ProviderIconMark({ providerId });
+	if (icon) return icon;
+	const mark = PROVIDER_MARKS[providerId.toLocaleLowerCase()] ?? {
+		label: name.trim().slice(0, 1).toUpperCase() || "?",
+		color: "var(--text)",
+	};
+	return (
+		<span className="models-provider-mark" style={{ "--provider-color": mark.color } as CSSProperties}>
+			{mark.label}
+		</span>
+	);
+}
+
+function hasDeepSeekThinkingCompat(model: DesktopProviderModelConfig): boolean {
+	return model.compat?.thinkingFormat === "deepseek";
+}
+
+const DEEPSEEK_COMPAT = {
+	thinkingFormat: "deepseek",
+	requiresReasoningContentOnAssistantMessages: true,
+} as const;
+
+function setDeepSeekThinkingCompat(model: DesktopProviderModelConfig, enabled: boolean): DesktopProviderModelConfig {
+	const compat = { ...(model.compat ?? {}) };
+	if (enabled) Object.assign(compat, DEEPSEEK_COMPAT);
+	else {
+		delete compat.thinkingFormat;
+		delete compat.requiresReasoningContentOnAssistantMessages;
+	}
+	return { ...model, compat: Object.keys(compat).length ? compat : undefined };
+}
+
+function ThinkingLevelMapEditor({
+	value,
+	onChange,
+}: {
+	value?: Record<string, string | null>;
+	onChange: (value: Record<string, string | null> | undefined) => void;
+}) {
+	const { t } = useI18n();
+	function setLevel(level: string, entry: string | null | "omit"): void {
+		const next = { ...(value ?? {}) };
+		if (entry === "omit") delete next[level];
+		else next[level] = entry;
+		onChange(Object.keys(next).length ? next : undefined);
+	}
+
+	return (
+		<div className="models-thinking-map">
+			{THINKING_LEVELS.map((level) => {
+				const hasValue = value !== undefined && Object.hasOwn(value, level);
+				const raw = value?.[level];
+				const state = !hasValue ? "omit" : raw === null ? "null" : "string";
+				const customValue = typeof raw === "string" ? raw : "";
+				return (
+					<label key={level}>
+						<span className={`models-thinking-level-name is-${state}`}>
+							<span
+								className="models-thinking-level-dot"
+								style={{ "--thinking-color": THINKING_LEVEL_COLORS[level] } as CSSProperties}
+							/>
+							{level}
+						</span>
+						<span className="models-thinking-level-presets">
+							<button
+								type="button"
+								className={state === "omit" ? "is-active" : ""}
+								onClick={() => setLevel(level, "omit")}
+							>
+								{t("defaultBtn")}
+							</button>
+							<button
+								type="button"
+								className={state === "null" ? "is-disabled" : ""}
+								onClick={() => setLevel(level, null)}
+							>
+								{t("disabledBtn")}
+							</button>
+						</span>
+						<span className={`models-thinking-custom ${state === "string" ? "is-active" : ""}`}>
+							<button type="button" onClick={() => setLevel(level, customValue || level)}>
+								{t("customBtn")}
+							</button>
+							<input
+								value={customValue}
+								placeholder={level}
+								maxLength={10}
+								onFocus={() => {
+									if (state !== "string") setLevel(level, customValue || level);
+								}}
+								onChange={(event) => setLevel(level, event.target.value)}
+							/>
+						</span>
+					</label>
+				);
+			})}
+		</div>
+	);
+}
+
+const AuthenticationDeviceCode = memo(function AuthenticationDeviceCode({
+	code,
+	expiresAt,
+}: {
+	code: string;
+	expiresAt?: number;
+}) {
+	const { t } = useI18n();
+	const [now, setNow] = useState(() => Date.now());
+	const [copied, setCopied] = useState(false);
+	useEffect(() => {
+		if (!expiresAt) return;
+		const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+		return () => window.clearInterval(timer);
+	}, [expiresAt]);
+	const remainingSeconds = expiresAt === undefined ? undefined : Math.max(0, Math.ceil((expiresAt - now) / 1000));
+	const copyCode = async (): Promise<void> => {
+		try {
+			await navigator.clipboard.writeText(code);
+			setCopied(true);
+			window.setTimeout(() => setCopied(false), 1_500);
+		} catch {
+			setCopied(false);
+		}
+	};
+	return (
+		<div className="models-auth-device-code">
+			<div>
+				<span>{t("deviceCode")}</span>
+				<strong>{code}</strong>
+			</div>
+			<button type="button" className="models-auth-copy" onClick={() => void copyCode()}>
+				{copied ? t("copied") : t("copy")}
+			</button>
+			{remainingSeconds !== undefined ? (
+				<small className={remainingSeconds === 0 ? "is-expired" : ""}>
+					{remainingSeconds === 0
+						? t("codeExpired")
+						: t("codeValidity", { minutes: Math.ceil(remainingSeconds / 60) })}
+				</small>
+			) : null}
+		</div>
+	);
+});
 
 function emptyCost(): NonNullable<DesktopProviderModelConfig["cost"]> {
 	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -43,10 +242,21 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	selectedProviderId,
 	providerSetupInProgress,
 	settingUpProvider,
+	authenticationPrompt,
+	authenticationNotice,
+	authenticationUrl,
+	authenticationUserCode,
+	authenticationExpiresAt,
+	authenticationResponse,
+	authenticationResolving,
 	onChangeProvider,
 	onStartProviderSetup,
+	onChangeAuthenticationResponse,
+	onSubmitAuthentication,
+	onCancelProviderSetup,
 	onClose,
 }: ModelsConfigModalProps) {
+	const { t } = useI18n();
 	const [config, setConfig] = useState<DesktopProviderConfig[]>([]);
 	const [savedConfig, setSavedConfig] = useState<DesktopProviderConfig[]>([]);
 	const [selection, setSelection] = useState<Selection>();
@@ -58,6 +268,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	const [selectedDiscovered, setSelectedDiscovered] = useState<string[]>([]);
 	const [confirmDiscard, setConfirmDiscard] = useState(false);
 	const [providerPickerOpen, setProviderPickerOpen] = useState(false);
+	const [confirmDisconnectProviderId, setConfirmDisconnectProviderId] = useState<string>();
+	const [providerPickerQuery, setProviderPickerQuery] = useState("");
+	const providerPickerInputRef = useRef<HTMLInputElement>(null);
 	const [authProvider, setAuthProvider] = useState<DesktopApiKeyProvider>();
 	const [modelTest, setModelTest] = useState<{ phase: "idle" | "loading" | "success" | "error"; message?: string }>({
 		phase: "idle",
@@ -68,11 +281,19 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	}>({
 		state: "idle",
 	});
+	const [catalogUndo, setCatalogUndo] = useState<DesktopProviderModelConfig>();
+	const [showProviderApiKey, setShowProviderApiKey] = useState(false);
+	const [modelScopeText, setModelScopeText] = useState("");
+	const [savedModelScopeText, setSavedModelScopeText] = useState("");
+	const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>([]);
+	const [modelScopeSaving, setModelScopeSaving] = useState(false);
+	const [modelScopeError, setModelScopeError] = useState<string>();
 	const hasChanges = JSON.stringify(config) !== JSON.stringify(savedConfig);
+	const hasModelScopeChanges = modelScopeText !== savedModelScopeText;
 	const requestClose = useCallback(() => {
-		if (hasChanges) setConfirmDiscard(true);
+		if (hasChanges || hasModelScopeChanges) setConfirmDiscard(true);
 		else onClose();
-	}, [hasChanges, onClose]);
+	}, [hasChanges, hasModelScopeChanges, onClose]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -94,10 +315,50 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 		};
 	}, []);
 
+	useEffect(() => {
+		let cancelled = false;
+		void getModelScope()
+			.then((scope) => {
+				if (cancelled) return;
+				const text = scope.patterns.join("\n");
+				setModelScopeText(text);
+				setSavedModelScopeText(text);
+				setModelScopeWarnings(scope.warnings);
+			})
+			.catch((error) => {
+				if (!cancelled) setModelScopeError(error instanceof Error ? error.message : String(error));
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	const selectionIdentity = selection
+		? selection.type === "model"
+			? `model:${selection.providerId}:${selection.modelIndex}`
+			: selection.type === "scope"
+				? "scope"
+				: `${selection.type}:${selection.providerId}`
+		: "none";
+
+	// Reset transient catalog state whenever the selected provider/model changes.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: selection identity intentionally coalesces the union.
+	useEffect(() => {
+		setCatalogUndo(undefined);
+		setCatalogFill({ state: "idle" });
+		setShowProviderApiKey(false);
+	}, [selectionIdentity]);
+
+	useEffect(() => {
+		if (providerPickerOpen) window.requestAnimationFrame(() => providerPickerInputRef.current?.focus());
+	}, [providerPickerOpen]);
+
 	const managedProvider =
-		selection?.type === "managed" ? providers.find((provider) => provider.id === selection.providerId) : undefined;
+		selection?.type === "managed"
+			? providers.find((provider) => provider.id === selection.providerId && provider.configured)
+			: undefined;
 	const selectedProvider =
-		selection && selection.type !== "managed"
+		selection && selection.type !== "managed" && selection.type !== "scope"
 			? config.find((provider) => provider.id === selection.providerId)
 			: undefined;
 	const selectedModel = selection?.type === "model" ? selectedProvider?.models?.[selection.modelIndex] : undefined;
@@ -134,7 +395,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	}
 
 	function removeProvider(): void {
-		if (!selectedProvider || !window.confirm(`删除服务商“${selectedProvider.id}”及其全部模型？`)) return;
+		if (!selectedProvider || !window.confirm(t("removeProviderConfirm", { id: selectedProvider.id }))) return;
 		const remaining = config.filter((provider) => provider.id !== selectedProvider.id);
 		setConfig(remaining);
 		setSelection(remaining[0] ? { type: "provider", providerId: remaining[0].id } : undefined);
@@ -160,7 +421,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 
 	function removeModel(): void {
 		if (!selectedProvider || !selectedModel || selection?.type !== "model") return;
-		if (!window.confirm(`删除模型“${selectedModel.name ?? selectedModel.id}”？`)) return;
+		if (!window.confirm(t("removeModelConfirm", { id: selectedModel.name ?? selectedModel.id }))) return;
 		updateProvider(selectedProvider.id, (provider) => ({
 			...provider,
 			models: provider.models?.filter((_, index) => index !== selection.modelIndex),
@@ -189,6 +450,21 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 		const query = discoveryQuery.trim().toLocaleLowerCase();
 		return discovery.models.filter((id) => !query || id.toLocaleLowerCase().includes(query)).slice(0, 300);
 	}, [discovery, discoveryQuery]);
+	const selectableShownDiscovered = useMemo(
+		() => shownDiscovered.filter((id) => !(selectedProvider?.models?.some((model) => model.id === id) ?? false)),
+		[shownDiscovered, selectedProvider?.models],
+	);
+	const allShownDiscoveredSelected =
+		selectableShownDiscovered.length > 0 && selectableShownDiscovered.every((id) => selectedDiscovered.includes(id));
+
+	function toggleShownDiscovered(): void {
+		const shown = new Set(selectableShownDiscovered);
+		setSelectedDiscovered((current) =>
+			allShownDiscoveredSelected
+				? current.filter((id) => !shown.has(id))
+				: [...new Set([...current, ...selectableShownDiscovered])],
+		);
+	}
 
 	function addDiscoveredModels(): void {
 		if (!selectedProvider || selectedDiscovered.length === 0) return;
@@ -220,9 +496,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 				result.ok
 					? {
 							phase: "success",
-							message: `连接成功 · ${result.latencyMs ?? 0}ms${result.responseText ? ` · ${result.responseText}` : ""}`,
+							message: `${t("connected")} · ${result.latencyMs ?? 0}ms${result.responseText ? ` · ${result.responseText}` : ""}`,
 						}
-					: { phase: "error", message: result.error ?? "连接失败" },
+					: { phase: "error", message: result.error ?? t("connectionFailed") },
 			);
 		} catch (error) {
 			setModelTest({ phase: "error", message: error instanceof Error ? error.message : String(error) });
@@ -232,16 +508,20 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	async function handleCatalogFill(): Promise<void> {
 		if (!selectedProvider || !selectedModel) return;
 		setCatalogFill({ state: "loading" });
+		setCatalogUndo(undefined);
 		try {
 			const entry = await lookupModelCatalog(selectedProvider.id, selectedModel.id);
 			if (!entry) {
-				setCatalogFill({ state: "error", message: "models.dev 没有该模型的记录。" });
+				setCatalogFill({ state: "error", message: t("catalogNotFound") });
 				return;
 			}
+			setCatalogUndo(selectedModel);
 			updateModel((model) => ({
 				...model,
 				name: model.name ?? entry.name,
 				reasoning: model.reasoning ?? entry.reasoning,
+				thinkingLevelMap: model.thinkingLevelMap ?? entry.thinkingLevelMap,
+				compat: model.compat ?? entry.compat,
 				input: model.input ?? entry.input,
 				contextWindow: model.contextWindow ?? entry.contextWindow,
 				maxTokens: model.maxTokens ?? entry.maxTokens,
@@ -257,6 +537,13 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 		}
 	}
 
+	function undoCatalogFill(): void {
+		if (!catalogUndo) return;
+		updateModel(() => catalogUndo);
+		setCatalogUndo(undefined);
+		setCatalogFill({ state: "idle" });
+	}
+
 	async function handleSave(): Promise<void> {
 		setSaving(true);
 		setSaveError(undefined);
@@ -270,11 +557,49 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 		}
 	}
 
+	async function handleSaveModelScope(): Promise<void> {
+		setModelScopeSaving(true);
+		setModelScopeError(undefined);
+		try {
+			const patterns = [
+				...new Set(
+					modelScopeText
+						.split("\n")
+						.map((pattern) => pattern.trim())
+						.filter(Boolean),
+				),
+			];
+			const scope = await saveModelScope(patterns);
+			const text = scope.patterns.join("\n");
+			setModelScopeText(text);
+			setSavedModelScopeText(text);
+			setModelScopeWarnings(scope.warnings);
+		} catch (error) {
+			setModelScopeError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setModelScopeSaving(false);
+		}
+	}
+
 	return (
-		<Modal title="模型" subtitle="~/.pi/agent/models.json" className="models-modal" onClose={requestClose}>
+		<Modal
+			title={t("models")}
+			subtitle="~/.pi/agent/models.json"
+			className="models-modal"
+			onClose={providerSetupInProgress || settingUpProvider ? () => undefined : requestClose}
+		>
 			<div className="models-layout">
 				<aside className="models-tree">
 					<div className="models-tree-scroll">
+						<button
+							className={`models-tree-item scope ${selection?.type === "scope" ? "is-active" : ""}`}
+							type="button"
+							onClick={() => setSelection({ type: "scope" })}
+						>
+							<span>{t("modelScopeTitle")}</span>
+							<small>enabledModels</small>
+						</button>
+						<div className="models-tree-divider" />
 						{providers.map((provider) => (
 							<button
 								key={provider.id}
@@ -282,13 +607,15 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								type="button"
 								onClick={() => {
 									onChangeProvider(provider.id);
-									if (provider.configured) setSelection({ type: "managed", providerId: provider.id });
-									else requestProviderSetup(provider);
+									setSelection({ type: "managed", providerId: provider.id });
+									if (!provider.configured) requestProviderSetup(provider);
 								}}
 							>
-								<span className="models-provider-mark">{provider.name.slice(0, 1).toUpperCase()}</span>
+								<ProviderMark providerId={provider.id} name={provider.name} />
 								<span>{provider.name}</span>
-								{provider.configured ? <span className="models-connected-dot" title="已连接" /> : null}
+								{provider.configured ? (
+									<span className="models-connected-dot" title={t("connectedDot")} />
+								) : null}
 							</button>
 						))}
 						{providers.length && config.length ? <div className="models-tree-divider" /> : null}
@@ -302,9 +629,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 										resetDiscovery();
 									}}
 								>
-									<span className="models-provider-mark">
-										{(provider.name ?? provider.id).slice(0, 1).toUpperCase()}
-									</span>
+									<ProviderMark providerId={provider.id} name={provider.name ?? provider.id} />
 									<span>{provider.name ?? provider.id}</span>
 								</button>
 								{provider.models?.map((model, index) => (
@@ -322,19 +647,58 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								))}
 							</div>
 						))}
-						{!loading && config.length === 0 ? <p className="modal-empty">尚未添加自定义服务商。</p> : null}
+						{!loading && config.length === 0 ? <p className="modal-empty">{t("noCustomProviders")}</p> : null}
 					</div>
 					<button
 						className="outline-button models-add-provider"
 						type="button"
-						onClick={() => setProviderPickerOpen(true)}
+						onClick={() => {
+							setProviderPickerQuery("");
+							setProviderPickerOpen(true);
+						}}
 					>
-						＋ 添加服务商
+						{t("addProvider")}
 					</button>
 				</aside>
 
 				<section className="models-detail">
-					{managedProvider ? (
+					{selection?.type === "scope" ? (
+						<div className="models-detail-form models-scope-form">
+							<div className="models-detail-heading">
+								<span>{t("modelScopeTitle")}</span>
+								<span className="models-auth-badge">{t("globalSetting")}</span>
+							</div>
+							<p className="models-managed-description">
+								{t("scopeDescription1")} <code>:thinking</code> {t("scopeDescription2")}
+								<code>anthropic/*:high</code>
+								{t("scopeDescription3")}
+							</p>
+							<textarea
+								value={modelScopeText}
+								placeholder={"anthropic/*:high\nopenai/gpt-5*"}
+								spellCheck={false}
+								onChange={(event) => setModelScopeText(event.target.value)}
+							/>
+							{modelScopeWarnings.length ? (
+								<output className="models-scope-warnings">
+									{modelScopeWarnings.map((warning) => (
+										<p key={warning}>{warning}</p>
+									))}
+								</output>
+							) : null}
+							{modelScopeError ? <p className="sidebar-error">{modelScopeError}</p> : null}
+							<button
+								className="accent-button"
+								type="button"
+								disabled={
+									!hasModelScopeChanges || modelScopeSaving || providerSetupInProgress || settingUpProvider
+								}
+								onClick={() => void handleSaveModelScope()}
+							>
+								{modelScopeSaving ? t("saving") : t("saveModelScope")}
+							</button>
+						</div>
+					) : managedProvider ? (
 						<div className="models-detail-form">
 							<div className="models-detail-heading">
 								<span>{managedProvider.name}</span>
@@ -342,32 +706,75 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									{managedProvider.credentialType === "oauth" ? "OAuth" : "API Key"}
 								</span>
 							</div>
-							<p className="models-managed-description">
-								该服务商已连接。断开后会移除本地保存的认证信息，不会删除模型配置。
-							</p>
-							<button
-								className="danger-button"
-								type="button"
-								onClick={() => {
-									setSaveError(undefined);
-									void logoutProvider(managedProvider.id).catch((error: unknown) =>
-										setSaveError(error instanceof Error ? error.message : String(error)),
-									);
-								}}
-							>
-								断开连接
-							</button>
+							<p className="models-managed-description">{t("connectedProviderDescription")}</p>
+							<div className="models-managed-actions">
+								{managedProvider.supportsApiKey && managedProvider.supportsOAuth ? (
+									<button
+										className="outline-button"
+										type="button"
+										onClick={() => setAuthProvider(managedProvider)}
+									>
+										{t("switchAuthMethod")}
+									</button>
+								) : null}
+								<button
+									className="outline-button"
+									type="button"
+									disabled={providerSetupInProgress || settingUpProvider}
+									onClick={() =>
+										onStartProviderSetup(
+											managedProvider.id,
+											managedProvider.credentialType === "oauth" ? "oauth" : "api_key",
+										)
+									}
+								>
+									{managedProvider.credentialType === "oauth" ? t("relogin") : t("updateApiKey")}
+								</button>
+								{confirmDisconnectProviderId === managedProvider.id ? (
+									<>
+										<button
+											className="danger-button"
+											type="button"
+											onClick={() => {
+												setSaveError(undefined);
+												void logoutProvider(managedProvider.id)
+													.catch((error: unknown) =>
+														setSaveError(error instanceof Error ? error.message : String(error)),
+													)
+													.finally(() => setConfirmDisconnectProviderId(undefined));
+											}}
+										>
+											{t("confirmDisconnect")}
+										</button>
+										<button
+											type="button"
+											className="outline-button"
+											onClick={() => setConfirmDisconnectProviderId(undefined)}
+										>
+											{t("cancel")}
+										</button>
+									</>
+								) : (
+									<button
+										className="danger-button"
+										type="button"
+										onClick={() => setConfirmDisconnectProviderId(managedProvider.id)}
+									>
+										{t("disconnect")}
+									</button>
+								)}
+							</div>
 						</div>
 					) : selectedProvider && selection?.type === "provider" ? (
 						<div className="models-detail-form">
 							<div className="models-detail-heading">
-								<span>服务商</span>
+								<span>{t("provider")}</span>
 								<button className="danger-text-button" type="button" onClick={removeProvider}>
-									删除
+									{t("delete")}
 								</button>
 							</div>
 							<label>
-								服务商名称
+								{t("providerName")}
 								<input
 									defaultValue={selectedProvider.id}
 									key={selectedProvider.id}
@@ -375,7 +782,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								/>
 							</label>
 							<label>
-								显示名称
+								{t("displayName")}
 								<input
 									value={selectedProvider.name ?? ""}
 									placeholder={selectedProvider.id}
@@ -404,21 +811,32 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</label>
 							<label>
 								API Key
-								<input
-									className="mono"
-									type="password"
-									value={selectedProvider.apiKey ?? ""}
-									placeholder="留空以保留已保存的密钥"
-									autoComplete="new-password"
-									onChange={(event) => {
-										updateProvider(selectedProvider.id, (provider) => ({
-											...provider,
-											apiKey: event.target.value || undefined,
-										}));
-										resetDiscovery();
-									}}
-								/>
-								<small>已保存的密钥不会显示。输入新值会替换它；留空会保留原值。</small>
+								<div className="models-secret-input">
+									<input
+										className="mono"
+										type={showProviderApiKey ? "text" : "password"}
+										value={selectedProvider.apiKey ?? ""}
+										placeholder={t("apiKeyPlaceholder")}
+										autoComplete="new-password"
+										onChange={(event) => {
+											updateProvider(selectedProvider.id, (provider) => ({
+												...provider,
+												apiKey: event.target.value || undefined,
+											}));
+											resetDiscovery();
+										}}
+									/>
+									<button
+										className="models-secret-toggle"
+										type="button"
+										aria-label={showProviderApiKey ? t("hideApiKey") : t("showApiKey")}
+										title={showProviderApiKey ? t("hideApiKey") : t("showApiKey")}
+										onClick={() => setShowProviderApiKey((visible) => !visible)}
+									>
+										{showProviderApiKey ? t("hide") : t("show")}
+									</button>
+								</div>
+								<small>{t("apiKeyHint")}</small>
 							</label>
 							<label>
 								API
@@ -444,7 +862,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 										disabled={!selectedProvider.baseUrl?.trim() || discovery.phase === "loading"}
 										onClick={() => void handleDiscover()}
 									>
-										{discovery.phase === "loading" ? "正在获取模型…" : "从服务商获取模型"}
+										{discovery.phase === "loading" ? t("fetchingModels") : t("fetchModelsFromProvider")}
 									</button>
 								) : null}
 								{discovery.phase === "error" ? <p className="sidebar-error">{discovery.message}</p> : null}
@@ -452,10 +870,19 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									<>
 										<input
 											value={discoveryQuery}
-											placeholder={`筛选 ${discovery.models.length} 个模型`}
+											placeholder={t("filterModelsCount", { count: discovery.models.length })}
 											onChange={(event) => setDiscoveryQuery(event.target.value)}
 										/>
 										<div className="discovery-results">
+											<label className="discovery-select-all">
+												<input
+													type="checkbox"
+													checked={allShownDiscoveredSelected}
+													disabled={selectableShownDiscovered.length === 0}
+													onChange={toggleShownDiscovered}
+												/>
+												{t("selectAllShown")}
+											</label>
 											{shownDiscovered.map((id) => {
 												const added = selectedProvider.models?.some((model) => model.id === id) ?? false;
 												return (
@@ -473,33 +900,35 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 															}
 														/>
 														<code>{id}</code>
-														{added ? <span>已添加</span> : null}
+														{added ? <span>{t("added")}</span> : null}
 													</label>
 												);
 											})}
 										</div>
 										<div className="discovery-footer">
-											<span>已获取 {discovery.models.length} 个模型</span>
+											<span>{t("fetchedModelsCount", { count: discovery.models.length })}</span>
 											<button
 												className="accent-button"
 												type="button"
 												disabled={selectedDiscovered.length === 0}
 												onClick={addDiscoveredModels}
 											>
-												添加选中项{selectedDiscovered.length ? ` (${selectedDiscovered.length})` : ""}
+												{selectedDiscovered.length
+													? t("addSelectedCount", { count: selectedDiscovered.length })
+													: t("addSelected")}
 											</button>
 										</div>
 									</>
 								) : null}
 							</div>
 							<button className="outline-button" type="button" onClick={addModel}>
-								＋ 手动添加模型
+								{t("addModelManually")}
 							</button>
 						</div>
 					) : selectedProvider && selectedModel ? (
 						<div className="models-detail-form">
 							<div className="models-detail-heading">
-								<span>模型</span>
+								<span>{t("models")}</span>
 								<div className="models-heading-actions">
 									<button
 										className="outline-button"
@@ -507,10 +936,10 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 										disabled={modelTest.phase === "loading" || !selectedModel.id.trim()}
 										onClick={() => void handleModelTest()}
 									>
-										{modelTest.phase === "loading" ? "测试中…" : "测试连接"}
+										{modelTest.phase === "loading" ? t("testing") : t("testConnection")}
 									</button>
 									<button className="danger-text-button" type="button" onClick={removeModel}>
-										移除
+										{t("remove")}
 									</button>
 								</div>
 							</div>
@@ -519,7 +948,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							) : null}
 							<div className="models-form-grid">
 								<label>
-									ID *
+									{t("idLabel")}
 									<input
 										className="mono"
 										value={selectedModel.id}
@@ -527,10 +956,10 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									/>
 								</label>
 								<label>
-									名称
+									{t("nameLabel")}
 									<input
 										value={selectedModel.name ?? ""}
-										placeholder="显示名称"
+										placeholder={t("displayNamePlaceholder")}
 										onChange={(event) =>
 											updateModel((model) => ({ ...model, name: event.target.value || undefined }))
 										}
@@ -538,14 +967,14 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								</label>
 							</div>
 							<label>
-								API 覆盖
+								{t("apiOverride")}
 								<select
 									value={selectedModel.api ?? ""}
 									onChange={(event) =>
 										updateModel((model) => ({ ...model, api: event.target.value || undefined }))
 									}
 								>
-									<option value="">默认</option>
+									<option value="">{t("default")}</option>
 									{API_OPTIONS.map((option) => (
 										<option key={option}>{option}</option>
 									))}
@@ -560,7 +989,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 											updateModel((model) => ({ ...model, reasoning: event.target.checked || undefined }))
 										}
 									/>
-									推理 / thinking
+									{t("reasoningLabel")}
 								</label>
 								<label>
 									<input
@@ -573,25 +1002,72 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 											}))
 										}
 									/>
-									图片输入
+									{t("imageInputLabel")}
 								</label>
+								{selectedModel.reasoning ? (
+									<label>
+										<input
+											type="checkbox"
+											checked={hasDeepSeekThinkingCompat(selectedModel)}
+											onChange={(event) =>
+												updateModel((model) => setDeepSeekThinkingCompat(model, event.target.checked))
+											}
+										/>
+										{t("deepseekCompatLabel")}
+									</label>
+								) : null}
 								<button
 									className="skill-version-button"
 									type="button"
 									disabled={catalogFill.state === "loading"}
 									onClick={() => void handleCatalogFill()}
 								>
-									{catalogFill.state === "loading" ? "查询中…" : "从目录填充"}
+									{catalogFill.state === "loading" ? t("querying") : t("fillFromCatalog")}
 								</button>
+								<a
+									className="models-catalog-source"
+									href="https://github.com/anomalyco/models.dev"
+									onClick={(event) => {
+										event.preventDefault();
+										void window.piDesktop.openExternalUrl("https://github.com/anomalyco/models.dev");
+									}}
+								>
+									{t("catalogSource")}
+								</a>
+								{catalogUndo ? (
+									<button className="skill-version-button" type="button" onClick={undoCatalogFill}>
+										{t("undoFill")}
+									</button>
+								) : null}
 							</div>
 							{catalogFill.state === "success" ? (
-								<p className="model-test-result is-success">已从 models.dev 填充空缺字段。</p>
+								<p className="model-test-result is-success">{t("catalogFilled")}</p>
 							) : catalogFill.state === "error" ? (
 								<p className="model-test-result is-error">{catalogFill.message}</p>
 							) : null}
+							{selectedModel.reasoning ? (
+								<div className="models-thinking-map-section">
+									<div className="models-field-title models-thinking-map-heading">
+										<span>Thinking level map</span>
+										{selectedModel.thinkingLevelMap ? (
+											<button
+												className="skill-version-button"
+												type="button"
+												onClick={() => updateModel((model) => ({ ...model, thinkingLevelMap: undefined }))}
+											>
+												{t("clear")}
+											</button>
+										) : null}
+									</div>
+									<ThinkingLevelMapEditor
+										value={selectedModel.thinkingLevelMap}
+										onChange={(value) => updateModel((model) => ({ ...model, thinkingLevelMap: value }))}
+									/>
+								</div>
+							) : null}
 							<div className="models-form-grid">
 								<label>
-									上下文窗口（tokens）
+									{t("contextWindowLabel")}
 									<input
 										type="number"
 										value={selectedModel.contextWindow ?? ""}
@@ -605,7 +1081,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									/>
 								</label>
 								<label>
-									最大输出 tokens
+									{t("maxTokensLabel")}
 									<input
 										type="number"
 										value={selectedModel.maxTokens ?? ""}
@@ -620,7 +1096,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								</label>
 							</div>
 							<div>
-								<p className="models-field-title">费用（每百万 tokens）</p>
+								<p className="models-field-title">{t("costLabel")}</p>
 								<div className="models-cost-grid">
 									{COST_FIELDS.map((field) => (
 										<label key={field}>
@@ -644,44 +1120,152 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 						</div>
 					) : (
 						<div className="models-empty-detail">
-							<strong>配置模型服务商</strong>
-							<p>添加服务商，然后配置连接信息和模型。</p>
+							<strong>{t("setupProvidersTitle")}</strong>
+							<p>{t("setupProvidersHint")}</p>
 							<button className="accent-button" type="button" onClick={addProvider}>
-								添加服务商
+								{t("addProvider")}
 							</button>
 						</div>
 					)}
 				</section>
 			</div>
+			{providerSetupInProgress || settingUpProvider ? (
+				<div className="models-auth-overlay">
+					<div
+						className="models-auth-panel"
+						role="dialog"
+						aria-modal="true"
+						aria-label={t("connectProviderTitle")}
+					>
+						<div className="models-auth-heading">
+							<strong>{t("connectProviderTitle")}</strong>
+							<span>{t("connectProviderHint")}</span>
+						</div>
+						{authenticationPrompt ? (
+							<form
+								className="models-auth-prompt"
+								onSubmit={(event) => {
+									event.preventDefault();
+									void onSubmitAuthentication(authenticationPrompt.id, authenticationResponse);
+								}}
+							>
+								{authenticationNotice ? <p>{authenticationNotice}</p> : null}
+								{authenticationUserCode ? (
+									<AuthenticationDeviceCode
+										code={authenticationUserCode}
+										expiresAt={authenticationExpiresAt}
+									/>
+								) : null}
+								{authenticationUrl ? (
+									<button
+										className="models-auth-link"
+										type="button"
+										onClick={() => void openExternalUrl(authenticationUrl)}
+									>
+										{t("openAuthPage")}
+									</button>
+								) : null}
+								<p>{authenticationPrompt.message}</p>
+								{authenticationPrompt.type === "select" ? (
+									<select
+										disabled={authenticationResolving}
+										value={authenticationResponse}
+										onChange={(event) => onChangeAuthenticationResponse(event.target.value)}
+									>
+										{authenticationPrompt.options?.map((option) => (
+											<option key={option.id} value={option.id}>
+												{option.label}
+											</option>
+										))}
+									</select>
+								) : (
+									<input
+										disabled={authenticationResolving}
+										placeholder={authenticationPrompt.placeholder}
+										type={authenticationPrompt.type === "secret" ? "password" : "text"}
+										value={authenticationResponse}
+										onChange={(event) => onChangeAuthenticationResponse(event.target.value)}
+									/>
+								)}
+								<button className="accent-button" type="submit" disabled={authenticationResolving}>
+									{authenticationResolving ? t("processingDots") : t("continue")}
+								</button>
+							</form>
+						) : (
+							<div className="models-auth-waiting">
+								{authenticationNotice ? <p>{authenticationNotice}</p> : <p>{t("waitingForProvider")}</p>}
+								{authenticationUserCode ? (
+									<AuthenticationDeviceCode
+										code={authenticationUserCode}
+										expiresAt={authenticationExpiresAt}
+									/>
+								) : null}
+								{authenticationUrl ? (
+									<button
+										className="models-auth-link"
+										type="button"
+										onClick={() => void openExternalUrl(authenticationUrl)}
+									>
+										{t("openAuthPage")}
+									</button>
+								) : null}
+							</div>
+						)}
+						<button className="outline-button" type="button" onClick={onCancelProviderSetup}>
+							{t("cancelConnect")}
+						</button>
+					</div>
+				</div>
+			) : null}
 
 			<footer className="models-footer">
 				{saveError ? (
 					<span className="sidebar-error">{saveError}</span>
 				) : (
-					<span>{hasChanges ? "有未保存的更改" : "配置已保存"}</span>
+					<span>{hasChanges ? t("unsavedChanges") : t("configSaved")}</span>
 				)}
-				<button className="outline-button" type="button" onClick={requestClose}>
-					取消
+				<button
+					className="outline-button"
+					type="button"
+					disabled={providerSetupInProgress || settingUpProvider}
+					onClick={requestClose}
+				>
+					{t("cancel")}
 				</button>
 				<button
 					className="accent-button"
 					type="button"
-					disabled={!hasChanges || saving}
+					disabled={!hasChanges || saving || providerSetupInProgress || settingUpProvider}
 					onClick={() => void handleSave()}
 				>
-					{saving ? "保存中…" : "保存更改"}
+					{saving ? t("saving") : t("saveChanges")}
 				</button>
 			</footer>
 			{providerPickerOpen ? (
 				// biome-ignore lint/a11y/noStaticElementInteractions: 点击遮罩关闭嵌套对话框
 				<div
 					className="models-nested-backdrop"
+					onKeyDown={(event) => {
+						if (event.key === "Escape") {
+							event.preventDefault();
+							event.stopPropagation();
+							setProviderPickerOpen(false);
+						}
+					}}
+					tabIndex={-1}
 					onMouseDown={(event) => {
 						if (event.target === event.currentTarget) setProviderPickerOpen(false);
 					}}
 				>
-					<div className="models-provider-picker" role="dialog" aria-modal="true" aria-label="添加服务商">
-						<div className="models-provider-picker-search">添加服务商</div>
+					<div className="models-provider-picker" role="dialog" aria-modal="true" aria-label={t("addProvider")}>
+						<div className="models-provider-picker-search">{t("addProvider")}</div>
+						<input
+							className="models-provider-picker-input"
+							ref={providerPickerInputRef}
+							value={providerPickerQuery}
+							placeholder={t("filterProviders")}
+							onChange={(event) => setProviderPickerQuery(event.target.value)}
+						/>
 						<div className="models-provider-picker-grid">
 							<button
 								type="button"
@@ -691,41 +1275,83 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								}}
 							>
 								<span>
-									<strong>OpenAI / Anthropic compatible</strong>
-									<small>自定义端点</small>
+									<strong>{t("customEndpointTitle")}</strong>
+									<small>{t("customEndpointSubtitle")}</small>
 								</span>
 								<b>＋</b>
 							</button>
-							{providers.map((provider) => (
-								<button
-									key={provider.id}
-									type="button"
-									disabled={settingUpProvider || providerSetupInProgress}
-									onClick={() => {
-										onChangeProvider(provider.id);
-										setProviderPickerOpen(false);
-										requestProviderSetup(provider);
-									}}
-								>
-									<span>
-										<strong>{provider.name}</strong>
-										<small>API Key / OAuth</small>
-									</span>
-									<b>{provider.name.slice(0, 1).toUpperCase()}</b>
-								</button>
-							))}
+							{providers
+								.filter((provider) => {
+									if (provider.configured) return false;
+									const query = providerPickerQuery.trim().toLocaleLowerCase();
+									return (
+										!query ||
+										provider.name.toLocaleLowerCase().includes(query) ||
+										provider.id.toLocaleLowerCase().includes(query)
+									);
+								})
+								.map((provider) => (
+									<button
+										key={provider.id}
+										type="button"
+										disabled={settingUpProvider || providerSetupInProgress}
+										onClick={() => {
+											onChangeProvider(provider.id);
+											setProviderPickerOpen(false);
+											setSelection({ type: "managed", providerId: provider.id });
+											if (!provider.configured) requestProviderSetup(provider);
+										}}
+									>
+										<span>
+											<strong>{provider.name}</strong>
+											<small>
+												{provider.supportsApiKey && provider.supportsOAuth
+													? "API Key / OAuth"
+													: provider.supportsOAuth
+														? (provider.oauthName ?? "OAuth")
+														: "API Key"}
+											</small>
+										</span>
+										<ProviderMark providerId={provider.id} name={provider.name} />
+									</button>
+								))}
 						</div>
 					</div>
 				</div>
 			) : null}
 			{authProvider ? (
-				<div className="models-nested-backdrop">
-					<div className="models-discard-dialog" role="dialog" aria-modal="true" aria-label="选择认证方式">
-						<strong>连接 {authProvider.name}</strong>
-						<p>选择用于该服务商的认证方式。</p>
+				// biome-ignore lint/a11y/noStaticElementInteractions: nested dialog captures Escape
+				<div
+					className="models-nested-backdrop"
+					onKeyDown={(event) => {
+						if (event.key === "Escape") {
+							event.preventDefault();
+							event.stopPropagation();
+							setAuthProvider(undefined);
+						}
+					}}
+					tabIndex={-1}
+					onMouseDown={(event) => {
+						if (event.target === event.currentTarget) setAuthProvider(undefined);
+					}}
+				>
+					<div
+						className="models-discard-dialog"
+						role="dialog"
+						aria-modal="true"
+						aria-label={t("chooseAuthMethodAria")}
+					>
+						<strong>{t("connectAuthTitle", { name: authProvider.name })}</strong>
+						<p>{t("chooseAuthMethod")}</p>
 						<div>
-							<button className="outline-button" type="button" onClick={() => setAuthProvider(undefined)}>
-								取消
+							<button
+								// biome-ignore lint/a11y/noAutofocus: 嵌套认证对话框打开后应立即聚焦可取消操作
+								autoFocus
+								className="outline-button"
+								type="button"
+								onClick={() => setAuthProvider(undefined)}
+							>
+								{t("cancel")}
 							</button>
 							<button
 								className="outline-button"
@@ -757,19 +1383,33 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 				// biome-ignore lint/a11y/noStaticElementInteractions: 点击遮罩关闭确认框
 				<div
 					className="models-nested-backdrop"
+					onKeyDown={(event) => {
+						if (event.key === "Escape") {
+							event.preventDefault();
+							event.stopPropagation();
+							setConfirmDiscard(false);
+						}
+					}}
+					tabIndex={-1}
 					onMouseDown={(event) => {
 						if (event.target === event.currentTarget) setConfirmDiscard(false);
 					}}
 				>
 					<div className="models-discard-dialog" role="alertdialog" aria-modal="true">
-						<strong>放弃未保存的更改？</strong>
-						<p>关闭后，本次模型配置修改不会保存。</p>
+						<strong>{t("discardChangesTitle")}</strong>
+						<p>{t("discardChangesHint")}</p>
 						<div>
-							<button className="outline-button" type="button" onClick={() => setConfirmDiscard(false)}>
-								继续编辑
+							<button
+								// biome-ignore lint/a11y/noAutofocus: 确认弹窗打开后先聚焦安全的继续编辑操作
+								autoFocus
+								className="outline-button"
+								type="button"
+								onClick={() => setConfirmDiscard(false)}
+							>
+								{t("keepEditing")}
 							</button>
 							<button className="danger-button" type="button" onClick={onClose}>
-								放弃更改
+								{t("discardChanges")}
 							</button>
 						</div>
 					</div>

@@ -1,6 +1,7 @@
 import { memo, useEffect, useState } from "react";
 import type { DesktopUpdateInfo } from "../shared/contracts.ts";
 import { checkForUpdates, openExternalUrl } from "./desktop-store.ts";
+import { useI18n } from "./i18n.ts";
 
 const SNOOZE_KEY = "pi-desktop-update-snooze";
 const SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -18,6 +19,7 @@ function isSnoozed(signature: string): boolean {
 }
 
 export const UpdateReminder = memo(function UpdateReminder({ onOpenSettings }: { onOpenSettings: () => void }) {
+	const { t } = useI18n();
 	const [update, setUpdate] = useState<DesktopUpdateInfo>();
 	const [dismissed, setDismissed] = useState(false);
 
@@ -40,17 +42,15 @@ export const UpdateReminder = memo(function UpdateReminder({ onOpenSettings }: {
 	if (isSnoozed(signature)) return null;
 
 	return (
-		<aside className="update-reminder" aria-label="应用更新">
-			<strong>有新版本可用</strong>
-			<p>
-				当前 v{update.currentVersion}，最新 v{update.latestVersion}。
-			</p>
+		<aside className="update-reminder" aria-label={t("appUpdate")}>
+			<strong>{t("newVersionAvailable")}</strong>
+			<p>{t("updateAvailableDetail", { current: update.currentVersion, latest: update.latestVersion })}</p>
 			<div className="update-reminder-actions">
 				<button className="quiet-button" type="button" onClick={onOpenSettings}>
-					打开设置
+					{t("openSettings")}
 				</button>
 				<button className="outline-button" type="button" onClick={() => void openExternalUrl(update.releaseUrl)}>
-					查看版本
+					{t("viewRelease")}
 				</button>
 				<button
 					className="quiet-button"
@@ -60,7 +60,7 @@ export const UpdateReminder = memo(function UpdateReminder({ onOpenSettings }: {
 						setDismissed(true);
 					}}
 				>
-					稍后提醒
+					{t("remindLater")}
 				</button>
 			</div>
 		</aside>

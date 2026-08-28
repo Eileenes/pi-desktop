@@ -1,5 +1,6 @@
 import { memo, useEffect, useState } from "react";
 import type { DesktopExtensionDialog } from "../shared/contracts.ts";
+import { useI18n } from "./i18n.ts";
 
 interface ExtensionDialogProps {
 	dialog: DesktopExtensionDialog;
@@ -8,6 +9,7 @@ interface ExtensionDialogProps {
 }
 
 export const ExtensionDialog = memo(function ExtensionDialog({ dialog, busy, onRespond }: ExtensionDialogProps) {
+	const { t } = useI18n();
 	const [value, setValue] = useState("");
 	const dialogId = dialog.id;
 
@@ -88,7 +90,7 @@ export const ExtensionDialog = memo(function ExtensionDialog({ dialog, busy, onR
 									disabled={busy}
 									onClick={() => submit("cancel")}
 								>
-									取消
+									{t("cancel")}
 								</button>
 								<button
 									className="accent-button"
@@ -96,13 +98,13 @@ export const ExtensionDialog = memo(function ExtensionDialog({ dialog, busy, onR
 									disabled={busy}
 									onClick={() => submit("confirm")}
 								>
-									确认
+									{t("confirm")}
 								</button>
 							</>
 						) : (
 							<>
 								<button className="outline-button" type="button" disabled={busy} onClick={() => submit("")}>
-									取消
+									{t("cancel")}
 								</button>
 								<button
 									className="accent-button"
@@ -110,7 +112,7 @@ export const ExtensionDialog = memo(function ExtensionDialog({ dialog, busy, onR
 									disabled={busy || !value.trim()}
 									onClick={() => submit(value)}
 								>
-									确定
+									{t("ok")}
 								</button>
 							</>
 						)}

@@ -1,6 +1,6 @@
 {
 	"name": "pi-desktop",
-	"version": "0.84.3",
+	"version": "0.84.4",
 	"private": true,
 	"description": "An independent Electron desktop client for Pi.",
 	"author": "Earendil Works",

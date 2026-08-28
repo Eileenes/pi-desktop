@@ -99,13 +99,13 @@ describe("TrustedWorkspaceBrowser", () => {
 	it("renders DOCX paragraphs without executing document content", async () => {
 		const { workspacePath } = await createWorkspace();
 		const documentXml =
-			'<?xml version="1.0"?><w:document><w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p><w:p><w:r><w:t>World</w:t></w:r></w:p></w:body></w:document>';
+			'<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p><w:p><w:r><w:t>World</w:t></w:r></w:p></w:body></w:document>';
 		await writeFile(join(workspacePath, "sample.docx"), createStoredZip("word/document.xml", documentXml));
 
 		await expect(new TrustedWorkspaceBrowser(workspacePath).read("sample.docx")).resolves.toMatchObject({
 			path: "sample.docx",
 			content: "",
-			docxHtml: '<article class="docx-preview"><p>Hello</p>\n<p>World</p></article>',
+			docxHtml: "<p>Hello</p><p>World</p>",
 		});
 	});
 

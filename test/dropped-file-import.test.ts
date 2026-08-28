@@ -26,7 +26,9 @@ describe("importDroppedFiles", () => {
 	it("copies a new file into the workspace root", async () => {
 		const { sourcePath, workspacePath } = await createFixture();
 
-		await expect(importDroppedFiles(workspacePath, [sourcePath])).resolves.toEqual([{ name: "example.txt" }]);
+		await expect(importDroppedFiles(workspacePath, [sourcePath])).resolves.toEqual([
+			{ name: "example.txt", path: "example.txt" },
+		]);
 		await expect(readFile(join(workspacePath, "example.txt"), "utf8")).resolves.toBe("incoming\n");
 	});
 
@@ -44,7 +46,9 @@ describe("importDroppedFiles", () => {
 		const { sourcePath, workspacePath } = await createFixture();
 		await writeFile(join(workspacePath, "example.txt"), "existing\n");
 
-		await expect(importDroppedFiles(workspacePath, [sourcePath], true)).resolves.toEqual([{ name: "example.txt" }]);
+		await expect(importDroppedFiles(workspacePath, [sourcePath], true)).resolves.toEqual([
+			{ name: "example.txt", path: "example.txt" },
+		]);
 		await expect(readFile(join(workspacePath, "example.txt"), "utf8")).resolves.toBe("incoming\n");
 	});
 });

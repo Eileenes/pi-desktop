@@ -45,6 +45,7 @@ import type {
 	DesktopSkillSearchResult,
 	DesktopSkillUpdateResult,
 	DesktopSnapshot,
+	DesktopToolPreset,
 	DesktopTranscriptBlock,
 	DesktopTranscriptMessage,
 	DesktopWorkspaceChange,
@@ -490,6 +491,7 @@ export class DesktopAgentHost {
 			...(model === undefined ? {} : { model: { provider: model.provider, id: model.id } }),
 			thinkingLevel: this.session.thinkingLevel,
 			availableThinkingLevels: this.session.getAvailableThinkingLevels(),
+			activeToolNames: this.session.getActiveToolNames(),
 			isCompacting: this.session.isCompacting,
 			systemPrompt: this.session.systemPrompt,
 			...(this.autoRetryState ? { autoRetry: this.autoRetryState } : {}),
@@ -597,6 +599,13 @@ export class DesktopAgentHost {
 		return this.enqueueWorkspaceChange(() => this.openWorkspaceInternal(cwd));
 	}
 
+	async openDefaultWorkspace(): Promise<DesktopSnapshot> {
+		const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+		const cwd = join(homedir(), `pi-cwd-${date}`);
+		await mkdir(cwd, { recursive: true });
+		return this.openWorkspace(cwd);
+	}
+
 	private async openWorkspaceInternal(cwd: string): Promise<DesktopSnapshot> {
 		try {
 			const projectTrusted = await this.trustStore.isTrusted(cwd);
@@ -682,7 +691,7 @@ export class DesktopAgentHost {
 			agentDir: this.agentDir,
 			modelRuntime,
 			...(modelScope.scopedModels.length ? { scopedModels: modelScope.scopedModels } : {}),
-			...(options.projectTrusted ? { tools: [...DESKTOP_TOOL_NAMES] } : { noTools: "all" }),
+			...(options.projectTrusted ? { tools: ["read", "bash", "edit", "write"] } : { noTools: "all" }),
 			resourceLoader,
 			settingsManager,
 			sessionManager,
@@ -980,6 +989,18 @@ export class DesktopAgentHost {
 		return this.publish();
 	}
 
+	async clearQueue(): Promise<DesktopSnapshot> {
+		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
+		this.session.clearQueue();
+		return this.publish();
+	}
+
+	getActiveSessionFile(): string {
+		const sessionFile = this.session?.sessionManager.getSessionFile();
+		if (!sessionFile) throw new Error("没有可导出的会话。");
+		return sessionFile;
+	}
+
 	async openSession(sessionPath: string): Promise<DesktopSnapshot> {
 		if (this.providerSetupInProgress) {
 			throw new Error("请先完成当前模型服务商配置，再切换会话。");
@@ -1130,6 +1151,16 @@ export class DesktopAgentHost {
 		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
 		if (this.session.isStreaming) throw new Error("请等待当前智能体任务完成后，再调整思考级别。");
 		if (level !== "auto") this.session.setThinkingLevel(level as Exclude<typeof level, "auto">, { persist: true });
+		return this.publish();
+	}
+
+	async setToolPreset(preset: DesktopToolPreset): Promise<DesktopSnapshot> {
+		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
+		if (this.session.isStreaming) throw new Error("请等待当前智能体任务完成后，再调整工具预设。");
+		if (!this.projectTrusted) throw new Error("请先信任项目后再启用工具。");
+		const toolNames =
+			preset === "none" ? [] : preset === "default" ? ["read", "bash", "edit", "write"] : [...DESKTOP_TOOL_NAMES];
+		this.session.setActiveToolsByName(toolNames);
 		return this.publish();
 	}
 

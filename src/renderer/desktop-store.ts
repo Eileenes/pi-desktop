@@ -98,6 +98,12 @@ export async function chooseWorkspace(): Promise<DesktopSnapshot> {
 	return next;
 }
 
+export async function openDefaultWorkspace(): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.openDefaultWorkspace();
+	publish(next);
+	return next;
+}
+
 export function browseDirectories(path?: string): Promise<DesktopDirectoryListing> {
 	return window.piDesktop.browseDirectories(path);
 }
@@ -150,6 +156,12 @@ export async function submitPrompt(
 
 export async function abortSession(): Promise<DesktopSnapshot> {
 	const next = await window.piDesktop.abort();
+	publish(next);
+	return next;
+}
+
+export async function clearSessionQueue(): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.clearQueue();
 	publish(next);
 	return next;
 }
@@ -242,6 +254,12 @@ export async function setThinkingLevel(
 	level: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
 ): Promise<DesktopSnapshot> {
 	const next = await window.piDesktop.setThinkingLevel(level);
+	publish(next);
+	return next;
+}
+
+export async function setToolPreset(preset: "none" | "default" | "full"): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.setToolPreset(preset);
 	publish(next);
 	return next;
 }
@@ -356,6 +374,18 @@ export function setCloseQuits(closeQuits: boolean): Promise<void> {
 
 export function quitApp(): Promise<void> {
 	return window.piDesktop.quitApp();
+}
+
+export function minimizeWindow(): Promise<void> {
+	return window.piDesktop.minimizeWindow();
+}
+
+export function toggleWindowMaximize(): Promise<boolean> {
+	return window.piDesktop.toggleWindowMaximize();
+}
+
+export function closeWindow(): Promise<void> {
+	return window.piDesktop.closeWindow();
 }
 
 export function openExternalUrl(url: string): Promise<void> {

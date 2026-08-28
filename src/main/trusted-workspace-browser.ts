@@ -1,7 +1,7 @@
 import { lstat, readdir, readFile, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { inflateRawSync } from "node:zlib";
 import { shell } from "electron";
+import mammoth from "mammoth";
 import type {
 	DesktopWorkspaceDirectoryListing,
 	DesktopWorkspaceEntry,
@@ -67,71 +67,6 @@ function isIgnoredPath(path: string): boolean {
 
 function toWorkspacePath(path: string): string {
 	return path.replaceAll("\\", "/");
-}
-
-function escapeHtml(value: string): string {
-	return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-}
-
-function readZipEntry(archive: Buffer, targetName: string): Buffer | undefined {
-	const eocdSignature = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
-	const eocdOffset = archive.lastIndexOf(eocdSignature);
-	if (eocdOffset < 0 || eocdOffset + 22 > archive.length) return undefined;
-	const entryCount = archive.readUInt16LE(eocdOffset + 10);
-	const centralDirectoryOffset = archive.readUInt32LE(eocdOffset + 16);
-	let cursor = centralDirectoryOffset;
-	for (let index = 0; index < entryCount && cursor + 46 <= archive.length; index += 1) {
-		if (archive.readUInt32LE(cursor) !== 0x02014b50) break;
-		const compression = archive.readUInt16LE(cursor + 10);
-		const compressedSize = archive.readUInt32LE(cursor + 20);
-		const uncompressedSize = archive.readUInt32LE(cursor + 24);
-		const nameLength = archive.readUInt16LE(cursor + 28);
-		const extraLength = archive.readUInt16LE(cursor + 30);
-		const commentLength = archive.readUInt16LE(cursor + 32);
-		const localHeaderOffset = archive.readUInt32LE(cursor + 42);
-		const name = archive.subarray(cursor + 46, cursor + 46 + nameLength).toString("utf8");
-		if (name === targetName) {
-			if (uncompressedSize > DOCX_MAX_BYTES || localHeaderOffset + 30 > archive.length) return undefined;
-			if (archive.readUInt32LE(localHeaderOffset) !== 0x04034b50) return undefined;
-			const localNameLength = archive.readUInt16LE(localHeaderOffset + 26);
-			const localExtraLength = archive.readUInt16LE(localHeaderOffset + 28);
-			const dataStart = localHeaderOffset + 30 + localNameLength + localExtraLength;
-			const dataEnd = dataStart + compressedSize;
-			if (dataStart < 0 || dataEnd > archive.length) return undefined;
-			const compressed = archive.subarray(dataStart, dataEnd);
-			if (compression === 0) return Buffer.from(compressed);
-			if (compression === 8) {
-				try {
-					return inflateRawSync(compressed, { maxOutputLength: DOCX_MAX_BYTES });
-				} catch {
-					return undefined;
-				}
-			}
-			return undefined;
-		}
-		cursor += 46 + nameLength + extraLength + commentLength;
-	}
-	return undefined;
-}
-
-function docxToHtml(documentXml: Buffer): string {
-	const xml = documentXml.toString("utf8");
-	const paragraphs: string[] = [];
-	for (const paragraph of xml.matchAll(/<w:p(?:\s[^>]*)?>([\s\S]*?)<\/w:p>/gu)) {
-		const body = paragraph[1] ?? "";
-		const text = [...body.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/gu)]
-			.map((match) => match[1] ?? "")
-			.join("")
-			.replaceAll(/<w:tab\s*\/?>/gu, "\t")
-			.replaceAll(/<w:br\s*\/?>/gu, "\n")
-			.replaceAll(/&amp;/gu, "&")
-			.replaceAll(/&lt;/gu, "<")
-			.replaceAll(/&gt;/gu, ">")
-			.replaceAll(/&quot;/gu, '"')
-			.replaceAll(/&apos;/gu, "'");
-		paragraphs.push(`<p>${escapeHtml(text).replaceAll("\n", "<br>") || "<br>"}</p>`);
-	}
-	return `<article class="docx-preview">${paragraphs.join("\n") || "<p>（DOCX 中没有可显示的文字。）</p>"}</article>`;
 }
 
 export class TrustedWorkspaceBrowser {
@@ -300,12 +235,18 @@ export class TrustedWorkspaceBrowser {
 			const fileStats = await lstat(resolvedFilePath);
 			if (fileStats.size > DOCX_MAX_BYTES) throw new Error("该 DOCX 超过了 10 MB 的预览上限。");
 			const docxContent = await readFile(resolvedFilePath);
-			const documentXml = readZipEntry(docxContent, "word/document.xml");
-			if (!documentXml) throw new Error("该 DOCX 文件无法读取文档内容。");
+			const converted = await mammoth.convertToHtml(
+				{ buffer: docxContent },
+				{
+					convertImage: mammoth.images.imgElement(async (image) => ({
+						src: `data:${image.contentType};base64,${await image.read("base64")}`,
+					})),
+				},
+			);
 			return {
 				path: toWorkspacePath(relative(workspacePath, resolvedFilePath)),
 				content: "",
-				docxHtml: docxToHtml(documentXml),
+				docxHtml: converted.value || "<p>（DOCX 中没有可显示的文字。）</p>",
 				binaryDataUrl: `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${docxContent.toString("base64")}`,
 			};
 		}

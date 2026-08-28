@@ -199,7 +199,7 @@ textarea:focus-visible {
 	height: 100dvh;
 	min-height: 0;
 	overflow: hidden;
-	background: var(--surface-recessed);
+	background: var(--sidebar-bg);
 }
 
 .column-resizer {

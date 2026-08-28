@@ -3967,69 +3967,71 @@ export function App() {
 												{!runningCount && !unreadCount ? <span>{items.length}</span> : null}
 											</span>
 										</button>
-										<button
-											className="sidebar-project-tree-action"
-											type="button"
-											aria-label={t("newSessionAria")}
-											onClick={() => void handleNewSessionForProject(root)}
-										>
-											<Icon name="plus" size={13} />
-										</button>
-										<div className="sidebar-project-more-wrap project-menu-root">
+										<div className="sidebar-project-tree-row-actions">
 											<button
 												className="sidebar-project-tree-action"
 												type="button"
-												aria-label={t("projectActions")}
-												aria-expanded={projectRowMenuOpen === root}
-												onClick={() =>
-													setProjectRowMenuOpen((current) => (current === root ? undefined : root))
-												}
+												aria-label={t("newSessionAria")}
+												onClick={() => void handleNewSessionForProject(root)}
 											>
-												<Icon name="more" size={13} />
+												<Icon name="plus" size={13} />
 											</button>
-											{projectRowMenuOpen === root ? (
-												<div className="session-more-menu" role="menu">
-													<button
-														type="button"
-														onClick={() => {
-															setProjectRowMenuOpen(undefined);
-															void handleNewSessionForProject(root);
-														}}
-													>
-														{t("newChat")}
-													</button>
-													<button
-														type="button"
-														onClick={() => {
-															setProjectRowMenuOpen(undefined);
-															void handleRevealFile(root);
-														}}
-													>
-														{t("revealInFinder")}
-													</button>
-													{root !== snapshot.workspacePath &&
-													gitWorktrees.some((tree) => tree.path === root) ? (
+											<div className="sidebar-project-more-wrap project-menu-root">
+												<button
+													className="sidebar-project-tree-action sidebar-project-tree-more"
+													type="button"
+													aria-label={t("projectActions")}
+													aria-expanded={projectRowMenuOpen === root}
+													onClick={() =>
+														setProjectRowMenuOpen((current) => (current === root ? undefined : root))
+													}
+												>
+													<Icon name="more" size={13} />
+												</button>
+												{projectRowMenuOpen === root ? (
+													<div className="session-more-menu" role="menu">
 														<button
 															type="button"
 															onClick={() => {
 																setProjectRowMenuOpen(undefined);
-																void handleSwitchWorkspacePath(root);
+																void handleNewSessionForProject(root);
 															}}
 														>
-															{t("switchToWorktree")}
+															{t("newChat")}
 														</button>
-													) : null}
-													<button
-														type="button"
-														onClick={() => {
-															setProjectRowMenuOpen(undefined);
-															setArchivedProjectRoots((current) => new Set(current).add(root));
-														}}
-													>
-														{t("archiveProject")}
-													</button>
-												</div>
-											) : null}
+														<button
+															type="button"
+															onClick={() => {
+																setProjectRowMenuOpen(undefined);
+																void handleRevealFile(root);
+															}}
+														>
+															{t("revealInFinder")}
+														</button>
+														{root !== snapshot.workspacePath &&
+														gitWorktrees.some((tree) => tree.path === root) ? (
+															<button
+																type="button"
+																onClick={() => {
+																	setProjectRowMenuOpen(undefined);
+																	void handleSwitchWorkspacePath(root);
+																}}
+															>
+																{t("switchToWorktree")}
+															</button>
+														) : null}
+														<button
+															type="button"
+															onClick={() => {
+																setProjectRowMenuOpen(undefined);
+																setArchivedProjectRoots((current) => new Set(current).add(root));
+															}}
+														>
+															{t("archiveProject")}
+														</button>
+													</div>
+												) : null}
+											</div>
 										</div>
 									</div>
 									{!collapsed ? (
@@ -4864,9 +4866,14 @@ export function App() {
 						</output>
 					) : null}
 					{!session?.messages.length ? (
-						<div className="start-task-copy">
-							<strong>{snapshot.workspacePath ? "Start a task" : "Get started"}</strong>
-							{!snapshot.workspacePath ? <span>{t("startHint")}</span> : null}
+						<div
+							className="start-task-copy"
+							role="img"
+							aria-label={snapshot.workspacePath ? t("newSession") : t("startHint")}
+						>
+							<span className="start-task-icon">
+								<Icon name={snapshot.workspacePath ? "chat" : "sparkles"} size={24} />
+							</span>
 						</div>
 					) : null}
 					<ExtensionWidgetStack

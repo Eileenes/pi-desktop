@@ -24,8 +24,8 @@ interface AppSettingsModalProps {
 }
 
 const PRODUCT_NAME = "Pi Agent";
-const REPOSITORY = "abcwyc/pi-agent-desktop";
-const RELEASES_URL = "https://github.com/abcwyc/pi-agent-desktop/releases";
+const REPOSITORY = "Eileenes/pi-desktop";
+const RELEASES_URL = "https://github.com/Eileenes/pi-desktop/releases";
 
 function formatAssetSize(sizeBytes: number): string {
 	if (sizeBytes <= 0) return "";

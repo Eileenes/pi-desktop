@@ -6,6 +6,7 @@ import type {
 	DesktopGitChange,
 	DesktopGitWorktree,
 	DesktopImageAttachment,
+	DesktopImportedFileResult,
 	DesktopSessionInfo,
 	DesktopSessionPhase,
 	DesktopToolApproval,
@@ -25,6 +26,9 @@ import {
 	autoNameSession,
 	cancelProviderSetup,
 	chooseImages,
+	chooseWorkspace,
+	clearSessionQueue,
+	closeWindow,
 	compactSession,
 	copyLastAnswer,
 	decideToolApproval,
@@ -40,11 +44,13 @@ import {
 	listGitChanges,
 	listGitWorktrees,
 	listWorkspaceDirectory,
+	minimizeWindow,
 	navigateTree,
 	newSession,
 	notifyComplete,
 	onExtensionUi,
 	onWorkspaceChanged,
+	openDefaultWorkspace,
 	openSession,
 	openWorkspaceFile,
 	openWorkspacePath,
@@ -68,8 +74,9 @@ import {
 	startProviderSetup,
 	submitPrompt,
 	subscribeDesktopSnapshot,
+	toggleWindowMaximize,
+	setToolPreset as updateToolPreset,
 } from "./desktop-store.ts";
-import { DirectoryPicker } from "./directory-picker.tsx";
 import { ExtensionCustomPanel, ExtensionWidgetStack } from "./extension-custom-panel.tsx";
 import { ExtensionDialog } from "./extension-dialog.tsx";
 import { type I18n, useI18n } from "./i18n.ts";
@@ -80,7 +87,6 @@ import { ProjectTrustDialog } from "./project-trust-dialog.tsx";
 import { forgetScrollPosition, readScrollPosition, writeScrollPosition } from "./scroll-memory.ts";
 import { ContextUsageRing, SessionStatsPanel } from "./session-stats.tsx";
 import { SkillsConfigModal } from "./skills-config-modal.tsx";
-import { SourceControl } from "./source-control.tsx";
 import { getLanguageForPath, HighlightedCode } from "./syntax-highlight.tsx";
 import { buildConversationTurns, partitionTranscript } from "./transcript-group.ts";
 import { UpdateReminder } from "./update-reminder.tsx";
@@ -859,6 +865,67 @@ const UserMessageBody = memo(function UserMessageBody({
 	);
 });
 
+function parseCompactionSummary(summary: string): { body: string; readFiles: string[]; modifiedFiles: string[] } {
+	const readFiles: string[] = [];
+	const modifiedFiles: string[] = [];
+	const sections = /<(read-files|modified-files)>\s*([\s\S]*?)\s*<\/\1>/gu;
+	let body = summary;
+	for (const match of summary.matchAll(sections)) {
+		const files = match[2]
+			.split(/\r?\n/u)
+			.map((line) => line.trim())
+			.filter(Boolean);
+		if (match[1] === "read-files") readFiles.push(...files);
+		else modifiedFiles.push(...files);
+		body = body.replace(match[0], "");
+	}
+	return { body: body.trim(), readFiles, modifiedFiles };
+}
+
+const CompactionMessageBody = memo(function CompactionMessageBody({ message }: { message: DesktopTranscriptMessage }) {
+	const { t } = useI18n();
+	const { body, readFiles, modifiedFiles } = useMemo(() => parseCompactionSummary(message.text), [message.text]);
+	const contextCount = readFiles.length + modifiedFiles.length;
+	return (
+		<section className="compaction-message">
+			<header>
+				<code>compaction</code>
+				{message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
+			</header>
+			<div className="compaction-message-body">
+				<strong>{t("conversationCompacted")}</strong>
+				<p>{t("compactionDescription")}</p>
+				{body ? <MarkdownBody text={body} /> : <span className="compaction-empty">{t("noSummary")}</span>}
+				{contextCount ? (
+					<details className="compaction-file-details">
+						<summary>{t("fileContext", { count: contextCount })}</summary>
+						{modifiedFiles.length ? (
+							<section>
+								<strong>{t("modifiedFiles")}</strong>
+								<ul>
+									{modifiedFiles.map((path) => (
+										<li key={path}>{path}</li>
+									))}
+								</ul>
+							</section>
+						) : null}
+						{readFiles.length ? (
+							<section>
+								<strong>{t("readFiles")}</strong>
+								<ul>
+									{readFiles.map((path) => (
+										<li key={path}>{path}</li>
+									))}
+								</ul>
+							</section>
+						) : null}
+					</details>
+				) : null}
+			</div>
+		</section>
+	);
+});
+
 const TranscriptMessage = memo(function TranscriptMessage({
 	message,
 	modelLabel,
@@ -951,6 +1018,8 @@ const TranscriptMessage = memo(function TranscriptMessage({
 					message.blocks.map((block, index) => <TranscriptBlock key={`${block.type}:${index}`} block={block} />)
 				) : isAssistant ? (
 					<MarkdownBody text={message.text || ""} />
+				) : message.role === "custom" && message.customType === "compaction" ? (
+					<CompactionMessageBody message={message} />
 				) : message.role === "custom" ? (
 					<div className="message-custom-body">
 						{message.display ? <strong>{message.display}</strong> : null}
@@ -1209,7 +1278,7 @@ interface ExplorerProps {
 	onOpenFile: (entry: DesktopWorkspaceEntry) => void;
 	onRefresh: () => void;
 	onTrustProject: () => void;
-	onUpload: (files: File[], targetDirectory: string) => void;
+	onUpload: (files: File[], targetDirectory: string) => Promise<DesktopImportedFileResult[]>;
 }
 
 function Explorer({
@@ -1234,6 +1303,12 @@ function Explorer({
 	const [searchResults, setSearchResults] = useState<DesktopWorkspaceEntry[] | undefined>();
 	const [searching, setSearching] = useState(false);
 	const [uploadDirectory, setUploadDirectory] = useState("");
+	const [changesCollapsed, setChangesCollapsed] = useState(false);
+	const [uploadStatus, setUploadStatus] = useState<
+		| { state: "uploading"; count: number }
+		| { state: "complete"; count: number; conflicts: number; failed: number }
+		| undefined
+	>();
 	const [gitChanges, setGitChanges] = useState<DesktopGitChange[]>([]);
 
 	const loadDirectory = useCallback(async (path: string): Promise<void> => {
@@ -1375,6 +1450,22 @@ function Explorer({
 		if (!node && !directoryNodes[path]) void loadDirectory(path);
 	}
 
+	async function uploadFiles(files: File[], targetDirectory: string): Promise<void> {
+		if (!files.length) return;
+		setUploadStatus({ state: "uploading", count: files.length });
+		try {
+			const results = await onUpload(files, targetDirectory);
+			setUploadStatus({
+				state: "complete",
+				count: results.filter((item) => !item.error && !item.conflict).length,
+				conflicts: results.filter((item) => item.conflict).length,
+				failed: results.filter((item) => item.error && !item.conflict).length,
+			});
+		} catch {
+			setUploadStatus({ state: "complete", count: 0, conflicts: 0, failed: files.length });
+		}
+	}
+
 	function renderFileRow(entry: DesktopWorkspaceEntry, displayPath: string): ReactNode {
 		const gitStatus = gitStatusByPath.get(entry.path);
 		return (
@@ -1409,6 +1500,38 @@ function Explorer({
 					</button>
 				</div>
 			</div>
+		);
+	}
+
+	function renderChangedFiles(): ReactNode {
+		if (searchQuery.trim() || gitChanges.length === 0) return null;
+		return (
+			<section className="changed-files-section">
+				<button
+					className="changed-files-heading"
+					type="button"
+					aria-expanded={!changesCollapsed}
+					onClick={() => setChangesCollapsed((collapsed) => !collapsed)}
+				>
+					<span className={`tree-chevron ${changesCollapsed ? "is-collapsed" : ""}`}>
+						<Icon name="chevron" size={12} />
+					</span>
+					<span>{t("changesWithCount", { count: gitChanges.length })}</span>
+				</button>
+				{!changesCollapsed
+					? gitChanges.map((change) =>
+							renderFileRow(
+								{
+									path: change.path,
+									name: change.path.split("/").at(-1) ?? change.path,
+									type: "file",
+									depth: 0,
+								},
+								change.path,
+							),
+						)
+					: null}
+			</section>
 		);
 	}
 
@@ -1455,7 +1578,7 @@ function Explorer({
 					onDrop={(event) => {
 						event.preventDefault();
 						event.stopPropagation();
-						onUpload(Array.from(event.dataTransfer.files), entry.path);
+						void uploadFiles(Array.from(event.dataTransfer.files), entry.path);
 					}}
 					onClick={() => {
 						setUploadDirectory(entry.path);
@@ -1521,7 +1644,7 @@ function Explorer({
 			onDragOver={(event) => event.preventDefault()}
 			onDrop={(event) => {
 				event.preventDefault();
-				onUpload(Array.from(event.dataTransfer.files), uploadDirectory);
+				void uploadFiles(Array.from(event.dataTransfer.files), uploadDirectory);
 			}}
 		>
 			<div className="sidebar-section-title">
@@ -1531,7 +1654,10 @@ function Explorer({
 					<input
 						type="file"
 						multiple
-						onChange={(event) => onUpload(Array.from(event.target.files ?? []), uploadDirectory)}
+						onChange={(event) => {
+							void uploadFiles(Array.from(event.target.files ?? []), uploadDirectory);
+							event.currentTarget.value = "";
+						}}
 					/>
 				</label>
 				<button
@@ -1556,7 +1682,19 @@ function Explorer({
 				/>
 			</label>
 			{error ? <p className="sidebar-error">{error}</p> : null}
+			{uploadStatus ? (
+				<output className={`upload-status is-${uploadStatus.state}`}>
+					{uploadStatus.state === "uploading"
+						? t("uploadingFiles", { count: uploadStatus.count })
+						: t("uploadedFiles", {
+								count: uploadStatus.count,
+								conflicts: uploadStatus.conflicts,
+								failed: uploadStatus.failed,
+							})}
+				</output>
+			) : null}
 			<div className="file-list">
+				{renderChangedFiles()}
 				{searchResults
 					? searching
 						? [
@@ -1593,7 +1731,7 @@ function Inspector({
 	onDownload,
 	onCopyPath,
 	onCopyContent,
-	onQuoteLineRange,
+	onQuoteLines,
 }: {
 	tabs: FileTab[];
 	activeTabPath: string | undefined;
@@ -1605,8 +1743,7 @@ function Inspector({
 	onDownload: (path: string) => void;
 	onCopyPath: (path: string) => void;
 	onCopyContent: (content: string) => void;
-	onQuoteLine: (path: string, line: number) => void;
-	onQuoteLineRange: (path: string, line: number, extend: boolean) => void;
+	onQuoteLines: (path: string, start: number, end: number) => void;
 }) {
 	const { t } = useI18n();
 	const [mode, setMode] = useState<"diff" | "preview" | "source">("source");
@@ -1614,6 +1751,8 @@ function Inspector({
 	const [wrapLines, setWrapLines] = useState(() => localStorage.getItem("pi-desktop-file-wrap") === "on");
 	const [diffText, setDiffText] = useState<string>();
 	const [diffLoading, setDiffLoading] = useState(false);
+	const sourceRootRef = useRef<HTMLDivElement>(null);
+	const [selectedLineRange, setSelectedLineRange] = useState<{ start: number; end: number }>();
 	const activeTab = tabs.find((tab) => tab.path === activeTabPath);
 	const preview = activeTab?.preview;
 	const isImage = preview ? preview.imageDataUrl !== undefined : false;
@@ -1652,6 +1791,11 @@ function Inspector({
 	useEffect(() => {
 		localStorage.setItem("pi-desktop-file-wrap", wrapLines ? "on" : "off");
 	}, [wrapLines]);
+	useEffect(() => {
+		const toggleWrap = () => setWrapLines((current) => !current);
+		window.addEventListener("pi:file-toggle-wrap", toggleWrap);
+		return () => window.removeEventListener("pi:file-toggle-wrap", toggleWrap);
+	}, []);
 
 	const lineCount = preview ? preview.content.split(/\r\n|\r|\n/u).length : 0;
 	const sourceLines = useMemo(() => {
@@ -1664,6 +1808,49 @@ function Inspector({
 		}));
 	}, [preview, contentQuery]);
 	const byteSize = preview ? new TextEncoder().encode(preview.content).length : 0;
+
+	const getSelectedRange = useCallback((): { start: number; end: number } | undefined => {
+		const root = sourceRootRef.current;
+		const selection = window.getSelection();
+		if (!root || !selection || selection.rangeCount === 0 || selection.isCollapsed) return undefined;
+		const findLine = (node: Node | null): number | undefined => {
+			const element = node instanceof Element ? node : node?.parentElement;
+			const line = element?.closest<HTMLElement>("[data-source-line]");
+			if (!line || !root.contains(line)) return undefined;
+			const value = Number(line.dataset.sourceLine);
+			return Number.isInteger(value) && value > 0 ? value : undefined;
+		};
+		const anchor = findLine(selection.anchorNode);
+		const focus = findLine(selection.focusNode);
+		if (anchor === undefined || focus === undefined) return undefined;
+		return { start: Math.min(anchor, focus), end: Math.max(anchor, focus) };
+	}, []);
+
+	useEffect(() => {
+		if (mode !== "source" || !preview || isImage || isAudio || isPdf) {
+			setSelectedLineRange(undefined);
+			return;
+		}
+		const updateRange = () => setSelectedLineRange(getSelectedRange());
+		document.addEventListener("selectionchange", updateRange);
+		return () => document.removeEventListener("selectionchange", updateRange);
+	}, [getSelectedRange, isAudio, isImage, isPdf, mode, preview]);
+
+	useEffect(() => {
+		if (mode !== "source") return;
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.repeat || event.key.toLocaleLowerCase() !== "i" || (!event.metaKey && !event.ctrlKey)) return;
+			if (event.altKey || event.shiftKey) return;
+			const target = event.target;
+			if (target instanceof Element && target.closest("input, textarea, [contenteditable='true']")) return;
+			const range = getSelectedRange();
+			if (!range || !previewPath) return;
+			event.preventDefault();
+			onQuoteLines(previewPath, range.start, range.end);
+		};
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [getSelectedRange, mode, onQuoteLines, previewPath]);
 
 	return (
 		<aside className="inspector" aria-label={t("inspectorAria")}>
@@ -1809,6 +1996,16 @@ function Inspector({
 					/>
 				</label>
 			) : null}
+			{selectedLineRange && previewPath && mode === "source" ? (
+				<button
+					className="mention-selected-lines"
+					type="button"
+					onMouseDown={(event) => event.preventDefault()}
+					onClick={() => onQuoteLines(previewPath, selectedLineRange.start, selectedLineRange.end)}
+				>
+					{t("mentionSelectedLines", { start: selectedLineRange.start, end: selectedLineRange.end })}
+				</button>
+			) : null}
 			{preview ? (
 				isImage ? (
 					<div className="file-image-preview">
@@ -1858,20 +2055,18 @@ function Inspector({
 						<p className="inspector-diff-empty">{t("noUncommittedDiff")}</p>
 					)
 				) : (
-					<div className={`file-preview-source ${wrapLines ? "is-wrapped" : ""}`}>
+					<div ref={sourceRootRef} className={`file-preview-source ${wrapLines ? "is-wrapped" : ""}`}>
 						{sourceLines.map((sourceLine) => (
-							<button
+							<div
 								className={`source-line ${sourceLine.match ? "is-match" : ""}`}
+								data-source-line={sourceLine.line}
 								key={sourceLine.line}
-								type="button"
-								title={t("quoteLineHint")}
-								onClick={(event) => onQuoteLineRange(preview.path, sourceLine.line, event.shiftKey)}
 							>
 								<span className="source-line-number">{sourceLine.line}</span>
 								<code>
 									<HighlightedCode code={sourceLine.text || " "} language={getLanguageForPath(preview.path)} />
 								</code>
-							</button>
+							</div>
 						))}
 					</div>
 				)
@@ -1885,10 +2080,60 @@ function Inspector({
 	);
 }
 
+const WindowControls = memo(function WindowControls() {
+	const { t } = useI18n();
+	const [maximized, setMaximized] = useState(false);
+	if (navigator.userAgent.includes("Macintosh")) return null;
+	return (
+		<div className="window-controls">
+			<button
+				type="button"
+				className="window-control-button"
+				aria-label={t("minimizeWindow")}
+				onClick={() => void minimizeWindow()}
+			>
+				<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+					<path d="M0 5h10" />
+				</svg>
+			</button>
+			<button
+				type="button"
+				className="window-control-button"
+				aria-label={maximized ? t("restoreWindow") : t("maximizeWindow")}
+				onClick={() => void toggleWindowMaximize().then(setMaximized)}
+			>
+				{maximized ? (
+					<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+						<rect x="2" y="0.5" width="7.5" height="7.5" />
+						<path d="M0.5 2.5v7h7" />
+					</svg>
+				) : (
+					<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+						<rect x="0.5" y="0.5" width="9" height="9" />
+					</svg>
+				)}
+			</button>
+			<button
+				type="button"
+				className="window-control-button is-close"
+				aria-label={t("closeWindow")}
+				onClick={() => void closeWindow()}
+			>
+				<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+					<path d="m0 0 10 10M10 0 0 10" />
+				</svg>
+			</button>
+		</div>
+	);
+});
+
 export function App() {
 	const snapshot = useSyncExternalStore(subscribeDesktopSnapshot, getDesktopSnapshot, getDesktopSnapshot);
 	const startupError = getDesktopStartupError();
 	const { t } = useI18n();
+	const [themeFollowsSystem, setThemeFollowsSystem] = useState(
+		() => localStorage.getItem("pi-desktop-theme") !== "light" && localStorage.getItem("pi-desktop-theme") !== "dark",
+	);
 	const [theme, setTheme] = useState<"dark" | "light">(() => {
 		const stored = localStorage.getItem("pi-desktop-theme");
 		return stored === "light" || stored === "dark"
@@ -1928,8 +2173,6 @@ export function App() {
 	const [trustDialogOpen, setTrustDialogOpen] = useState(false);
 	const [draft, setDraft] = useState("");
 	const [openingWorkspace, setOpeningWorkspace] = useState(false);
-	const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
-	const [directoryPickerError, setDirectoryPickerError] = useState<string>();
 	const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>(() => {
 		try {
 			const value: unknown = JSON.parse(localStorage.getItem("pi-desktop-recent-workspaces") ?? "[]");
@@ -1974,7 +2217,6 @@ export function App() {
 	const [workspaceEntries, setWorkspaceEntries] = useState<DesktopWorkspaceEntry[]>([]);
 	const [mentionEntries, setMentionEntries] = useState<DesktopWorkspaceEntry[]>([]);
 	const [gitWorktrees, setGitWorktrees] = useState<DesktopGitWorktree[]>([]);
-	const [workspaceRefreshToken, setWorkspaceRefreshToken] = useState(0);
 	const [fileTabs, setFileTabs] = useState<FileTab[]>([]);
 	const [activeTabPath, setActiveTabPath] = useState<string | undefined>();
 	const [fileExplorerError, setFileExplorerError] = useState<string>();
@@ -1982,9 +2224,7 @@ export function App() {
 	const [explorerDirectoryReload, setExplorerDirectoryReload] = useState<{ path: string; token: number }>();
 	const explorerDirectoryReloadTokenRef = useRef(0);
 	const [inspectorOpen, setInspectorOpen] = useState(() => localStorage.getItem("pi-desktop-inspector-open") === "on");
-	const [rightPanelMode, setRightPanelMode] = useState<"files" | "source">(
-		() => (localStorage.getItem("pi-desktop-right-panel-mode") as "files" | "source" | null) ?? "files",
-	);
+	const [fileActionsMenuOpen, setFileActionsMenuOpen] = useState(false);
 	const [sidebarOpen, setSidebarOpen] = useState(true);
 	const [isOnline, setIsOnline] = useState(() => navigator.onLine);
 	const [configModal, setConfigModal] = useState<ConfigModal | undefined>();
@@ -2013,9 +2253,6 @@ export function App() {
 	const [historyMenuOpen, setHistoryMenuOpen] = useState(false);
 	const [historyActiveIndex, setHistoryActiveIndex] = useState(-1);
 	const [projectFilter, setProjectFilter] = useState("");
-	const [toolPreset, setToolPreset] = useState<"off" | "default" | "full">(
-		() => (localStorage.getItem("pi-desktop-tool-preset") as "off" | "default" | "full" | null) ?? "default",
-	);
 	const [compacting, setCompacting] = useState(false);
 	const [compactError, setCompactError] = useState<string>();
 	const [suggestionIndex, setSuggestionIndex] = useState(0);
@@ -2042,6 +2279,13 @@ export function App() {
 	const apiKeyProviderIds = snapshot.apiKeyProviders.map((provider) => provider.id).join("\u0000");
 	const authenticationPrompt = snapshot.pendingAuthenticationPrompts[0];
 	const session = snapshot.session;
+	const activeFileTab = useMemo(() => fileTabs.find((tab) => tab.path === activeTabPath), [activeTabPath, fileTabs]);
+	const toolPreset = useMemo<"none" | "default" | "full">(() => {
+		const toolNames = session?.activeToolNames ?? ["read", "bash", "edit", "write"];
+		if (toolNames.length === 0) return "none";
+		const activeNames = new Set(toolNames);
+		return ["grep", "find", "ls"].every((name) => activeNames.has(name)) ? "full" : "default";
+	}, [session?.activeToolNames]);
 	const knownWorkspacePaths = useMemo(
 		() =>
 			[
@@ -2085,9 +2329,21 @@ export function App() {
 		const query = modelFilter.trim().toLocaleLowerCase();
 		if (!query) return snapshot.availableModels;
 		return snapshot.availableModels.filter(
-			(model) => model.id.toLocaleLowerCase().includes(query) || model.name.toLocaleLowerCase().includes(query),
+			(model) =>
+				model.id.toLocaleLowerCase().includes(query) ||
+				model.name.toLocaleLowerCase().includes(query) ||
+				model.provider.toLocaleLowerCase().includes(query),
 		);
 	})();
+	const filteredModelsByProvider = useMemo(() => {
+		const groups = new Map<string, typeof filteredModels>();
+		for (const model of filteredModels) {
+			const current = groups.get(model.provider);
+			if (current) current.push(model);
+			else groups.set(model.provider, [model]);
+		}
+		return [...groups.entries()];
+	}, [filteredModels]);
 	const statsSummary = (() => {
 		if (!stats || stats.tokens.total === 0) return undefined;
 		const parts = [`↑${formatCompact(stats.tokens.input)}`, `↓${formatCompact(stats.tokens.output)}`];
@@ -2334,6 +2590,7 @@ export function App() {
 				sessionMenuOpen ||
 				deleteSessionPath ||
 				moreMenuOpen ||
+				fileActionsMenuOpen ||
 				projectRowMenuOpen,
 		),
 		running: session?.phase === "running",
@@ -2362,6 +2619,7 @@ export function App() {
 			setProjectMenuOpen(false);
 			setSessionMenuOpen(undefined);
 			setMoreMenuOpen(false);
+			setFileActionsMenuOpen(false);
 			setProjectRowMenuOpen(undefined);
 			if (!shortcutState.hadTransientUi && shortcutState.running) void shortcutState.abort();
 		};
@@ -2375,14 +2633,23 @@ export function App() {
 		if (!projectMenuOpen && composerMenu !== "project") setProjectFilter("");
 	}, [composerMenu, projectMenuOpen]);
 	useEffect(() => {
-		const apply = () => {
-			document.documentElement.dataset.theme = theme;
-		};
-		apply();
+		document.documentElement.dataset.theme = theme;
+		if (themeFollowsSystem) {
+			localStorage.removeItem("pi-desktop-theme");
+			return;
+		}
 		localStorage.setItem("pi-desktop-theme", theme);
-	}, [theme]);
+	}, [theme, themeFollowsSystem]);
 	useEffect(() => {
-		if (!projectMenuOpen && !sessionMenuOpen && !moreMenuOpen && !projectRowMenuOpen) return;
+		if (!themeFollowsSystem) return;
+		const media = window.matchMedia("(prefers-color-scheme: dark)");
+		const updateTheme = () => setTheme(media.matches ? "dark" : "light");
+		updateTheme();
+		media.addEventListener("change", updateTheme);
+		return () => media.removeEventListener("change", updateTheme);
+	}, [themeFollowsSystem]);
+	useEffect(() => {
+		if (!projectMenuOpen && !sessionMenuOpen && !moreMenuOpen && !fileActionsMenuOpen && !projectRowMenuOpen) return;
 		const close = (event: MouseEvent) => {
 			const target = event.target;
 			if (!(target instanceof Element)) {
@@ -2390,6 +2657,7 @@ export function App() {
 				setSessionMenuOpen(undefined);
 				setDeleteSessionPath(undefined);
 				setMoreMenuOpen(false);
+				setFileActionsMenuOpen(false);
 				setProjectRowMenuOpen(undefined);
 				return;
 			}
@@ -2399,11 +2667,12 @@ export function App() {
 			}
 			if (!target.closest(".session-row-wrap")) setSessionMenuOpen(undefined);
 			if (!target.closest(".top-bar-more-wrap")) setMoreMenuOpen(false);
+			if (!target.closest(".file-actions-menu-anchor")) setFileActionsMenuOpen(false);
 			if (!target.closest(".top-bar")) setTopPanel(undefined);
 		};
 		document.addEventListener("mousedown", close);
 		return () => document.removeEventListener("mousedown", close);
-	}, [projectMenuOpen, sessionMenuOpen, moreMenuOpen, projectRowMenuOpen]);
+	}, [projectMenuOpen, sessionMenuOpen, moreMenuOpen, fileActionsMenuOpen, projectRowMenuOpen]);
 	useEffect(() => {
 		if (historyActiveIndex < promptHistoryRef.current.length) return;
 		setHistoryActiveIndex(Math.max(0, promptHistoryRef.current.length - 1));
@@ -2599,8 +2868,7 @@ export function App() {
 	useEffect(() => {
 		localStorage.setItem("pi-desktop-file-tree-open", fileTreeOpen ? "on" : "off");
 		localStorage.setItem("pi-desktop-inspector-open", inspectorOpen ? "on" : "off");
-		localStorage.setItem("pi-desktop-right-panel-mode", rightPanelMode);
-	}, [fileTreeOpen, inspectorOpen, rightPanelMode]);
+	}, [fileTreeOpen, inspectorOpen]);
 	useEffect(() => {
 		if (!snapshot.workspacePath || !snapshot.projectTrusted) {
 			setGitWorktrees([]);
@@ -2659,7 +2927,6 @@ export function App() {
 		});
 		const unsubscribeChanges = onWorkspaceChanged((changes) => {
 			if (!snapshot.projectTrusted || !snapshot.workspacePath) return;
-			setWorkspaceRefreshToken((value) => value + 1);
 			void refreshWorkspaceFiles();
 			setExplorerReloadSignal((value) => value + 1);
 			if (activeTabPath && changes.some((change) => change.path === activeTabPath)) {
@@ -2725,20 +2992,11 @@ export function App() {
 	async function handleChooseWorkspace(): Promise<void> {
 		if (!canChooseWorkspace) return;
 		setActionError(undefined);
-		setDirectoryPickerError(undefined);
-		setDirectoryPickerOpen(true);
-	}
-
-	async function handleDirectorySelect(path: string): Promise<void> {
-		if (!path || openingWorkspace) return;
 		setOpeningWorkspace(true);
-		setDirectoryPickerError(undefined);
-		setActionError(undefined);
 		try {
-			await openWorkspacePath(path);
-			setDirectoryPickerOpen(false);
+			await chooseWorkspace();
 		} catch (error) {
-			setDirectoryPickerError(error instanceof Error ? error.message : String(error));
+			setActionError(error instanceof Error ? error.message : String(error));
 		} finally {
 			setOpeningWorkspace(false);
 		}
@@ -3126,10 +3384,13 @@ export function App() {
 		}
 	}
 
-	function handleToolPresetChange(next: "off" | "default" | "full"): void {
-		setToolPreset(next);
-		localStorage.setItem("pi-desktop-tool-preset", next);
-		setComposerMenu(undefined);
+	async function handleToolPresetChange(next: "none" | "default" | "full"): Promise<void> {
+		try {
+			await updateToolPreset(next);
+			setComposerMenu(undefined);
+		} catch (error) {
+			pushNotice("error", error instanceof Error ? error.message : String(error));
+		}
 	}
 
 	async function handleDroppedImages(files: File[]): Promise<void> {
@@ -3156,7 +3417,7 @@ export function App() {
 		if (others.length && snapshot.projectTrusted && snapshot.workspacePath) {
 			try {
 				const results = await importDroppedFiles(others);
-				const ok = results.filter((item) => !item.error);
+				const ok = results.filter((item) => !item.error && !item.conflict);
 				const conflicts = results.filter((item) => item.conflict);
 				const failed = results.filter((item) => item.error && !item.conflict);
 				if (ok.length) {
@@ -3186,11 +3447,11 @@ export function App() {
 	}
 
 	const handleImportWorkspaceFiles = useCallback(
-		async (files: File[], targetDirectory = ""): Promise<void> => {
-			if (!files.length) return;
+		async (files: File[], targetDirectory = ""): Promise<DesktopImportedFileResult[]> => {
+			if (!files.length) return [];
 			try {
 				const results = await importDroppedFiles(files, false, targetDirectory);
-				const imported = results.filter((item) => !item.error);
+				const imported = results.filter((item) => !item.error && !item.conflict);
 				const conflicts = results.filter((item) => item.conflict);
 				const failed = results.filter((item) => item.error && !item.conflict);
 				if (imported.length) {
@@ -3212,8 +3473,10 @@ export function App() {
 				}
 				for (const item of failed)
 					pushNotice("warning", t("itemError", { name: item.name, error: item.error ?? t("unknown") }));
+				return results;
 			} catch (error) {
 				pushNotice("error", error instanceof Error ? error.message : String(error));
+				return [];
 			}
 		},
 		[pushNotice, refreshWorkspaceFiles, t],
@@ -3483,29 +3746,11 @@ export function App() {
 		}
 	}, []);
 
-	const handleQuoteLine = useCallback((path: string, line: number): void => {
-		setDraft((current) => `${current}${current ? "\n" : ""}@${path}:${line} `);
+	const handleQuoteLines = useCallback((path: string, start: number, end: number): void => {
+		const suffix = start === end ? `${start}` : `${start}-${end}`;
+		setDraft((current) => `${current}${current ? "\n" : ""}@${path}:${suffix} `);
 		promptRef.current?.focus();
 	}, []);
-
-	const quoteRangeRef = useRef<{ path: string; line: number } | undefined>(undefined);
-
-	const handleQuoteLineRange = useCallback(
-		(path: string, line: number, extend: boolean): void => {
-			if (extend && quoteRangeRef.current?.path === path) {
-				const start = Math.min(quoteRangeRef.current.line, line);
-				const end = Math.max(quoteRangeRef.current.line, line);
-				quoteRangeRef.current = undefined;
-				setDraft((current) => `${current}${current ? "\n" : ""}@${path}:${start}-${end} `);
-			} else {
-				quoteRangeRef.current = { path, line };
-				handleQuoteLine(path, line);
-				return;
-			}
-			promptRef.current?.focus();
-		},
-		[handleQuoteLine],
-	);
 
 	const handleRevealFile = useCallback(async (path: string): Promise<void> => {
 		setActionError(undefined);
@@ -3600,6 +3845,23 @@ export function App() {
 		);
 	}
 
+	function resetResize(side: "fileTree" | "inspector" | "sidebar"): void {
+		const width = side === "sidebar" ? 260 : side === "inspector" ? 500 : 280;
+		const variable =
+			side === "sidebar" ? "--sidebar-width" : side === "inspector" ? "--inspector-width" : "--file-tree-width";
+		document.querySelector<HTMLElement>(".app-workbench")?.style.setProperty(variable, `${width}px`);
+		if (side === "sidebar") setSidebarWidth(width);
+		else if (side === "inspector") setInspectorWidth(width);
+		else setFileTreeWidth(width);
+		localStorage.removeItem(
+			side === "sidebar"
+				? "pi-desktop-sidebar-width"
+				: side === "inspector"
+					? "pi-desktop-inspector-width"
+					: "pi-desktop-file-tree-width",
+		);
+	}
+
 	function renderSidebar() {
 		const projects = new Map<string, DesktopSessionInfo[]>();
 		for (const item of snapshot.sessions) {
@@ -3609,346 +3871,323 @@ export function App() {
 			projects.set(root, entries);
 		}
 		const activeProjects = [...projects.entries()].filter(([root]) => !archivedProjectRoots.has(root));
-		const archivedProjects = [...projects.entries()].filter(([root]) => archivedProjectRoots.has(root));
 		return (
 			<section className="sessions-panel sidebar-project-tree" aria-label={t("sessions")}>
-				{activeProjects.length ? (
-					activeProjects.map(([root, items]) => {
-						const filteredItems = sessionSearch.trim()
-							? items.filter((item) =>
-									`${item.name ?? ""} ${item.firstMessage}`
-										.toLocaleLowerCase()
-										.includes(sessionSearch.trim().toLocaleLowerCase()),
-								)
-							: items;
-						if (sessionSearch.trim() && filteredItems.length === 0) return null;
-						const flattenedItems = flattenSessionTree(filteredItems);
-						const active = items.some((item) => item.id === session?.id);
-						const runningCount = items.filter((item) => item.phase === "running").length;
-						const unreadCount = items.filter((item) => unreadSessionIds.has(item.id)).length;
-						const branch =
-							items.find((item) => item.worktreeBranch)?.worktreeBranch ??
-							gitWorktrees.find((tree) => tree.path.replace(/[\\/]+$/u, "") === root)?.branch;
-						const collapsed = collapsedProjects.has(root) && !sessionSearch.trim();
-						const expanded = expandedProjects.has(root);
-						const visibleItems = (() => {
-							if (expanded || sessionSearch.trim()) return flattenedItems;
-							const first = flattenedItems.slice(0, 5);
-							const current = flattenedItems.find((item) => item.info.id === session?.id);
-							if (!current || first.some((item) => item.info.id === current.info.id)) return first;
-							return [...first.slice(0, 4), current];
-						})();
-						return (
-							<section className={`sidebar-project-tree-group ${active ? "is-active" : ""}`} key={root}>
-								<div className="sidebar-project-tree-row">
-									<button
-										className="sidebar-project-tree-row-main"
-										type="button"
-										onClick={() =>
-											setCollapsedProjects((current) => {
-												const next = new Set(current);
-												if (next.has(root)) next.delete(root);
-												else next.add(root);
-												return next;
-											})
-										}
-										title={root}
-										aria-expanded={!collapsed}
-									>
-										<Icon name="folder" size={15} />
-										<span className="sidebar-project-tree-copy">
-											<span className="sidebar-project-tree-name">{formatWorkspace(root, t)}</span>
-											{branch ? <small>⎇ {formatGitBranch(branch)}</small> : null}
-										</span>
-										<span className="sidebar-project-badges">
-											{runningCount ? <span className="sidebar-project-running">{runningCount}</span> : null}
-											{unreadCount ? <span className="sidebar-project-unread">{unreadCount}</span> : null}
-											{!runningCount && !unreadCount ? <span>{items.length}</span> : null}
-										</span>
-									</button>
-									<button
-										className="sidebar-project-tree-action"
-										type="button"
-										aria-label={t("newSessionAria")}
-										onClick={() => void handleNewSessionForProject(root)}
-									>
-										<Icon name="plus" size={13} />
-									</button>
-									<div className="sidebar-project-more-wrap project-menu-root">
+				<div className="sidebar-projects-header project-menu-root">
+					<span>{t("projects")}</span>
+					<div className="sidebar-projects-actions">
+						<button
+							className="icon-button compact"
+							type="button"
+							aria-label={t("projectActions")}
+							aria-expanded={projectMenuOpen}
+							onClick={() => setProjectMenuOpen((open) => !open)}
+						>
+							<Icon name="more" size={14} />
+						</button>
+						<button
+							className="icon-button compact"
+							type="button"
+							aria-label={t("openProject")}
+							disabled={!canChooseWorkspace}
+							onClick={() => void handleChooseWorkspace()}
+						>
+							<Icon name="plus" size={14} />
+						</button>
+					</div>
+					{projectMenuOpen ? renderProjectMenu() : null}
+				</div>
+				{activeProjects.length
+					? activeProjects.map(([root, items]) => {
+							const filteredItems = sessionSearch.trim()
+								? items.filter((item) =>
+										`${item.name ?? ""} ${item.firstMessage}`
+											.toLocaleLowerCase()
+											.includes(sessionSearch.trim().toLocaleLowerCase()),
+									)
+								: items;
+							if (sessionSearch.trim() && filteredItems.length === 0) return null;
+							const flattenedItems = flattenSessionTree(filteredItems);
+							const active = items.some((item) => item.id === session?.id);
+							const branch =
+								items.find((item) => item.worktreeBranch)?.worktreeBranch ??
+								gitWorktrees.find((tree) => tree.path.replace(/[\\/]+$/u, "") === root)?.branch;
+							const collapsed = collapsedProjects.has(root) && !sessionSearch.trim();
+							const expanded = expandedProjects.has(root);
+							const visibleItems = (() => {
+								if (expanded || sessionSearch.trim()) return flattenedItems;
+								const first = flattenedItems.slice(0, 5);
+								const current = flattenedItems.find((item) => item.info.id === session?.id);
+								if (!current || first.some((item) => item.info.id === current.info.id)) return first;
+								return [...first.slice(0, 4), current];
+							})();
+							return (
+								<section className={`sidebar-project-tree-group ${active ? "is-active" : ""}`} key={root}>
+									<div className="sidebar-project-tree-row">
 										<button
-											className="sidebar-project-tree-action"
+											className="sidebar-project-tree-row-main"
 											type="button"
-											aria-label={t("projectActions")}
-											aria-expanded={projectRowMenuOpen === root}
 											onClick={() =>
-												setProjectRowMenuOpen((current) => (current === root ? undefined : root))
+												setCollapsedProjects((current) => {
+													const next = new Set(current);
+													if (next.has(root)) next.delete(root);
+													else next.add(root);
+													return next;
+												})
 											}
+											title={root}
+											aria-expanded={!collapsed}
 										>
-											<Icon name="more" size={13} />
+											<Icon name="folder" size={15} />
+											<span className="sidebar-project-tree-copy">
+												<span className="sidebar-project-tree-name">{formatWorkspace(root, t)}</span>
+												{branch ? <small>⎇ {formatGitBranch(branch)}</small> : null}
+											</span>
 										</button>
-										{projectRowMenuOpen === root ? (
-											<div className="session-more-menu" role="menu">
+										<div className="sidebar-project-tree-row-actions">
+											<button
+												className="sidebar-project-tree-action"
+												type="button"
+												aria-label={t("newSessionAria")}
+												onClick={() => void handleNewSessionForProject(root)}
+											>
+												<Icon name="plus" size={13} />
+											</button>
+											<div className="sidebar-project-more-wrap project-menu-root">
 												<button
+													className="sidebar-project-tree-action sidebar-project-tree-more"
 													type="button"
-													onClick={() => {
-														setProjectRowMenuOpen(undefined);
-														void handleNewSessionForProject(root);
-													}}
+													aria-label={t("projectActions")}
+													aria-expanded={projectRowMenuOpen === root}
+													onClick={() =>
+														setProjectRowMenuOpen((current) => (current === root ? undefined : root))
+													}
 												>
-													{t("newChat")}
+													<Icon name="more" size={13} />
 												</button>
-												<button
-													type="button"
-													onClick={() => {
-														setProjectRowMenuOpen(undefined);
-														void handleRevealFile(root);
-													}}
-												>
-													{t("revealInFinder")}
-												</button>
-												{root !== snapshot.workspacePath &&
-												gitWorktrees.some((tree) => tree.path === root) ? (
-													<button
-														type="button"
-														onClick={() => {
-															setProjectRowMenuOpen(undefined);
-															void handleSwitchWorkspacePath(root);
-														}}
-													>
-														{t("switchToWorktree")}
-													</button>
-												) : null}
-												<button
-													type="button"
-													onClick={() => {
-														setProjectRowMenuOpen(undefined);
-														setArchivedProjectRoots((current) => new Set(current).add(root));
-													}}
-												>
-													{t("archiveProject")}
-												</button>
-											</div>
-										) : null}
-									</div>
-								</div>
-								{!collapsed ? (
-									<div className="sidebar-project-tree-children">
-										{visibleItems.map(({ info: item, depth }) => {
-											const isCurrent = item.id === session?.id;
-											const isRenaming = renamingSession?.path === item.path;
-											return (
-												<div
-													className={`session-row-wrap ${isCurrent ? "is-current" : ""} ${depth ? "is-forked" : ""}`}
-													key={item.path}
-													style={{ "--session-depth": Math.min(depth, 5) } as CSSProperties}
-												>
-													{isRenaming ? (
-														<form
-															className="session-inline-rename"
-															onSubmit={(event) => {
-																event.preventDefault();
-																void handleRenameSubmit();
+												{projectRowMenuOpen === root ? (
+													<div className="session-more-menu" role="menu">
+														<button
+															type="button"
+															onClick={() => {
+																setProjectRowMenuOpen(undefined);
+																void handleNewSessionForProject(root);
 															}}
 														>
-															<input
-																// biome-ignore lint/a11y/noAutofocus: 用户刚触发了内联重命名
-																autoFocus
-																aria-label={t("sessionNameAria")}
-																value={renamingSession.name}
-																onChange={(event) =>
-																	setRenamingSession({ ...renamingSession, name: event.target.value })
-																}
-																onKeyDown={(event) => {
-																	if (event.key === "Escape") setRenamingSession(undefined);
-																}}
-															/>
-															<button type="submit">{t("save")}</button>
-														</form>
-													) : (
-														<button
-															className="session-row"
-															type="button"
-															title={`${sessionTitle(item, t)} · ${item.messageCount} · ${formatSessionDate(item.modified)}`}
-															onClick={() =>
-																isCurrent
-																	? promptRef.current?.focus()
-																	: void handleOpenSession(item.path)
-															}
-														>
-															<span
-																className={`session-row-icon ${item.phase === "running" ? "is-running" : ""}`}
-															>
-																<Icon name="chat" size={14} />
-															</span>
-															<span className="session-row-title">{sessionTitle(item, t)}</span>
-															{unreadSessionIds.has(item.id) ? (
-																<span className="session-unread-dot" />
-															) : null}
+															{t("newChat")}
 														</button>
-													)}
-													{!isRenaming ? (
 														<button
-															className="session-more"
 															type="button"
-															aria-label={t("sessionActions")}
-															aria-expanded={sessionMenuOpen === item.path}
-															onClick={() =>
-																setSessionMenuOpen((open) =>
-																	open === item.path ? undefined : item.path,
-																)
-															}
+															onClick={() => {
+																setProjectRowMenuOpen(undefined);
+																void handleRevealFile(root);
+															}}
 														>
-															<Icon name="more" size={14} />
+															{t("revealInFinder")}
 														</button>
-													) : null}
-													{sessionMenuOpen === item.path ? (
-														<div className="session-more-menu" role="menu">
+														{root !== snapshot.workspacePath &&
+														gitWorktrees.some((tree) => tree.path === root) ? (
 															<button
 																type="button"
 																onClick={() => {
-																	setSessionMenuOpen(undefined);
-																	setRenamingSession({
-																		path: item.path,
-																		name: item.name ?? sessionTitle(item, t),
-																	});
+																	setProjectRowMenuOpen(undefined);
+																	void handleSwitchWorkspacePath(root);
 																}}
 															>
-																{t("rename")}
+																{t("switchToWorktree")}
 															</button>
-															{isCurrent ? (
-																<button
-																	type="button"
-																	onClick={() => {
-																		setSessionMenuOpen(undefined);
-																		setTopPanel("session");
-																	}}
-																>
-																	{t("sessionStats")}
-																</button>
-															) : null}
-															{isCurrent ? (
-																<button
-																	type="button"
-																	disabled={session?.phase === "running"}
-																	onClick={() => {
-																		setSessionMenuOpen(undefined);
-																		void handleForkSession();
-																	}}
-																>
-																	{t("forkAsSession")}
-																</button>
-															) : null}
-															<button
-																type="button"
-																className="is-danger"
-																disabled={item.phase === "running"}
-																onClick={(event) => {
-																	if (!event.shiftKey && deleteSessionPath !== item.path) {
-																		void handleDeleteSession(item.path);
-																		return;
-																	}
-																	setSessionMenuOpen(undefined);
-																	void handleDeleteSession(item.path, event.shiftKey);
-																}}
-															>
-																{deleteSessionPath === item.path
-																	? t("confirmDelete")
-																	: t("deleteSession")}
-															</button>
-															{deleteSessionPath === item.path ? (
-																<button type="button" onClick={() => setDeleteSessionPath(undefined)}>
-																	{t("cancel")}
-																</button>
-															) : null}
-															<div className="session-more-meta">
-																<span>{formatSessionDate(item.modified)}</span>
-																<span>{t("messageCount", { count: item.messageCount })}</span>
-																<span>
-																	{item.parentSessionPath ? t("forkBadge") : t("mainBranchBadge")}
-																</span>
-															</div>
-														</div>
-													) : null}
-												</div>
-											);
-										})}
-										{!expanded && filteredItems.length > 5 ? (
-											<button
-												className="sidebar-more-button"
-												type="button"
-												onClick={() => setExpandedProjects((current) => new Set(current).add(root))}
-											>
-												{t("showMore", { count: filteredItems.length - 5 })}
-											</button>
-										) : null}
-										{expanded && filteredItems.length > 5 ? (
-											<button
-												className="sidebar-more-button"
-												type="button"
-												onClick={() =>
-													setExpandedProjects((current) => {
-														const next = new Set(current);
-														next.delete(root);
-														return next;
-													})
-												}
-											>
-												{t("showLess")}
-											</button>
-										) : null}
+														) : null}
+														<button
+															type="button"
+															onClick={() => {
+																setProjectRowMenuOpen(undefined);
+																setArchivedProjectRoots((current) => new Set(current).add(root));
+															}}
+														>
+															{t("archiveProject")}
+														</button>
+													</div>
+												) : null}
+											</div>
+										</div>
 									</div>
-								) : null}
-							</section>
-						);
-					})
-				) : (
-					<div className="sidebar-projects-header project-menu-root">
-						<span>{t("projects")}</span>
-						<div className="sidebar-projects-actions">
-							<button
-								className="icon-button compact"
-								type="button"
-								aria-label={t("projectActions")}
-								aria-expanded={projectMenuOpen}
-								onClick={() => setProjectMenuOpen((open) => !open)}
-							>
-								<Icon name="more" size={14} />
-							</button>
-							<button
-								className="icon-button compact"
-								type="button"
-								aria-label={t("openProject")}
-								disabled={!canChooseWorkspace}
-								onClick={() => void handleChooseWorkspace()}
-							>
-								<Icon name="plus" size={14} />
-							</button>
-						</div>
-						{projectMenuOpen ? renderProjectMenu() : null}
-					</div>
-				)}
-				{archivedProjects.length ? (
-					<div className="archived-projects">
-						<div className="settings-group-label">{t("archivedProjects")}</div>
-						{archivedProjects.map(([root]) => (
-							<div className="archived-project-row" key={root}>
-								<span title={root}>{formatWorkspace(root, t)}</span>
-								<button
-									type="button"
-									onClick={() =>
-										setArchivedProjectRoots((current) => {
-											const next = new Set(current);
-											next.delete(root);
-											return next;
-										})
-									}
-								>
-									{t("restore")}
-								</button>
-							</div>
-						))}
-					</div>
-				) : null}
+									{!collapsed ? (
+										<div className="sidebar-project-tree-children">
+											{visibleItems.map(({ info: item, depth }) => {
+												const isCurrent = item.id === session?.id;
+												const isRenaming = renamingSession?.path === item.path;
+												return (
+													<div
+														className={`session-row-wrap ${isCurrent ? "is-current" : ""} ${depth ? "is-forked" : ""}`}
+														key={item.path}
+														style={{ "--session-depth": Math.min(depth, 5) } as CSSProperties}
+													>
+														{isRenaming ? (
+															<form
+																className="session-inline-rename"
+																onSubmit={(event) => {
+																	event.preventDefault();
+																	void handleRenameSubmit();
+																}}
+															>
+																<input
+																	// biome-ignore lint/a11y/noAutofocus: 用户刚触发了内联重命名
+																	autoFocus
+																	aria-label={t("sessionNameAria")}
+																	value={renamingSession.name}
+																	onChange={(event) =>
+																		setRenamingSession({
+																			...renamingSession,
+																			name: event.target.value,
+																		})
+																	}
+																	onKeyDown={(event) => {
+																		if (event.key === "Escape") setRenamingSession(undefined);
+																	}}
+																/>
+																<button type="submit">{t("save")}</button>
+															</form>
+														) : (
+															<button
+																className="session-row"
+																type="button"
+																title={`${sessionTitle(item, t)} · ${item.messageCount} · ${formatSessionDate(item.modified)}`}
+																onClick={() =>
+																	isCurrent
+																		? promptRef.current?.focus()
+																		: void handleOpenSession(item.path)
+																}
+															>
+																<span
+																	className={`session-row-icon ${item.phase === "running" ? "is-running" : ""}`}
+																>
+																	<Icon name="chat" size={14} />
+																</span>
+																<span className="session-row-title">{sessionTitle(item, t)}</span>
+																{unreadSessionIds.has(item.id) ? (
+																	<span className="session-unread-dot" />
+																) : null}
+															</button>
+														)}
+														{!isRenaming ? (
+															<button
+																className="session-more"
+																type="button"
+																aria-label={t("sessionActions")}
+																aria-expanded={sessionMenuOpen === item.path}
+																onClick={() =>
+																	setSessionMenuOpen((open) =>
+																		open === item.path ? undefined : item.path,
+																	)
+																}
+															>
+																<Icon name="more" size={14} />
+															</button>
+														) : null}
+														{sessionMenuOpen === item.path ? (
+															<div className="session-more-menu" role="menu">
+																<button
+																	type="button"
+																	onClick={() => {
+																		setSessionMenuOpen(undefined);
+																		setRenamingSession({
+																			path: item.path,
+																			name: item.name ?? sessionTitle(item, t),
+																		});
+																	}}
+																>
+																	{t("rename")}
+																</button>
+																{isCurrent ? (
+																	<button
+																		type="button"
+																		onClick={() => {
+																			setSessionMenuOpen(undefined);
+																			setTopPanel("session");
+																		}}
+																	>
+																		{t("sessionStats")}
+																	</button>
+																) : null}
+																{isCurrent ? (
+																	<button
+																		type="button"
+																		disabled={session?.phase === "running"}
+																		onClick={() => {
+																			setSessionMenuOpen(undefined);
+																			void handleForkSession();
+																		}}
+																	>
+																		{t("forkAsSession")}
+																	</button>
+																) : null}
+																<button
+																	type="button"
+																	className="is-danger"
+																	disabled={item.phase === "running"}
+																	onClick={(event) => {
+																		if (!event.shiftKey && deleteSessionPath !== item.path) {
+																			void handleDeleteSession(item.path);
+																			return;
+																		}
+																		setSessionMenuOpen(undefined);
+																		void handleDeleteSession(item.path, event.shiftKey);
+																	}}
+																>
+																	{deleteSessionPath === item.path
+																		? t("confirmDelete")
+																		: t("deleteSession")}
+																</button>
+																{deleteSessionPath === item.path ? (
+																	<button
+																		type="button"
+																		onClick={() => setDeleteSessionPath(undefined)}
+																	>
+																		{t("cancel")}
+																	</button>
+																) : null}
+																<div className="session-more-meta">
+																	<span>{formatSessionDate(item.modified)}</span>
+																	<span>{t("messageCount", { count: item.messageCount })}</span>
+																	<span>
+																		{item.parentSessionPath ? t("forkBadge") : t("mainBranchBadge")}
+																	</span>
+																</div>
+															</div>
+														) : null}
+													</div>
+												);
+											})}
+											{!expanded && filteredItems.length > 5 ? (
+												<button
+													className="sidebar-more-button"
+													type="button"
+													onClick={() => setExpandedProjects((current) => new Set(current).add(root))}
+												>
+													{t("showMore", { count: filteredItems.length - 5 })}
+												</button>
+											) : null}
+											{expanded && filteredItems.length > 5 ? (
+												<button
+													className="sidebar-more-button"
+													type="button"
+													onClick={() =>
+														setExpandedProjects((current) => {
+															const next = new Set(current);
+															next.delete(root);
+															return next;
+														})
+													}
+												>
+													{t("showLess")}
+												</button>
+											) : null}
+										</div>
+									) : null}
+								</section>
+							);
+						})
+					: null}
 			</section>
 		);
 	}
@@ -3958,11 +4197,40 @@ export function App() {
 
 	function renderProjectMenu() {
 		const query = projectFilter.trim().toLocaleLowerCase();
+		const archivedProjectPaths = [...archivedProjectRoots].sort((left, right) => left.localeCompare(right));
+		const activeProjectRoots = [
+			...new Set(
+				snapshot.sessions
+					.map((item) => (item.projectRoot ?? item.cwd).replace(/[\\/]+$/, ""))
+					.filter((path) => !archivedProjectRoots.has(path)),
+			),
+		];
+		const allProjectsCollapsed =
+			activeProjectRoots.length > 0 && activeProjectRoots.every((path) => collapsedProjects.has(path));
 		const visibleRecentWorkspaces = recentWorkspaces.filter(
 			(path) => !query || path.toLocaleLowerCase().includes(query),
 		);
 		return (
 			<div className="project-menu" role="menu">
+				<button
+					className="project-menu-item"
+					type="button"
+					disabled={activeProjectRoots.length === 0}
+					onClick={() => {
+						setCollapsedProjects((current) => {
+							const next = new Set(current);
+							for (const path of activeProjectRoots) {
+								if (allProjectsCollapsed) next.delete(path);
+								else next.add(path);
+							}
+							return next;
+						});
+						setProjectMenuOpen(false);
+					}}
+				>
+					<Icon name="compact" size={14} />
+					<span>{allProjectsCollapsed ? t("expandProjects") : t("collapseProjects")}</span>
+				</button>
 				<button
 					className="project-menu-item"
 					type="button"
@@ -4009,6 +4277,31 @@ export function App() {
 						) : null}
 					</>
 				) : null}
+				{archivedProjectPaths.length ? (
+					<>
+						<div className="project-menu-label project-menu-archived-label">{t("archivedProjects")}</div>
+						{archivedProjectPaths.map((path) => (
+							<button
+								className="project-menu-item project-menu-archived-item"
+								key={path}
+								type="button"
+								title={path}
+								onClick={() => {
+									setArchivedProjectRoots((current) => {
+										const next = new Set(current);
+										next.delete(path);
+										return next;
+									});
+									setProjectMenuOpen(false);
+								}}
+							>
+								<Icon name="folder" size={14} />
+								<span>{formatWorkspace(path, t)}</span>
+								<small>{t("restore")}</small>
+							</button>
+						))}
+					</>
+				) : null}
 				{snapshot.workspacePath ? (
 					<WorktreeSection
 						key={snapshot.workspacePath}
@@ -4046,6 +4339,7 @@ export function App() {
 								const next = theme === "dark" ? "light" : "dark";
 								const apply = () => {
 									document.documentElement.dataset.theme = next;
+									setThemeFollowsSystem(false);
 									setTheme(next);
 								};
 								if (
@@ -4084,26 +4378,6 @@ export function App() {
 						<Icon name="plus" size={16} />
 						<span>{t("newChat")}</span>
 					</button>
-					{snapshot.workspacePath ? (
-						<div className="project-switcher-wrap project-menu-root">
-							<button
-								className="project-switcher"
-								disabled={!canChooseWorkspace}
-								type="button"
-								aria-expanded={projectMenuOpen}
-								onClick={() => setProjectMenuOpen((open) => !open)}
-							>
-								<Icon name="folder" size={15} />
-								<span className="project-switcher-name">
-									{openingWorkspace ? t("openingProject") : formatWorkspace(snapshot.workspacePath, t)}
-								</span>
-								<span className="switcher-chevron">
-									<Icon name="chevron" size={14} />
-								</span>
-							</button>
-							{projectMenuOpen ? renderProjectMenu() : null}
-						</div>
-					) : null}
 					<div className="sidebar-search-wrap">
 						<Icon name="search" size={13} />
 						<input
@@ -4144,6 +4418,14 @@ export function App() {
 				</footer>
 			</aside>
 			{sidebarOpen ? (
+				<button
+					className="mobile-panel-backdrop sidebar-backdrop"
+					type="button"
+					aria-label={t("hideSidebar")}
+					onClick={() => setSidebarOpen(false)}
+				/>
+			) : null}
+			{sidebarOpen ? (
 				<hr
 					className="column-resizer sidebar-resizer"
 					aria-label={t("resizeSidebarAria")}
@@ -4153,7 +4435,13 @@ export function App() {
 					aria-valuenow={sidebarWidth}
 					tabIndex={0}
 					onPointerDown={(event) => beginResize("sidebar", event.clientX)}
+					onDoubleClick={() => resetResize("sidebar")}
 					onKeyDown={(event) => {
+						if (event.key === "Enter") {
+							event.preventDefault();
+							resetResize("sidebar");
+							return;
+						}
 						if (event.key === "ArrowLeft" || event.key === "ArrowRight")
 							resizeByKeyboard("sidebar", event.key === "ArrowLeft" ? -16 : 16);
 					}}
@@ -4308,6 +4596,7 @@ export function App() {
 							/>
 						) : null}
 					</div>
+					<WindowControls />
 				</header>
 				{!isOnline || startupError ? (
 					<output className="offline-banner">
@@ -4473,15 +4762,22 @@ export function App() {
 							{session?.pendingMessages.length ? (
 								<div className="queued-panel">
 									<div className="queued-panel-header">
-										<span>QUEUED ({session.pendingMessages.length})</span>
+										<span>{t("queuedCount", { count: session.pendingMessages.length })}</span>
 										<button
 											type="button"
 											onClick={() => {
-												const texts = session.pendingMessages.map((message) => message.text);
-												setDraft((current) =>
-													current ? `${texts.join("\n\n")}\n\n${current}` : texts.join("\n\n"),
-												);
-												promptRef.current?.focus();
+												void (async () => {
+													const texts = session.pendingMessages.map((message) => message.text);
+													try {
+														await clearSessionQueue();
+														setDraft((current) =>
+															current ? `${texts.join("\n\n")}\n\n${current}` : texts.join("\n\n"),
+														);
+														promptRef.current?.focus();
+													} catch (error) {
+														setActionError(error instanceof Error ? error.message : String(error));
+													}
+												})();
 											}}
 										>
 											{t("retrieve")}
@@ -4559,9 +4855,14 @@ export function App() {
 						</output>
 					) : null}
 					{!session?.messages.length ? (
-						<div className="start-task-copy">
-							<strong>{snapshot.workspacePath ? "Start a task" : "Get started"}</strong>
-							{!snapshot.workspacePath ? <span>{t("startHint")}</span> : null}
+						<div
+							className="start-task-copy"
+							role="img"
+							aria-label={snapshot.workspacePath ? t("newSession") : t("startHint")}
+						>
+							<span className="start-task-icon">
+								<Icon name={snapshot.workspacePath ? "chat" : "sparkles"} size={24} />
+							</span>
 						</div>
 					) : null}
 					<ExtensionWidgetStack
@@ -4934,6 +5235,17 @@ export function App() {
 													type="button"
 													onClick={() => {
 														setComposerMenu(undefined);
+														void openDefaultWorkspace().catch((error: unknown) =>
+															setActionError(error instanceof Error ? error.message : String(error)),
+														);
+													}}
+												>
+													{t("useDefaultDirectory")}
+												</button>
+												<button
+													type="button"
+													onClick={() => {
+														setComposerMenu(undefined);
 														void handleChooseWorkspace();
 													}}
 												>
@@ -5017,27 +5329,31 @@ export function App() {
 												{filteredModels.length === 0 ? (
 													<p className="composer-popover-empty">{t("noMatchingModels")}</p>
 												) : (
-													filteredModels.map((model) => (
-														<button
-															key={getModelKey(model.provider, model.id)}
-															type="button"
-															className={
-																session?.model?.id === model.id &&
-																session.model.provider === model.provider
-																	? "is-current"
-																	: ""
-															}
-															onClick={() => {
-																setComposerMenu(undefined);
-																void handleChangeModel(getModelKey(model.provider, model.id));
-															}}
-														>
-															{session?.model?.id === model.id &&
-															session.model.provider === model.provider
-																? "✓ "
-																: ""}
-															{model.provider} / {model.name}
-														</button>
+													filteredModelsByProvider.map(([provider, models]) => (
+														<div className="composer-model-group" key={provider}>
+															{filteredModelsByProvider.length > 1 ? (
+																<span className="composer-model-group-label">{provider}</span>
+															) : null}
+															{models.map((model) => {
+																const current =
+																	session?.model?.id === model.id &&
+																	session.model.provider === model.provider;
+																return (
+																	<button
+																		key={getModelKey(model.provider, model.id)}
+																		type="button"
+																		className={current ? "is-current" : ""}
+																		onClick={() => {
+																			setComposerMenu(undefined);
+																			void handleChangeModel(getModelKey(model.provider, model.id));
+																		}}
+																	>
+																		<span>{model.name}</span>
+																		{current ? <span className="composer-model-check">✓</span> : null}
+																	</button>
+																);
+															})}
+														</div>
 													))
 												)}
 											</div>
@@ -5105,17 +5421,41 @@ export function App() {
 											}
 										>
 											<Icon name="wrench" size={14} />
-											<span>{toolPreset}</span>
+											<span>
+												{t(
+													`toolPreset${toolPreset[0].toUpperCase()}${toolPreset.slice(1)}` as
+														| "toolPresetNone"
+														| "toolPresetDefault"
+														| "toolPresetFull",
+												)}
+											</span>
 										</button>
 										{composerMenu === "tools" ? (
 											<div className="composer-popover" role="menu">
-												{(["off", "default", "full"] as const).map((preset) => (
+												{(["none", "default", "full"] as const).map((preset) => (
 													<button
 														key={preset}
 														type="button"
-														onClick={() => handleToolPresetChange(preset)}
+														className={`tool-preset-option${preset === toolPreset ? " is-current" : ""}`}
+														onClick={() => void handleToolPresetChange(preset)}
 													>
-														{preset}
+														<span>{preset === toolPreset ? "✓" : ""}</span>
+														<span>
+															{t(
+																`toolPreset${preset[0].toUpperCase()}${preset.slice(1)}` as
+																	| "toolPresetNone"
+																	| "toolPresetDefault"
+																	| "toolPresetFull",
+															)}
+														</span>
+														<small>
+															{t(
+																`toolPreset${preset[0].toUpperCase()}${preset.slice(1)}Description` as
+																	| "toolPresetNoneDescription"
+																	| "toolPresetDefaultDescription"
+																	| "toolPresetFullDescription",
+															)}
+														</small>
 													</button>
 												))}
 											</div>
@@ -5171,10 +5511,24 @@ export function App() {
 					aria-valuenow={inspectorWidth}
 					tabIndex={0}
 					onPointerDown={(event) => beginResize("inspector", event.clientX)}
+					onDoubleClick={() => resetResize("inspector")}
 					onKeyDown={(event) => {
+						if (event.key === "Enter") {
+							event.preventDefault();
+							resetResize("inspector");
+							return;
+						}
 						if (event.key === "ArrowLeft" || event.key === "ArrowRight")
 							resizeByKeyboard("inspector", event.key === "ArrowLeft" ? 16 : -16);
 					}}
+				/>
+			) : null}
+			{inspectorOpen ? (
+				<button
+					className="mobile-panel-backdrop inspector-backdrop"
+					type="button"
+					aria-label={t("closeRightPanel")}
+					onClick={() => setInspectorOpen(false)}
 				/>
 			) : null}
 			{inspectorOpen ? (
@@ -5220,22 +5574,65 @@ export function App() {
 							)}
 						</div>
 						<div className="file-workbench-actions">
-							<button
-								className={`icon-button ${rightPanelMode === "source" ? "is-active" : ""}`}
-								type="button"
-								aria-label={t("sourceControl")}
-								aria-pressed={rightPanelMode === "source"}
-								disabled={!snapshot.workspacePath || !snapshot.projectTrusted}
-								title={!snapshot.projectTrusted ? t("trustForSourceControlHint") : t("sourceControl")}
-								onClick={() => setRightPanelMode((mode) => (mode === "source" ? "files" : "source"))}
-							>
-								<Icon name="branch" size={15} />
-							</button>
+							<div className="file-actions-menu-anchor">
+								<button
+									className={`icon-button ${fileActionsMenuOpen ? "is-active" : ""}`}
+									type="button"
+									aria-label={t("more")}
+									aria-expanded={fileActionsMenuOpen}
+									onClick={() => setFileActionsMenuOpen((open) => !open)}
+								>
+									<Icon name="more" size={15} />
+								</button>
+								{fileActionsMenuOpen ? (
+									<div className="file-actions-menu" role="menu">
+										<button
+											type="button"
+											disabled={!activeFileTab}
+											onClick={() => {
+												if (activeFileTab) {
+													void navigator.clipboard.writeText(activeFileTab.path).then(
+														() => pushNotice("success", t("pathCopied")),
+														() => pushNotice("error", t("pathCopyFailed")),
+													);
+												}
+												setFileActionsMenuOpen(false);
+											}}
+										>
+											{t("fileActionCopyPath")}
+										</button>
+										<button
+											type="button"
+											disabled={!activeFileTab}
+											onClick={() => {
+												if (activeFileTab) {
+													void navigator.clipboard.writeText(activeFileTab.preview.content).then(
+														() => pushNotice("success", t("contentCopied")),
+														() => pushNotice("error", t("contentCopyFailed")),
+													);
+												}
+												setFileActionsMenuOpen(false);
+											}}
+										>
+											{t("fileActionCopyContent")}
+										</button>
+										<button
+											type="button"
+											disabled={!activeFileTab}
+											onClick={() => {
+												window.dispatchEvent(new Event("pi:file-toggle-wrap"));
+												setFileActionsMenuOpen(false);
+											}}
+										>
+											{t("fileActionWrap")}
+										</button>
+									</div>
+								) : null}
+							</div>
 							<button
 								className={`icon-button ${fileTreeOpen ? "is-active" : ""}`}
 								type="button"
 								aria-label={fileTreeOpen ? t("hideFileTree") : t("showFileTree")}
-								disabled={rightPanelMode === "source"}
 								onClick={() => setFileTreeOpen((open) => !open)}
 							>
 								<Icon name="files" size={15} />
@@ -5251,37 +5648,33 @@ export function App() {
 						</div>
 					</header>
 					<div className="right-panel-body">
-						{rightPanelMode === "source" ? <SourceControl key={workspaceRefreshToken} /> : null}
-						{rightPanelMode === "files" ? (
-							<Inspector
-								changedHint={changedFileHint}
-								onReloadChanged={() => {
-									setChangedFileHint(false);
-									if (activeTabPath) void handleReloadActiveTab(activeTabPath);
-								}}
-								tabs={fileTabs}
-								activeTabPath={activeTabPath}
-								onClose={() => setInspectorOpen(false)}
-								onOpenFile={(path) => void handleOpenFileWithDefaultApp(path)}
-								onRevealFile={(path) => void handleRevealFile(path)}
-								onDownload={(path) => void handleDownloadFile(path)}
-								onCopyPath={(path) => {
-									void navigator.clipboard.writeText(path).then(
-										() => pushNotice("success", t("pathCopied")),
-										() => pushNotice("error", t("pathCopyFailed")),
-									);
-								}}
-								onCopyContent={(content) => {
-									void navigator.clipboard.writeText(content).then(
-										() => pushNotice("success", t("contentCopied")),
-										() => pushNotice("error", t("contentCopyFailed")),
-									);
-								}}
-								onQuoteLine={handleQuoteLine}
-								onQuoteLineRange={handleQuoteLineRange}
-							/>
-						) : null}
-						{rightPanelMode === "files" && fileTreeOpen ? (
+						<Inspector
+							changedHint={changedFileHint}
+							onReloadChanged={() => {
+								setChangedFileHint(false);
+								if (activeTabPath) void handleReloadActiveTab(activeTabPath);
+							}}
+							tabs={fileTabs}
+							activeTabPath={activeTabPath}
+							onClose={() => setInspectorOpen(false)}
+							onOpenFile={(path) => void handleOpenFileWithDefaultApp(path)}
+							onRevealFile={(path) => void handleRevealFile(path)}
+							onDownload={(path) => void handleDownloadFile(path)}
+							onCopyPath={(path) => {
+								void navigator.clipboard.writeText(path).then(
+									() => pushNotice("success", t("pathCopied")),
+									() => pushNotice("error", t("pathCopyFailed")),
+								);
+							}}
+							onCopyContent={(content) => {
+								void navigator.clipboard.writeText(content).then(
+									() => pushNotice("success", t("contentCopied")),
+									() => pushNotice("error", t("contentCopyFailed")),
+								);
+							}}
+							onQuoteLines={handleQuoteLines}
+						/>
+						{fileTreeOpen ? (
 							<>
 								<hr
 									className="file-tree-resizer"
@@ -5292,7 +5685,13 @@ export function App() {
 									aria-valuenow={fileTreeWidth}
 									tabIndex={0}
 									onPointerDown={(event) => beginResize("fileTree", event.clientX)}
+									onDoubleClick={() => resetResize("fileTree")}
 									onKeyDown={(event) => {
+										if (event.key === "Enter") {
+											event.preventDefault();
+											resetResize("fileTree");
+											return;
+										}
 										if (event.key === "ArrowLeft" || event.key === "ArrowRight")
 											resizeByKeyboard("fileTree", event.key === "ArrowLeft" ? 16 : -16);
 									}}
@@ -5317,25 +5716,13 @@ export function App() {
 											setExplorerReloadSignal((value) => value + 1);
 										}}
 										onTrustProject={() => void handleProjectTrust()}
-										onUpload={(files, targetDirectory) =>
-											void handleImportWorkspaceFiles(files, targetDirectory)
-										}
+										onUpload={handleImportWorkspaceFiles}
 									/>
 								</div>
 							</>
 						) : null}
 					</div>
 				</aside>
-			) : null}
-			{directoryPickerOpen ? (
-				<DirectoryPicker
-					busy={openingWorkspace}
-					error={directoryPickerError}
-					onClose={() => {
-						if (!openingWorkspace) setDirectoryPickerOpen(false);
-					}}
-					onSelect={(path) => void handleDirectorySelect(path)}
-				/>
 			) : null}
 			{configModal === "models" ? (
 				<ModelsConfigModal
@@ -5377,7 +5764,10 @@ export function App() {
 				<AppSettingsModal
 					theme={theme}
 					notifyOnComplete={notifyOnComplete}
-					onChangeTheme={setTheme}
+					onChangeTheme={(nextTheme) => {
+						setThemeFollowsSystem(false);
+						setTheme(nextTheme);
+					}}
 					onToggleNotify={() => setNotifyOnComplete((current) => !current)}
 					onClose={() => setConfigModal(undefined)}
 				/>

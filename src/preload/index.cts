@@ -58,6 +58,7 @@ import type {
 const desktopApi: DesktopApi = {
 	bootstrap: () => ipcRenderer.invoke("pi-desktop:bootstrap") as Promise<DesktopSnapshot>,
 	chooseWorkspace: () => ipcRenderer.invoke("pi-desktop:choose-workspace") as Promise<DesktopSnapshot>,
+	openDefaultWorkspace: () => ipcRenderer.invoke("pi-desktop:open-default-workspace") as Promise<DesktopSnapshot>,
 	browseDirectories: (path?: string) => ipcRenderer.invoke("pi-desktop:browse-directories", path) as Promise<DesktopDirectoryListing>,
 	selectDirectory: () => ipcRenderer.invoke("pi-desktop:select-directory") as Promise<string | undefined>,
 	chooseImages: () => ipcRenderer.invoke("pi-desktop:choose-images") as Promise<DesktopImageAttachment[]>,
@@ -76,6 +77,7 @@ const desktopApi: DesktopApi = {
 		}),
 	prompt: (input: DesktopPromptInput) => ipcRenderer.invoke("pi-desktop:prompt", input) as Promise<DesktopSnapshot>,
 	abort: () => ipcRenderer.invoke("pi-desktop:abort") as Promise<DesktopSnapshot>,
+	clearQueue: () => ipcRenderer.invoke("pi-desktop:clear-queue") as Promise<DesktopSnapshot>,
 	openSession: (input: DesktopOpenSessionInput) =>
 		ipcRenderer.invoke("pi-desktop:open-session", input) as Promise<DesktopSnapshot>,
 	newSession: () => ipcRenderer.invoke("pi-desktop:new-session") as Promise<DesktopSnapshot>,
@@ -98,6 +100,7 @@ const desktopApi: DesktopApi = {
 	setModel: (input: DesktopModelSelectionInput) =>
 		ipcRenderer.invoke("pi-desktop:set-model", input) as Promise<DesktopSnapshot>,
 	setThinkingLevel: (level) => ipcRenderer.invoke("pi-desktop:set-thinking-level", level) as Promise<DesktopSnapshot>,
+	setToolPreset: (preset) => ipcRenderer.invoke("pi-desktop:set-tool-preset", preset) as Promise<DesktopSnapshot>,
 	compact: (customInstructions?: string) =>
 		ipcRenderer.invoke("pi-desktop:compact", customInstructions) as Promise<DesktopSnapshot>,
 	setProjectTrust: (input) => ipcRenderer.invoke("pi-desktop:set-project-trust", input) as Promise<DesktopSnapshot>,
@@ -143,6 +146,9 @@ const desktopApi: DesktopApi = {
 	setCloseQuits: (closeQuits: boolean) =>
 		ipcRenderer.invoke("pi-desktop:set-close-quits", closeQuits) as Promise<void>,
 	quitApp: () => ipcRenderer.invoke("pi-desktop:quit-app") as Promise<void>,
+	minimizeWindow: () => ipcRenderer.invoke("pi-desktop:minimize-window") as Promise<void>,
+	toggleWindowMaximize: () => ipcRenderer.invoke("pi-desktop:toggle-window-maximize") as Promise<boolean>,
+	closeWindow: () => ipcRenderer.invoke("pi-desktop:close-window") as Promise<void>,
 	getModelsConfig: () => ipcRenderer.invoke("pi-desktop:get-models-config") as Promise<DesktopProviderConfig[]>,
 	saveModelsConfig: (input: DesktopSaveModelsConfigInput) =>
 		ipcRenderer.invoke("pi-desktop:save-models-config", input) as Promise<DesktopSnapshot>,

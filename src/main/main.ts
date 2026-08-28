@@ -1,8 +1,10 @@
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, realpath, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import {
 	app,
 	BrowserWindow,
@@ -82,6 +84,7 @@ function getTrayIcon(): NativeImage {
 
 const MAX_IMAGE_ATTACHMENTS = 10;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const execFileAsync = promisify(execFile);
 
 interface PendingImageAttachment {
 	id: string;
@@ -147,6 +150,7 @@ function createWindow(): BrowserWindow {
 		minHeight: 600,
 		backgroundColor: "#161615",
 		...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const } : {}),
+		...(process.platform === "darwin" ? {} : { frame: false }),
 		show: false,
 		webPreferences: {
 			contextIsolation: true,
@@ -374,6 +378,10 @@ function registerIpc(): void {
 		if (result.canceled || !result.filePaths[0]) return getHost().getSnapshot();
 		return getHost().openWorkspace(result.filePaths[0]);
 	});
+	ipcMain.handle("pi-desktop:open-default-workspace", async (event): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		return getHost().openDefaultWorkspace();
+	});
 	ipcMain.handle("pi-desktop:browse-directories", async (event, value: unknown) => {
 		assertMainWindowSender(event);
 		if (value !== undefined && (typeof value !== "string" || value.length === 0 || value.length > 4000)) {
@@ -506,6 +514,10 @@ function registerIpc(): void {
 		assertMainWindowSender(event);
 		return getHost().abort();
 	});
+	ipcMain.handle("pi-desktop:clear-queue", async (event): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		return getHost().clearQueue();
+	});
 	ipcMain.handle("pi-desktop:open-session", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
 		if (!isDesktopOpenSessionInput(value)) {
@@ -626,27 +638,15 @@ function registerIpc(): void {
 	});
 	ipcMain.handle("pi-desktop:export-session", async (event): Promise<string> => {
 		assertMainWindowSender(event);
-		const snapshot = getHost().getSnapshot();
-		const session = snapshot.session;
-		if (!session) throw new Error("没有可导出的会话。");
-		const escapeHtml = (text: string): string =>
-			text.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;");
-		const body = session.messages
-			.map((message) => {
-				const label =
-					message.role === "user" ? "你" : message.role === "assistant" ? "助手" : (message.toolName ?? "系统");
-				return `<section class="msg ${message.role}"><h3>${escapeHtml(label)}${
-					message.timestamp ? `<time>${new Date(message.timestamp).toLocaleString()}</time>` : ""
-				}</h3><pre>${escapeHtml(message.text)}</pre></section>`;
-			})
-			.join("\n");
-		const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${escapeHtml(
-			session.name ?? "Pi 会话",
-		)}</title><style>body{font-family:-apple-system,'Segoe UI',sans-serif;max-width:820px;margin:0 auto;padding:32px 20px;color:#1a1a1a;background:#fff}h1{font-size:20px}section.msg{margin:0 0 20px;padding:12px 16px;border-radius:10px;background:#f5f5f5}section.msg.user{background:#e8f0fe}section.msg h3{margin:0 0 8px;font-size:12px;color:#666;display:flex;justify-content:space-between}section.msg pre{white-space:pre-wrap;word-break:break-word;margin:0;font:inherit;font-size:14px;line-height:1.65}</style></head><body><h1>${escapeHtml(
-			session.name ?? "Pi 会话",
-		)}</h1>${body}</body></html>`;
 		const filePath = join(app.getPath("temp"), `pi-session-${Date.now()}.html`);
-		await writeFile(filePath, html, { mode: 0o600 });
+		const sessionFile = getHost().getActiveSessionFile();
+		const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
+		const cliPath = join(dirname(codingAgentEntry), "bundle", "cli.js");
+		await execFileAsync(process.execPath, [cliPath, "--export", sessionFile, filePath], {
+			env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+			timeout: 30_000,
+			maxBuffer: 1024 * 1024,
+		});
 		await getHost().openPath(filePath);
 		return filePath;
 	});
@@ -668,6 +668,13 @@ function registerIpc(): void {
 		return getHost().setThinkingLevel(
 			value as "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
 		);
+	});
+	ipcMain.handle("pi-desktop:set-tool-preset", async (event, value: unknown): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		if (value !== "none" && value !== "default" && value !== "full") {
+			throw new Error("无效的工具预设。");
+		}
+		return getHost().setToolPreset(value);
 	});
 	ipcMain.handle("pi-desktop:compact", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
@@ -809,6 +816,24 @@ function registerIpc(): void {
 		assertMainWindowSender(event);
 		isQuitting = true;
 		app.quit();
+	});
+	ipcMain.handle("pi-desktop:minimize-window", (event): void => {
+		assertMainWindowSender(event);
+		mainWindow?.minimize();
+	});
+	ipcMain.handle("pi-desktop:toggle-window-maximize", (event): boolean => {
+		assertMainWindowSender(event);
+		if (!mainWindow) return false;
+		if (mainWindow.isMaximized()) {
+			mainWindow.unmaximize();
+			return false;
+		}
+		mainWindow.maximize();
+		return true;
+	});
+	ipcMain.handle("pi-desktop:close-window", (event): void => {
+		assertMainWindowSender(event);
+		mainWindow?.close();
 	});
 	ipcMain.handle("pi-desktop:list-git-changes", async (event) => {
 		assertMainWindowSender(event);

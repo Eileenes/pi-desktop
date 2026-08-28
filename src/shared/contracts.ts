@@ -36,6 +36,7 @@ export interface DesktopTranscriptMessage {
 }
 
 export type DesktopThinkingLevel = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type DesktopToolPreset = "none" | "default" | "full";
 
 export interface DesktopSessionSnapshot {
 	id: string;
@@ -51,6 +52,7 @@ export interface DesktopSessionSnapshot {
 	};
 	thinkingLevel?: DesktopThinkingLevel;
 	availableThinkingLevels?: DesktopThinkingLevel[];
+	activeToolNames?: string[];
 	isCompacting?: boolean;
 	autoRetry?: {
 		attempt: number;
@@ -607,6 +609,7 @@ export type Unsubscribe = () => void;
 export interface DesktopApi {
 	bootstrap(): Promise<DesktopSnapshot>;
 	chooseWorkspace(): Promise<DesktopSnapshot>;
+	openDefaultWorkspace(): Promise<DesktopSnapshot>;
 	browseDirectories(path?: string): Promise<DesktopDirectoryListing>;
 	selectDirectory(): Promise<string | undefined>;
 	chooseImages(): Promise<DesktopImageAttachment[]>;
@@ -621,6 +624,7 @@ export interface DesktopApi {
 	): Promise<DesktopImportedFileResult[]>;
 	prompt(input: DesktopPromptInput): Promise<DesktopSnapshot>;
 	abort(): Promise<DesktopSnapshot>;
+	clearQueue(): Promise<DesktopSnapshot>;
 	openSession(input: DesktopOpenSessionInput): Promise<DesktopSnapshot>;
 	newSession(): Promise<DesktopSnapshot>;
 	navigateTree(input: DesktopNavigateTreeInput): Promise<DesktopSnapshot>;
@@ -635,6 +639,7 @@ export interface DesktopApi {
 	copyLastAnswer(): Promise<string>;
 	setModel(input: DesktopModelSelectionInput): Promise<DesktopSnapshot>;
 	setThinkingLevel(level: DesktopThinkingLevel): Promise<DesktopSnapshot>;
+	setToolPreset(preset: DesktopToolPreset): Promise<DesktopSnapshot>;
 	compact(customInstructions?: string): Promise<DesktopSnapshot>;
 	setProjectTrust(input: DesktopProjectTrustInput): Promise<DesktopSnapshot>;
 	decideToolApproval(input: DesktopToolApprovalDecisionInput): Promise<DesktopSnapshot>;
@@ -666,6 +671,9 @@ export interface DesktopApi {
 	openWorkspacePath(input: DesktopOpenWorkspacePathInput): Promise<DesktopSnapshot>;
 	setCloseQuits(closeQuits: boolean): Promise<void>;
 	quitApp(): Promise<void>;
+	minimizeWindow(): Promise<void>;
+	toggleWindowMaximize(): Promise<boolean>;
+	closeWindow(): Promise<void>;
 	getModelsConfig(): Promise<DesktopProviderConfig[]>;
 	saveModelsConfig(input: DesktopSaveModelsConfigInput): Promise<DesktopSnapshot>;
 	getModelScope(): Promise<DesktopModelScope>;

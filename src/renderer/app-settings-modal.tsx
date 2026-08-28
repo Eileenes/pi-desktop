@@ -99,12 +99,14 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 		void setCloseQuits(next);
 	}
 
-	async function handleDownload(): Promise<void> {
+	async function handleUpgrade(): Promise<void> {
 		if (!selectedAsset) return;
 		setInstallError(undefined);
 		setDownloadState({ phase: "downloading", assetName: selectedAsset, receivedBytes: 0 });
 		try {
-			setDownloadState(await downloadUpdate(selectedAsset));
+			const state = await downloadUpdate(selectedAsset);
+			setDownloadState(state);
+			if (state.phase === "completed") await installUpdate();
 		} catch (error: unknown) {
 			setDownloadState({
 				phase: "failed",
@@ -210,9 +212,9 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 									className="accent-button"
 									type="button"
 									disabled={!selectedAsset}
-									onClick={() => void handleDownload()}
+									onClick={() => void handleUpgrade()}
 								>
-									{downloadState.phase === "failed" ? t("retryDownload") : t("downloadUpdate")}
+									{downloadState.phase === "failed" ? t("retryDownload") : t("update")}
 								</button>
 							)}
 						</div>

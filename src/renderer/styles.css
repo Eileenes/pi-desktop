@@ -216,19 +216,13 @@ textarea:focus-visible {
 }
 
 .column-resizer::after {
-	position: absolute;
-	top: 0;
-	bottom: 0;
-	left: 5px;
-	width: 1px;
-	background: transparent;
-	transition: background 120ms ease;
+	display: none;
 	content: "";
 }
 
 .column-resizer:hover::after,
 .column-resizer:focus-visible::after {
-	background: color-mix(in srgb, var(--border-subtle) 92%, var(--muted));
+	background: transparent;
 }
 
 /* macOS: traffic lights float over the sidebar top; headers are drag regions */
@@ -270,7 +264,7 @@ textarea:focus-visible {
 	flex: 0 0 var(--sidebar-width, 260px);
 	flex-direction: column;
 	overflow: hidden;
-	border-right: 1px solid var(--border-subtle);
+	border-right: 0;
 	background: var(--surface-1);
 	transition: width 200ms ease, min-width 200ms ease, flex-basis 200ms ease;
 }
@@ -286,7 +280,7 @@ textarea:focus-visible {
 	display: grid;
 	gap: 2px;
 	padding: 12px 10px 10px;
-	border-bottom: 1px solid var(--border-subtle);
+	border-bottom: 0;
 }
 
 .sidebar-controls-row {
@@ -360,7 +354,7 @@ textarea:focus-visible {
 	justify-content: space-between;
 	gap: 4px;
 	padding: 8px;
-	border-top: 1px solid var(--border-subtle);
+	border-top: 0;
 }
 
 .footer-button {
@@ -592,18 +586,24 @@ textarea:focus-visible {
 	background: var(--surface-1);
 	box-shadow: 0 1px 2px rgb(0 0 0 / 6%);
 }
-.top-bar-more-wrap { position: relative; }
+.top-bar-more-wrap {
+	position: relative;
+	z-index: 40;
+	isolation: isolate;
+}
 .top-bar-more-menu {
 	position: absolute;
 	right: 0;
 	top: calc(100% + 6px);
-	z-index: 60;
+	/* The menu must sit above message controls, streaming content, and panels. */
+	z-index: 50;
 	display: grid;
 	min-width: 260px;
 	padding: 5px;
 	border: 1px solid var(--border-subtle);
 	border-radius: 10px;
 	background: var(--surface-1);
+	opacity: 1;
 	box-shadow: var(--shadow-float);
 }
 
@@ -1988,6 +1988,8 @@ textarea:focus-visible {
 
 .chat-workspace {
 	position: relative;
+	/* Keep the chat card's chrome and its overlays in one predictable stack. */
+	isolation: isolate;
 	display: grid;
 	grid-template-rows: 48px minmax(0, 1fr) auto;
 	min-width: 0;
@@ -1997,6 +1999,8 @@ textarea:focus-visible {
 }
 
 .top-bar {
+	position: relative;
+	z-index: 20;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -2004,7 +2008,7 @@ textarea:focus-visible {
 	height: 48px;
 	min-height: 48px;
 	padding: 0 9px 0 12px;
-	border-bottom: 1px solid var(--border-subtle);
+	border-bottom: 0;
 	background: color-mix(in srgb, var(--bg) 88%, var(--surface-1));
 }
 
@@ -2046,6 +2050,7 @@ textarea:focus-visible {
 
 .top-bar-actions {
 	position: relative;
+	z-index: 30;
 	gap: 2px;
 }
 
@@ -4997,31 +5002,50 @@ textarea:focus-visible {
 /* The chat is the primary work surface: a raised canvas beside the sidebar. */
 @media (width >= 641px) {
 	.chat-workspace {
-		margin: 8px;
+		margin: 4px 4px 2px;
 		border: 1px solid var(--border-subtle);
-		border-radius: 26px;
+		border-radius: 16px;
 		background: var(--bg);
-		box-shadow: 0 10px 32px rgb(0 0 0 / 7%);
+		box-shadow: 0 6px 18px rgb(0 0 0 / 6%);
 		overflow: hidden;
 	}
 
+	/* The work surface slightly overlaps the sidebar edge, preserving a layered
+	 * canvas without a visible divider or a dead-looking gutter. */
+	.app-workbench.is-sidebar-open .chat-workspace {
+		z-index: 1;
+		margin-left: -4px;
+	}
+
 	.right-panel {
-		margin: 8px 8px 8px 0;
+		margin: 4px 4px 2px 0;
 		border: 1px solid var(--border-subtle);
-		border-radius: 22px;
+		border-radius: 14px;
 		background: var(--surface-1);
-		box-shadow: 0 10px 32px rgb(0 0 0 / 7%);
+		box-shadow: 0 6px 18px rgb(0 0 0 / 6%);
 	}
 
 	/* With no sidebar, the root padding becomes the card's outer gutter so
 	 * macOS traffic lights remain visually inside the same raised surface. */
 	.app-workbench.is-sidebar-closed {
-		padding: 8px;
+		padding: 4px 4px 2px;
 	}
 
 	.app-workbench.is-sidebar-closed .chat-workspace,
 	.app-workbench.is-sidebar-closed .right-panel {
 		margin: 0;
+	}
+
+	/* In the collapsed macOS layout, native traffic lights and the toolbar share
+	 * one solid, rounded card surface instead of floating over the page gutter. */
+	.app-workbench.is-macos.is-sidebar-closed .chat-workspace {
+		background: var(--bg);
+		border-radius: 16px;
+	}
+
+	.app-workbench.is-macos.is-sidebar-closed .top-bar {
+		z-index: 30;
+		background: var(--bg);
 	}
 }
 

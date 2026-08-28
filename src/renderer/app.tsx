@@ -3871,25 +3871,11 @@ export function App() {
 			projects.set(root, entries);
 		}
 		const activeProjects = [...projects.entries()].filter(([root]) => !archivedProjectRoots.has(root));
-		const archivedProjects = [...projects.entries()].filter(([root]) => archivedProjectRoots.has(root));
 		return (
 			<section className="sessions-panel sidebar-project-tree" aria-label={t("sessions")}>
 				<div className="sidebar-projects-header project-menu-root">
 					<span>{t("projects")}</span>
 					<div className="sidebar-projects-actions">
-						<button
-							className="icon-button compact"
-							type="button"
-							aria-label={collapsedProjects.size ? t("expandProjects") : t("collapseProjects")}
-							disabled={!activeProjects.length}
-							onClick={() =>
-								setCollapsedProjects((current) =>
-									current.size ? new Set() : new Set(activeProjects.map(([root]) => root)),
-								)
-							}
-						>
-							<Icon name="chevron" size={14} />
-						</button>
 						<button
 							className="icon-button compact"
 							type="button"
@@ -3923,8 +3909,6 @@ export function App() {
 							if (sessionSearch.trim() && filteredItems.length === 0) return null;
 							const flattenedItems = flattenSessionTree(filteredItems);
 							const active = items.some((item) => item.id === session?.id);
-							const runningCount = items.filter((item) => item.phase === "running").length;
-							const unreadCount = items.filter((item) => unreadSessionIds.has(item.id)).length;
 							const branch =
 								items.find((item) => item.worktreeBranch)?.worktreeBranch ??
 								gitWorktrees.find((tree) => tree.path.replace(/[\\/]+$/u, "") === root)?.branch;
@@ -3958,13 +3942,6 @@ export function App() {
 											<span className="sidebar-project-tree-copy">
 												<span className="sidebar-project-tree-name">{formatWorkspace(root, t)}</span>
 												{branch ? <small>⎇ {formatGitBranch(branch)}</small> : null}
-											</span>
-											<span className="sidebar-project-badges">
-												{runningCount ? (
-													<span className="sidebar-project-running">{runningCount}</span>
-												) : null}
-												{unreadCount ? <span className="sidebar-project-unread">{unreadCount}</span> : null}
-												{!runningCount && !unreadCount ? <span>{items.length}</span> : null}
 											</span>
 										</button>
 										<div className="sidebar-project-tree-row-actions">
@@ -4211,28 +4188,6 @@ export function App() {
 							);
 						})
 					: null}
-				{archivedProjects.length ? (
-					<div className="archived-projects">
-						<div className="settings-group-label">{t("archivedProjects")}</div>
-						{archivedProjects.map(([root]) => (
-							<div className="archived-project-row" key={root}>
-								<span title={root}>{formatWorkspace(root, t)}</span>
-								<button
-									type="button"
-									onClick={() =>
-										setArchivedProjectRoots((current) => {
-											const next = new Set(current);
-											next.delete(root);
-											return next;
-										})
-									}
-								>
-									{t("restore")}
-								</button>
-							</div>
-						))}
-					</div>
-				) : null}
 			</section>
 		);
 	}
@@ -4242,11 +4197,40 @@ export function App() {
 
 	function renderProjectMenu() {
 		const query = projectFilter.trim().toLocaleLowerCase();
+		const archivedProjectPaths = [...archivedProjectRoots].sort((left, right) => left.localeCompare(right));
+		const activeProjectRoots = [
+			...new Set(
+				snapshot.sessions
+					.map((item) => (item.projectRoot ?? item.cwd).replace(/[\\/]+$/, ""))
+					.filter((path) => !archivedProjectRoots.has(path)),
+			),
+		];
+		const allProjectsCollapsed =
+			activeProjectRoots.length > 0 && activeProjectRoots.every((path) => collapsedProjects.has(path));
 		const visibleRecentWorkspaces = recentWorkspaces.filter(
 			(path) => !query || path.toLocaleLowerCase().includes(query),
 		);
 		return (
 			<div className="project-menu" role="menu">
+				<button
+					className="project-menu-item"
+					type="button"
+					disabled={activeProjectRoots.length === 0}
+					onClick={() => {
+						setCollapsedProjects((current) => {
+							const next = new Set(current);
+							for (const path of activeProjectRoots) {
+								if (allProjectsCollapsed) next.delete(path);
+								else next.add(path);
+							}
+							return next;
+						});
+						setProjectMenuOpen(false);
+					}}
+				>
+					<Icon name="compact" size={14} />
+					<span>{allProjectsCollapsed ? t("expandProjects") : t("collapseProjects")}</span>
+				</button>
 				<button
 					className="project-menu-item"
 					type="button"
@@ -4291,6 +4275,31 @@ export function App() {
 						{visibleRecentWorkspaces.length === 0 ? (
 							<p className="project-menu-empty">{t("noMatchingProjects")}</p>
 						) : null}
+					</>
+				) : null}
+				{archivedProjectPaths.length ? (
+					<>
+						<div className="project-menu-label project-menu-archived-label">{t("archivedProjects")}</div>
+						{archivedProjectPaths.map((path) => (
+							<button
+								className="project-menu-item project-menu-archived-item"
+								key={path}
+								type="button"
+								title={path}
+								onClick={() => {
+									setArchivedProjectRoots((current) => {
+										const next = new Set(current);
+										next.delete(path);
+										return next;
+									});
+									setProjectMenuOpen(false);
+								}}
+							>
+								<Icon name="folder" size={14} />
+								<span>{formatWorkspace(path, t)}</span>
+								<small>{t("restore")}</small>
+							</button>
+						))}
 					</>
 				) : null}
 				{snapshot.workspacePath ? (
@@ -4369,26 +4378,6 @@ export function App() {
 						<Icon name="plus" size={16} />
 						<span>{t("newChat")}</span>
 					</button>
-					{snapshot.workspacePath ? (
-						<div className="project-switcher-wrap project-menu-root">
-							<button
-								className="project-switcher"
-								disabled={!canChooseWorkspace}
-								type="button"
-								aria-expanded={projectMenuOpen}
-								onClick={() => setProjectMenuOpen((open) => !open)}
-							>
-								<Icon name="folder" size={15} />
-								<span className="project-switcher-name">
-									{openingWorkspace ? t("openingProject") : formatWorkspace(snapshot.workspacePath, t)}
-								</span>
-								<span className="switcher-chevron">
-									<Icon name="chevron" size={14} />
-								</span>
-							</button>
-							{projectMenuOpen ? renderProjectMenu() : null}
-						</div>
-					) : null}
 					<div className="sidebar-search-wrap">
 						<Icon name="search" size={13} />
 						<input

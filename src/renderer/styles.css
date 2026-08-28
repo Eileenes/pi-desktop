@@ -65,7 +65,9 @@
 
 	--shadow-float: 0 1px 2px rgb(0 0 0 / 40%), 0 8px 32px rgb(0 0 0 / 30%);
 
-	--font-sans: "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+	--font-sans:
+		-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB",
+		"Microsoft YaHei", sans-serif;
 	--font-mono: "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 	/* Compatibility aliases keep older component rules on the same system. */
 	--surface-0: var(--bg);
@@ -197,7 +199,7 @@ textarea:focus-visible {
 	height: 100dvh;
 	min-height: 0;
 	overflow: hidden;
-	background: var(--bg);
+	background: var(--surface-recessed);
 }
 
 .column-resizer {
@@ -1274,43 +1276,6 @@ textarea:focus-visible {
 .session-more-meta span {
 	overflow: hidden;
 	text-overflow: ellipsis;
-}
-
-.archived-projects {
-	margin-top: 12px;
-	padding-top: 5px;
-	border-top: 1px solid var(--border-subtle);
-}
-
-.archived-project-row {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
-	min-height: 28px;
-	padding: 0 8px;
-	color: var(--muted);
-	font-size: 11px;
-}
-
-.archived-project-row > span {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.archived-project-row button {
-	padding: 3px 7px;
-	border: 0;
-	border-radius: 5px;
-	color: var(--text-dim);
-	background: var(--hover);
-	font-size: 10px;
-}
-
-.archived-project-row button:hover {
-	color: var(--text);
-	background: var(--hover-strong);
 }
 
 .session-more-menu button:disabled {
@@ -5029,6 +4994,37 @@ textarea:focus-visible {
 	background: var(--bg);
 }
 
+/* The chat is the primary work surface: a raised canvas beside the sidebar. */
+@media (width >= 641px) {
+	.chat-workspace {
+		margin: 8px;
+		border: 1px solid var(--border-subtle);
+		border-radius: 26px;
+		background: var(--bg);
+		box-shadow: 0 10px 32px rgb(0 0 0 / 7%);
+		overflow: hidden;
+	}
+
+	.right-panel {
+		margin: 8px 8px 8px 0;
+		border: 1px solid var(--border-subtle);
+		border-radius: 22px;
+		background: var(--surface-1);
+		box-shadow: 0 10px 32px rgb(0 0 0 / 7%);
+	}
+
+	/* With no sidebar, the root padding becomes the card's outer gutter so
+	 * macOS traffic lights remain visually inside the same raised surface. */
+	.app-workbench.is-sidebar-closed {
+		padding: 8px;
+	}
+
+	.app-workbench.is-sidebar-closed .chat-workspace,
+	.app-workbench.is-sidebar-closed .right-panel {
+		margin: 0;
+	}
+}
+
 .chat-title {
 	-webkit-app-region: drag;
 }
@@ -7644,16 +7640,27 @@ textarea:focus-visible {
 }
 
 .app-workbench.is-macos .session-sidebar-header {
-	padding-top: 8px;
+	/* Electron's native traffic lights overlay this strip on macOS. */
+	padding-top: 12px;
 }
 
 .app-workbench.is-macos .sidebar-controls-row {
-	min-height: 32px;
-	padding-left: 66px;
+	min-height: 30px;
+	padding: 0 2px 4px;
 }
 
 .app-workbench.is-macos.is-sidebar-closed .top-bar {
 	padding-left: 76px;
+}
+
+.app-workbench.is-sidebar-closed .chat-title {
+	margin-right: auto;
+}
+
+.app-workbench.is-macos.is-sidebar-closed .sidebar-reopen-button {
+	/* The macOS titlebar is inset above the web content; lift this into its row. */
+	position: relative;
+	top: -7px;
 }
 
 .sidebar-reopen-button {
@@ -7676,11 +7683,72 @@ textarea:focus-visible {
 	font-size: var(--text-md);
 }
 
+.sidebar-projects-header {
+	font-size: var(--text-sm);
+	font-weight: 650;
+	letter-spacing: 0.12em;
+}
+
+.sidebar-project-tree-row-main {
+	padding-block: 4px;
+}
+
+.sidebar-project-tree-name {
+	font-size: var(--text-lg);
+	font-weight: 560;
+}
+
+.sidebar-project-tree-copy small {
+	font-size: var(--text-xs);
+}
+
+.sidebar-search-wrap {
+	min-height: 40px;
+	margin: 8px 0 10px;
+	padding: 0 12px;
+	border: 1px solid var(--border-subtle);
+	border-radius: 12px;
+	background: var(--surface-1);
+}
+
+.project-menu-archived-label {
+	margin-top: 4px;
+	border-top: 1px solid var(--border-subtle);
+}
+
+.project-menu-archived-item small {
+	margin-left: auto;
+	color: var(--text-tertiary);
+	font-size: var(--text-xs);
+}
+
 .new-chat-button,
 .sidebar-project-tree-row-main,
 .sidebar-segments button,
 .session-row-title {
 	font-weight: 500;
+}
+
+.session-sidebar-header {
+	border-bottom: 0;
+}
+
+.new-chat-button {
+	gap: 10px;
+	height: 42px;
+	padding-inline: 8px;
+	font-size: var(--text-lg);
+	font-weight: 600;
+}
+
+.new-chat-button > svg {
+	box-sizing: content-box;
+	width: 18px;
+	height: 18px;
+	padding: 7px;
+	border-radius: 50%;
+	color: var(--text);
+	background: color-mix(in srgb, var(--text) 9%, transparent);
 }
 
 .sidebar-project-tree-copy small,
@@ -7705,7 +7773,6 @@ textarea:focus-visible {
 	letter-spacing: 0.04em;
 }
 
-.sidebar-project-tree-row,
 .session-row-wrap,
 .session-row {
 	min-height: 32px;
@@ -7713,7 +7780,9 @@ textarea:focus-visible {
 }
 
 .sidebar-project-tree-row {
-	padding: 2px 8px 2px 10px;
+	min-height: 34px;
+	height: 34px;
+	padding: 2px 10px 2px 16px;
 	border-radius: 7px;
 }
 

@@ -27,10 +27,13 @@ import type {
 	DesktopExtensionUiEvent,
 	DesktopExtensionUiListener,
 	DesktopWorkspaceChange,
+	DesktopWorkspaceDirectoryListing,
 	DesktopPluginSourceInput,
 	DesktopPluginPackage,
+	DesktopPluginPackageFilterInput,
 	DesktopPromptInput,
 	DesktopRestoreImageAttachmentsInput,
+	DesktopRestoreMessageImagesInput,
 	DesktopProviderConfig,
 	DesktopProviderModelConfig,
 	DesktopRemoveWorktreeResult,
@@ -45,6 +48,8 @@ import type {
 	DesktopSkillUpdateResult,
 	DesktopToggleSkillInput,
 	DesktopTogglePluginInput,
+	DesktopUpdateDownloadInput,
+	DesktopUpdateDownloadState,
 	DesktopUpdateInfo,
 	DesktopWorkspaceFileInput,
 	Unsubscribe,
@@ -60,6 +65,8 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:attach-dropped-images", files.map((file) => webUtils.getPathForFile(file))) as Promise<DesktopImageAttachment[]>,
 	restoreImageAttachments: (input: DesktopRestoreImageAttachmentsInput) =>
 		ipcRenderer.invoke("pi-desktop:restore-image-attachments", input) as Promise<DesktopImageAttachment[]>,
+	restoreMessageImages: (input: DesktopRestoreMessageImagesInput) =>
+		ipcRenderer.invoke("pi-desktop:restore-message-images", input) as Promise<DesktopImageAttachment[]>,
 	discardImageAttachment: (id: string) => ipcRenderer.invoke("pi-desktop:discard-image-attachment", id) as Promise<void>,
 	importDroppedFiles: (files: File[], overwriteConflicts = false, targetDirectory?: string) =>
 		ipcRenderer.invoke("pi-desktop:import-dropped-files", {
@@ -104,6 +111,8 @@ const desktopApi: DesktopApi = {
 	respondToAuthenticationPrompt: (input: DesktopAuthenticationPromptResponseInput) =>
 		ipcRenderer.invoke("pi-desktop:respond-to-authentication-prompt", input) as Promise<DesktopSnapshot>,
 	listWorkspaceFiles: () => ipcRenderer.invoke("pi-desktop:list-workspace-files"),
+	listWorkspaceDirectory: (path?: string) =>
+		ipcRenderer.invoke("pi-desktop:list-workspace-directory", path) as Promise<DesktopWorkspaceDirectoryListing>,
 	searchWorkspaceFiles: (query: string) => ipcRenderer.invoke("pi-desktop:search-workspace-files", query),
 	readWorkspaceFile: (input: DesktopWorkspaceFileInput) =>
 		ipcRenderer.invoke("pi-desktop:read-workspace-file", input),
@@ -148,6 +157,18 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:test-model", input) as Promise<DesktopModelTestResult>,
 	openCustomCss: () => ipcRenderer.invoke("pi-desktop:open-custom-css") as Promise<string>,
 	checkForUpdates: () => ipcRenderer.invoke("pi-desktop:check-for-updates") as Promise<DesktopUpdateInfo>,
+	downloadUpdate: (input: DesktopUpdateDownloadInput) =>
+		ipcRenderer.invoke("pi-desktop:download-update", input) as Promise<DesktopUpdateDownloadState>,
+	cancelUpdateDownload: () =>
+		ipcRenderer.invoke("pi-desktop:cancel-update-download") as Promise<void>,
+	getUpdateDownloadState: () =>
+		ipcRenderer.invoke("pi-desktop:get-update-download-state") as Promise<DesktopUpdateDownloadState>,
+	installUpdate: () => ipcRenderer.invoke("pi-desktop:install-update") as Promise<void>,
+	onUpdateDownloadProgress(listener: (state: DesktopUpdateDownloadState) => void): Unsubscribe {
+		const subscription = (_event: IpcRendererEvent, state: DesktopUpdateDownloadState) => listener(state);
+		ipcRenderer.on("pi-desktop:update-download-progress", subscription);
+		return () => ipcRenderer.removeListener("pi-desktop:update-download-progress", subscription);
+	},
 	respondToExtensionDialog: (input: DesktopExtensionDialogResponseInput) =>
 		ipcRenderer.invoke("pi-desktop:respond-to-extension-dialog", input) as Promise<void>,
 	sendExtensionCustomInput: (input: DesktopExtensionCustomInput) =>
@@ -170,6 +191,8 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:remove-plugin", input) as Promise<DesktopSnapshot>,
 	togglePlugin: (input: DesktopTogglePluginInput) =>
 		ipcRenderer.invoke("pi-desktop:toggle-plugin", input) as Promise<DesktopSnapshot>,
+	savePluginPackageFilters: (input: DesktopPluginPackageFilterInput) =>
+		ipcRenderer.invoke("pi-desktop:save-plugin-filters", input) as Promise<DesktopSnapshot>,
 	reloadSession: () => ipcRenderer.invoke("pi-desktop:reload-session") as Promise<DesktopSnapshot>,
 	getPluginPackages: () =>
 		ipcRenderer.invoke("pi-desktop:get-plugin-packages") as Promise<DesktopPluginPackage[]>,

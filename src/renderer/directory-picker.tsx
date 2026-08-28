@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useState } from "react";
 import type { DesktopDirectoryEntry } from "../shared/contracts.ts";
 import { browseDirectories } from "./desktop-store.ts";
+import { useI18n } from "./i18n.ts";
 import { Icon } from "./icons.tsx";
 import { Modal } from "./modal.tsx";
 
@@ -39,6 +40,7 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 	busy = false,
 	error: selectionError,
 }: DirectoryPickerProps) {
+	const { t } = useI18n();
 	const [currentPath, setCurrentPath] = useState("");
 	const [parentPath, setParentPath] = useState<string>();
 	const [pathInput, setPathInput] = useState("");
@@ -76,8 +78,8 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 
 	return (
 		<Modal
-			title="选择项目文件夹"
-			subtitle={currentPath || "主目录"}
+			title={t("pickProjectFolder")}
+			subtitle={currentPath || t("homeDirectory")}
 			className="directory-picker-modal"
 			onClose={handleClose}
 		>
@@ -93,7 +95,7 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 						className="outline-button directory-picker-back"
 						type="button"
 						disabled={loading || busy || !canNavigateUp}
-						title="返回上一级"
+						title={t("goUp")}
 						onClick={() => void navigateTo(parentPath ?? undefined)}
 					>
 						↑
@@ -105,23 +107,23 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 						autoFocus
 						autoComplete="off"
 						spellCheck={false}
-						aria-label="目录路径"
+						aria-label={t("directoryPath")}
 						onChange={(event) => {
 							setPathInput(event.target.value);
 							setError(undefined);
 						}}
 					/>
 					<button className="outline-button" type="submit" disabled={loading || busy || !pathInput.trim()}>
-						打开
+						{t("open")}
 					</button>
 				</form>
 				<div className="directory-picker-list" aria-live="polite">
-					{loading ? <p className="modal-empty">正在读取目录…</p> : null}
+					{loading ? <p className="modal-empty">{t("loadingDirectories")}</p> : null}
 					{!loading && (error || selectionError) ? (
 						<p className="modal-empty is-error">{error ?? selectionError}</p>
 					) : null}
 					{!loading && !error && !selectionError && displayedEntries.length === 0 ? (
-						<p className="modal-empty">没有可用的子目录。</p>
+						<p className="modal-empty">{t("noSubdirectories")}</p>
 					) : null}
 					{!loading && !error && !selectionError
 						? displayedEntries.map((entry) => (
@@ -141,16 +143,16 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 				</div>
 				<footer className="directory-picker-footer">
 					<button className="outline-button" type="button" disabled={busy} onClick={onClose}>
-						取消
+						{t("cancel")}
 					</button>
 					<button
 						className="accent-button"
 						type="button"
 						disabled={!canSelect}
-						title={hasUncommittedPath ? "请先打开输入的目录" : undefined}
+						title={hasUncommittedPath ? t("openFirstHint") : undefined}
 						onClick={() => onSelect(currentPath)}
 					>
-						{busy ? "打开中…" : "选择此文件夹"}
+						{busy ? t("opening") : t("selectThisFolder")}
 					</button>
 				</footer>
 			</div>

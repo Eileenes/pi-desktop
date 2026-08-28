@@ -8,6 +8,7 @@ export type SecurityAuditEvent =
 	| "plugin.install"
 	| "plugin.remove"
 	| "plugin.toggle"
+	| "plugin.filters"
 	| "skill.install"
 	| "skill.toggle"
 	| "tool.approval"

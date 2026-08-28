@@ -8,6 +8,7 @@ import {
 	removeGitWorktree,
 	switchGitBranch,
 } from "./desktop-store.ts";
+import { useI18n } from "./i18n.ts";
 
 interface WorktreeSectionProps {
 	workspacePath: string;
@@ -30,6 +31,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 	projectTrusted,
 	onSwitch,
 }: WorktreeSectionProps) {
+	const { t } = useI18n();
 	const [worktrees, setWorktrees] = useState<DesktopGitWorktree[]>([]);
 	const [branches, setBranches] = useState<{ local: string[]; remote: string[] }>({ local: [], remote: [] });
 	const [branchDraft, setBranchDraft] = useState("");
@@ -97,7 +99,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 		const branch = branchDraft.trim();
 		if (!branch) return;
 		if (!projectTrusted) {
-			setError("请先信任当前项目，再创建 Worktree。");
+			setError(t("trustBeforeWorktree"));
 			return;
 		}
 		setBusy(true);
@@ -131,7 +133,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 	async function handleSwitch(branch: string): Promise<void> {
 		if (!branch) return;
 		if (!projectTrusted) {
-			setError("请先信任当前项目，再切换 Git 分支。");
+			setError(t("trustBeforeBranch"));
 			return;
 		}
 		const normalized = branches.remote.includes(branch) ? displayRemoteBranch(branch) : displayBranch(branch);
@@ -170,8 +172,8 @@ export const WorktreeSection = memo(function WorktreeSection({
 					className="worktree-filter"
 					value={worktreeFilter}
 					onChange={(event) => setWorktreeFilter(event.target.value)}
-					placeholder="筛选 Worktree…"
-					aria-label="筛选 Worktree"
+					placeholder={t("filterWorktrees")}
+					aria-label={t("filterWorktrees")}
 				/>
 			) : null}
 			<div className="worktree-list">
@@ -186,7 +188,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 						>
 							<span>
 								⎇ {displayBranch(tree.branch)}
-								{tree.isMain ? " · 主目录" : ""}
+								{tree.isMain ? ` · ${t("worktreeMain")}` : ""}
 							</span>
 							<small>{tree.path}</small>
 						</button>
@@ -196,10 +198,10 @@ export const WorktreeSection = memo(function WorktreeSection({
 									<button
 										type="button"
 										disabled={busy || !projectTrusted}
-										title={!projectTrusted ? "请先信任当前项目" : undefined}
+										title={!projectTrusted ? t("trustProjectFirst") : undefined}
 										onClick={() => void handleRemove(tree.path, forceRemovePath === tree.path)}
 									>
-										{forceRemovePath === tree.path ? "强制移除" : "确认"}
+										{forceRemovePath === tree.path ? t("forceRemove") : t("confirm")}
 									</button>
 									<button
 										type="button"
@@ -208,7 +210,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 											setForceRemovePath(undefined);
 										}}
 									>
-										取消
+										{t("cancel")}
 									</button>
 								</div>
 							) : (
@@ -216,8 +218,8 @@ export const WorktreeSection = memo(function WorktreeSection({
 									className="worktree-remove"
 									type="button"
 									disabled={!projectTrusted}
-									title={!projectTrusted ? "请先信任当前项目" : undefined}
-									aria-label={`移除 ${displayBranch(tree.branch)}`}
+									title={!projectTrusted ? t("trustProjectFirst") : undefined}
+									aria-label={t("removeWorktreeAria", { branch: displayBranch(tree.branch) })}
 									onClick={() => {
 										setConfirmRemovePath(tree.path);
 										setForceRemovePath(undefined);
@@ -229,11 +231,11 @@ export const WorktreeSection = memo(function WorktreeSection({
 						) : null}
 					</div>
 				))}
-				{visibleWorktrees.length === 0 ? <p className="worktree-empty">没有匹配的 Worktree。</p> : null}
+				{visibleWorktrees.length === 0 ? <p className="worktree-empty">{t("noMatchingWorktrees")}</p> : null}
 			</div>
 			<div className="worktree-add">
 				<input
-					placeholder="新分支名"
+					placeholder={t("newBranchName")}
 					value={branchDraft}
 					onChange={(event) => setBranchDraft(event.target.value)}
 					onKeyDown={(event) => {
@@ -246,25 +248,25 @@ export const WorktreeSection = memo(function WorktreeSection({
 				<button
 					type="button"
 					disabled={!branchDraft.trim() || busy || !projectTrusted}
-					title={!projectTrusted ? "请先信任当前项目" : undefined}
+					title={!projectTrusted ? t("trustProjectFirst") : undefined}
 					onClick={() => void handleAdd()}
 				>
-					{busy ? "创建中" : "新建"}
+					{busy ? t("creating") : t("create")}
 				</button>
 			</div>
 			{branches.local.length || branches.remote.length ? (
 				<label className="worktree-branch-switcher">
-					<span>切换当前分支</span>
+					<span>{t("switchCurrentBranch")}</span>
 					<div className="worktree-branch-controls">
 						<select
 							defaultValue=""
 							disabled={busy || fetchingBranches || !projectTrusted}
-							title={!projectTrusted ? "请先信任当前项目" : undefined}
+							title={!projectTrusted ? t("trustProjectFirst") : undefined}
 							onChange={(event) => void handleSwitch(event.target.value)}
 						>
-							<option value="">选择分支…</option>
+							<option value="">{t("chooseBranch")}</option>
 							{branches.local.length ? (
-								<optgroup label="本地分支">
+								<optgroup label={t("localBranches")}>
 									{branches.local.map((branch) => (
 										<option key={`local-${branch}`} value={branch}>
 											{branch}
@@ -273,7 +275,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 								</optgroup>
 							) : null}
 							{branches.remote.length ? (
-								<optgroup label="远程分支">
+								<optgroup label={t("remoteBranches")}>
 									{branches.remote.map((branch) => (
 										<option key={`remote-${branch}`} value={branch}>
 											{displayRemoteBranch(branch)} ({branch.split("/", 1)[0] ?? "remote"})
@@ -286,10 +288,10 @@ export const WorktreeSection = memo(function WorktreeSection({
 							className="outline-button worktree-fetch"
 							type="button"
 							disabled={busy || fetchingBranches || !projectTrusted}
-							title={!projectTrusted ? "请先信任当前项目" : "获取最新远程分支"}
+							title={!projectTrusted ? t("trustProjectFirst") : t("fetchLatestRemoteHint")}
 							onClick={() => void handleFetchBranches()}
 						>
-							{fetchingBranches ? "刷新中…" : "刷新"}
+							{fetchingBranches ? t("refreshing") : t("refresh")}
 						</button>
 					</div>
 				</label>

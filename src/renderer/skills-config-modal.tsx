@@ -9,6 +9,7 @@ import {
 	toggleSkill,
 	updateSkill as updateSkillPackage,
 } from "./desktop-store.ts";
+import { useI18n } from "./i18n.ts";
 import { Modal } from "./modal.tsx";
 
 interface SkillsConfigModalProps {
@@ -45,13 +46,24 @@ function shortVersion(version?: string): string {
 
 const GROUP_ORDER: GroupLabel[] = ["project / skills.sh", "project", "global / skills.sh", "global", "path"];
 
-function Toggle({ enabled, loading, onToggle }: { enabled: boolean; loading: boolean; onToggle: () => void }) {
+function Toggle({
+	enabled,
+	loading,
+	disabled,
+	onToggle,
+}: {
+	enabled: boolean;
+	loading: boolean;
+	disabled?: boolean;
+	onToggle: () => void;
+}) {
+	const { t } = useI18n();
 	return (
 		<button
 			type="button"
 			className={`toggle-switch ${enabled ? "is-on" : ""}`}
-			disabled={loading}
-			title={enabled ? "在提示词中显示" : "在提示词中隐藏"}
+			disabled={loading || disabled === true}
+			title={disabled ? t("dormantToggleHint") : enabled ? t("showInPrompt") : t("hideFromPrompt")}
 			onClick={onToggle}
 		>
 			<span className="toggle-knob" />
@@ -92,8 +104,10 @@ function SkillDetail({
 	onCheckUpdate: () => void;
 	onUpdate: () => void;
 }) {
+	const { t } = useI18n();
 	const label = sourceLabel(skill);
 	const enabled = !skill.disableModelInvocation;
+	const dormant = skill.available === false;
 
 	function displayPath(path: string): string {
 		if (label === "project" && workspacePath && path.startsWith(workspacePath)) {
@@ -111,10 +125,22 @@ function SkillDetail({
 					<span className="resource-detail-path" title={skill.filePath}>
 						{displayPath(skill.filePath)}
 					</span>
-					<Toggle enabled={enabled} loading={toggling} onToggle={() => onToggle(skill)} />
+					<Toggle
+						enabled={enabled && !dormant}
+						loading={toggling}
+						disabled={dormant}
+						onToggle={() => onToggle(skill)}
+					/>
 				</div>
 				<div className="skill-detail-status">
-					{!enabled ? <span>已隐藏，但仍可通过 /skill:{skill.name} 调用</span> : null}
+					{dormant ? (
+						<span>{t("dormantSkill")}</span>
+					) : !enabled ? (
+						<span>{t("hiddenButCallable", { name: skill.name })}</span>
+					) : (
+						<span>{t("visibleToModel")}</span>
+					)}
+					{skill.error ? <span className="is-error">{skill.error}</span> : null}
 					{saveError ? <span className="is-error">{saveError}</span> : null}
 				</div>
 			</div>
@@ -147,7 +173,7 @@ function SkillDetail({
 								disabled={checkingUpdate || updating}
 								onClick={onCheckUpdate}
 							>
-								检查
+								{t("check")}
 							</button>
 						) : null}
 						{updateStatus?.state === "update-available" ? (
@@ -158,12 +184,12 @@ function SkillDetail({
 								className={`skill-version-status is-${checkingUpdate ? "checking" : (updateStatus?.state ?? "dim")}`}
 							>
 								{checkingUpdate
-									? "正在检查…"
+									? t("checking")
 									: updateStatus?.state === "up-to-date"
-										? "已是最新"
+										? t("statusUpToDate")
 										: updateStatus?.state === "unsupported"
-											? "无法自动检查"
-											: (updateStatus?.message ?? "检查失败")}
+											? t("statusUnsupported")
+											: (updateStatus?.message ?? t("statusCheckFailed"))}
 							</span>
 						) : null}
 						{updateStatus?.state === "update-available" ? (
@@ -173,7 +199,7 @@ function SkillDetail({
 								disabled={updating || checkingUpdate}
 								onClick={onUpdate}
 							>
-								{updating ? "更新中" : "更新"}
+								{updating ? t("updatingLabel") : t("update")}
 							</button>
 						) : null}
 					</div>
@@ -188,7 +214,7 @@ function SkillDetail({
 
 			<div className="skill-detail-section">
 				<span className="skill-detail-label">Description</span>
-				<span className="skill-detail-description">{skill.description || "该技能没有提供说明。"}</span>
+				<span className="skill-detail-description">{skill.description || t("noSkillDescription")}</span>
 			</div>
 		</div>
 	);
@@ -205,6 +231,7 @@ function AddSkillPanel({
 	installedPackages: Record<"global" | "project", ReadonlySet<string>>;
 	onInstalled: () => void;
 }) {
+	const { t } = useI18n();
 	const [query, setQuery] = useState("");
 	const [results, setResults] = useState<DesktopSkillSearchResult[]>([]);
 	const [searching, setSearching] = useState(false);
@@ -214,21 +241,24 @@ function AddSkillPanel({
 	const [newlyInstalled, setNewlyInstalled] = useState<Set<string>>(new Set());
 	const [scope, setScope] = useState<"global" | "project">("global");
 
-	const search = useCallback(async (value: string) => {
-		if (!value.trim()) return;
-		setSearching(true);
-		setSearchError(undefined);
-		setResults([]);
-		try {
-			const found = await searchSkills(value.trim());
-			setResults(found);
-			if (found.length === 0) setSearchError("没有找到匹配的技能。");
-		} catch (error) {
-			setSearchError(error instanceof Error ? error.message : String(error));
-		} finally {
-			setSearching(false);
-		}
-	}, []);
+	const search = useCallback(
+		async (value: string) => {
+			if (!value.trim()) return;
+			setSearching(true);
+			setSearchError(undefined);
+			setResults([]);
+			try {
+				const found = await searchSkills(value.trim());
+				setResults(found);
+				if (found.length === 0) setSearchError(t("noMatchingSkills"));
+			} catch (error) {
+				setSearchError(error instanceof Error ? error.message : String(error));
+			} finally {
+				setSearching(false);
+			}
+		},
+		[t],
+	);
 
 	const install = useCallback(
 		async (pkg: string) => {
@@ -252,11 +282,11 @@ function AddSkillPanel({
 	return (
 		<div className="skill-add-panel">
 			<div className="skill-add-header">
-				<strong>添加技能</strong>
+				<strong>{t("addSkill")}</strong>
 				<div className="skill-add-search">
 					<input
 						value={query}
-						placeholder="搜索 skills.sh 上的技能，例如 pdf 或 code review"
+						placeholder={t("searchSkillsPlaceholder")}
 						onChange={(event) => setQuery(event.target.value)}
 						onKeyDown={(event) => {
 							if (event.key === "Enter") void search(query);
@@ -268,26 +298,26 @@ function AddSkillPanel({
 						disabled={searching || !query.trim()}
 						onClick={() => void search(query)}
 					>
-						{searching ? "搜索中" : "搜索"}
+						{searching ? t("searching") : t("search")}
 					</button>
 				</div>
 				<div className="skill-add-scope-row">
-					<div className="skill-add-scope" role="tablist" aria-label="安装范围">
+					<div className="skill-add-scope" role="tablist" aria-label={t("installScopeAria")}>
 						<button
 							type="button"
 							className={scope === "global" ? "is-active" : ""}
 							onClick={() => setScope("global")}
 						>
-							全局
+							{t("global")}
 						</button>
 						<button
 							type="button"
 							className={scope === "project" ? "is-active" : ""}
 							disabled={!workspacePath || !projectTrusted}
-							title={!projectTrusted ? "项目资源未信任，不可用" : undefined}
+							title={!projectTrusted ? t("untrustedProjectHint") : undefined}
 							onClick={() => setScope("project")}
 						>
-							项目
+							{t("project")}
 						</button>
 					</div>
 					<span className="skill-add-path">→ {installPath}</span>
@@ -328,7 +358,7 @@ function AddSkillPanel({
 									disabled={isInstalled || installing !== undefined}
 									onClick={() => void install(result.package)}
 								>
-									{isInstalled ? "✓ 已安装" : isInstalling ? "安装中" : "安装"}
+									{isInstalled ? t("installed") : isInstalling ? t("installing") : t("install")}
 								</button>
 							</div>
 						);
@@ -336,7 +366,7 @@ function AddSkillPanel({
 				</div>
 			) : !searchError && !searching ? (
 				<p className="skill-add-hint">
-					搜索{" "}
+					{t("searchSkillsHintPrefix")}{" "}
 					<button
 						type="button"
 						className="skill-source-link"
@@ -344,7 +374,7 @@ function AddSkillPanel({
 					>
 						skills.sh
 					</button>{" "}
-					发现并安装适用于你的智能体的技能。
+					{t("searchSkillsHintSuffix")}
 				</p>
 			) : null}
 		</div>
@@ -356,6 +386,7 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 	projectTrusted,
 	onClose,
 }: SkillsConfigModalProps) {
+	const { t } = useI18n();
 	const [skills, setSkills] = useState<DesktopSkillInfo[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [loadError, setLoadError] = useState<string>();
@@ -378,8 +409,8 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 			setSkills(list);
 			setSelected((current) => {
 				if (current && list.some((skill) => skill.filePath === current)) return current;
-				const initial = list.find((skill) => !skill.disableModelInvocation) ?? list[0];
-				if (initial?.disableModelInvocation) {
+				const initial = list.find((skill) => skill.available !== false && !skill.disableModelInvocation) ?? list[0];
+				if (initial && (initial.disableModelInvocation || initial.available === false)) {
 					setDormantOpenGroups((groups) => ({ ...groups, [skillGroupLabel(initial)]: true }));
 				}
 				return initial?.filePath;
@@ -506,24 +537,27 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 
 	function renderSkillRow(skill: DesktopSkillInfo) {
 		const isSelected = !addMode && selected === skill.filePath;
-		const disabled = skill.disableModelInvocation;
+		const dormant = skill.available === false;
+		const hidden = !dormant && skill.disableModelInvocation;
 		const key = updateKeyOf(skill);
 		const hasUpdate = key !== null && updateStatuses[key]?.state === "update-available";
 		return (
 			<button
 				key={skill.filePath}
-				className={`resource-config-row ${isSelected ? "is-active" : ""} ${disabled ? "is-dimmed" : ""}`}
+				className={`resource-config-row ${isSelected ? "is-active" : ""} ${hidden || dormant ? "is-dimmed" : ""}`}
 				type="button"
-				title={skill.filePath}
+				title={skill.error ?? skill.filePath}
 				onClick={() => {
 					setSelected(skill.filePath);
 					setAddMode(false);
 				}}
 			>
-				<span className={`resource-status-dot ${disabled ? "" : "is-on"}`} />
+				<span className={`resource-status-dot ${!dormant && !hidden ? "is-on" : ""}`} />
 				<span>{skill.name}</span>
+				{hidden ? <span className="skill-state-tag">{t("stateTagHidden")}</span> : null}
+				{dormant ? <span className="skill-state-tag is-dormant">{t("stateTagDormant")}</span> : null}
 				{hasUpdate ? (
-					<span className="skill-update-arrow" title="有可用更新">
+					<span className="skill-update-arrow" title={t("updateAvailableTitle")}>
 						↑
 					</span>
 				) : null}
@@ -533,7 +567,7 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 
 	return (
 		<Modal
-			title="技能"
+			title={t("skills")}
 			subtitle={workspacePath ? shortenPath(workspacePath) : "~"}
 			className="resource-config-modal skill-config-modal"
 			onClose={onClose}
@@ -542,26 +576,33 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 				<aside className="resource-config-sidebar">
 					<div className="resource-config-scroll">
 						{loading ? (
-							<p className="modal-empty">正在加载技能…</p>
+							<p className="modal-empty">{t("loadingSkills")}</p>
 						) : loadError ? (
 							<p className="modal-empty is-error">{loadError}</p>
 						) : skills.length === 0 ? (
-							<p className="modal-empty">未安装技能。</p>
+							<p className="modal-empty">{t("noSkills")}</p>
 						) : (
 							groups.map((group) => {
-								const activeSkills = group.skills.filter((skill) => !skill.disableModelInvocation);
-								const dormantSkills = group.skills.filter((skill) => skill.disableModelInvocation);
+								const activeSkills = group.skills.filter(
+									(skill) => skill.available !== false && !skill.disableModelInvocation,
+								);
+								const hiddenSkills = group.skills.filter(
+									(skill) => skill.available !== false && skill.disableModelInvocation,
+								);
+								const dormantSkills = group.skills.filter((skill) => skill.available === false);
 								const dormantOpen = dormantOpenGroups[group.label] ?? false;
 								return (
 									<div key={group.label}>
 										<div className="settings-group-label">{group.label}</div>
 										{activeSkills.map(renderSkillRow)}
+										{hiddenSkills.map(renderSkillRow)}
 										{dormantSkills.length > 0 ? (
 											<>
 												<button
 													className="settings-dormant-toggle"
 													type="button"
 													aria-expanded={dormantOpen}
+													title={t("dormantGroupHint")}
 													onClick={() =>
 														setDormantOpenGroups((current) => ({
 															...current,
@@ -570,7 +611,7 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 													}
 												>
 													<span className="settings-dormant-arrow">{dormantOpen ? "▾" : "▸"}</span>
-													DORMANT ({dormantSkills.length})
+													{t("dormantGroup", { count: dormantSkills.length })}
 												</button>
 												{dormantOpen ? dormantSkills.map(renderSkillRow) : null}
 											</>
@@ -599,15 +640,15 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 							>
 								<path d="M12 5v14M5 12h14" />
 							</svg>
-							添加技能
+							{t("addSkill")}
 						</button>
 					</div>
 				</aside>
 				<section className="resource-config-detail">
 					{workspacePath && !projectTrusted ? (
 						<div className="resource-trust-banner">
-							<strong>项目尚未信任</strong>
-							<span>项目级技能不会被加载；请先在主窗口确认信任后再安装或启用。</span>
+							<strong>{t("skillProjectNotTrustedTitle")}</strong>
+							<span>{t("skillProjectNotTrustedHint")}</span>
 						</div>
 					) : null}
 					{addMode ? (
@@ -633,7 +674,7 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 							onUpdate={() => void updateInstalledSkill(selectedSkill)}
 						/>
 					) : (
-						<div className="settings-empty-state">选择一个技能查看详情</div>
+						<div className="settings-empty-state">{t("selectSkillHint")}</div>
 					)}
 				</section>
 			</div>
@@ -646,15 +687,15 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 							disabled={checkingAll || updatingKey !== undefined}
 							onClick={() => void checkForUpdates()}
 						>
-							{checkingAll ? "正在检查…" : "检查更新"}
+							{checkingAll ? t("checking") : t("checkUpdates")}
 						</button>
 					) : null}
 					{availableUpdateCount > 0 ? (
-						<span className="skill-updates-count">{availableUpdateCount} 个可用更新</span>
+						<span className="skill-updates-count">{t("availableUpdates", { count: availableUpdateCount })}</span>
 					) : null}
 				</div>
 				<button className="outline-button" type="button" onClick={onClose}>
-					关闭
+					{t("close")}
 				</button>
 			</footer>
 		</Modal>

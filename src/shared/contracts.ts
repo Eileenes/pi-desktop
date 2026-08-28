@@ -132,6 +132,10 @@ export interface DesktopSkillInfo {
 	filePath: string;
 	disableModelInvocation: boolean;
 	scope: "global" | "project";
+	/** False when the skill failed to parse and is dormant (unavailable). */
+	available?: boolean;
+	/** Parse failure reason for dormant skills. */
+	error?: string;
 	install?: DesktopSkillInstallInfo;
 }
 
@@ -155,6 +159,13 @@ export interface DesktopPlugin {
 	commands: string[];
 }
 
+export interface DesktopPluginPackageResourceFilters {
+	extensions: string[];
+	skills: string[];
+	prompts: string[];
+	themes: string[];
+}
+
 export interface DesktopPluginPackage {
 	source: string;
 	scope: "user" | "project";
@@ -162,6 +173,10 @@ export interface DesktopPluginPackage {
 	enabled: boolean;
 	/** Resource filters from the package manager settings. */
 	filtered?: boolean;
+	/** Whether the package configuration allows automatic loading; undefined for plain string sources. */
+	autoload?: boolean;
+	/** Configured resource filter patterns, when the package uses object-form configuration. */
+	filters?: DesktopPluginPackageResourceFilters;
 	/** Version recorded by the package configuration, when available. */
 	configuredVersion?: string;
 	installedPath?: string;
@@ -176,6 +191,13 @@ export interface DesktopPluginPackage {
 	diagnostics: Array<{ type: "error" | "warning"; message: string; path?: string }>;
 }
 
+export interface DesktopPluginPackageFilterInput {
+	source: string;
+	local: boolean;
+	autoload: boolean;
+	filters: DesktopPluginPackageResourceFilters;
+}
+
 export interface DesktopImageAttachment {
 	id: string;
 	name: string;
@@ -187,6 +209,10 @@ export interface DesktopImageAttachment {
 
 export interface DesktopRestoreImageAttachmentsInput {
 	ids: string[];
+}
+
+export interface DesktopRestoreMessageImagesInput {
+	messageId: string;
 }
 
 export interface DesktopDirectoryEntry {
@@ -219,6 +245,15 @@ export interface DesktopWorkspaceEntry {
 	name: string;
 	type: "directory" | "file";
 	depth: number;
+}
+
+export interface DesktopWorkspaceDirectoryListing {
+	/** Workspace-relative directory path ("" for the project root). */
+	path: string;
+	directories: DesktopWorkspaceEntry[];
+	files: DesktopWorkspaceEntry[];
+	/** True when the directory has more entries than the listing cap. */
+	truncated?: boolean;
 }
 
 export interface DesktopWorkspaceFilePreview {
@@ -258,6 +293,17 @@ export interface DesktopSessionStats {
 	};
 }
 
+export interface DesktopModelScopeStatus {
+	/** Non-empty enabledModels patterns configured by the user. */
+	patterns: string[];
+	/** Resolution diagnostics (for example an unmatched wildcard). */
+	warnings: string[];
+	/** Number of models matched by the scope; 0 means fallback to all authenticated models. */
+	matched: number;
+	/** Thinking levels fixed by `provider/model:level` rules. */
+	fixedLevels: Array<{ provider: string; modelId: string; level: string }>;
+}
+
 export interface DesktopSnapshot {
 	workspacePath?: string;
 	projectTrusted: boolean;
@@ -265,6 +311,7 @@ export interface DesktopSnapshot {
 	extensionStatuses?: DesktopExtensionStatus[];
 	extensionWidgets?: DesktopExtensionWidget[];
 	extensionEditorRequest?: DesktopExtensionEditorRequest;
+	modelScope?: DesktopModelScopeStatus;
 	pendingToolApprovals: DesktopToolApproval[];
 	pendingAuthenticationPrompts: DesktopAuthenticationPrompt[];
 	apiKeyProviders: DesktopApiKeyProvider[];
@@ -463,12 +510,31 @@ export interface DesktopModelTestResult {
 	error?: string;
 }
 
+export interface DesktopUpdateAsset {
+	name: string;
+	sizeBytes: number;
+	url: string;
+}
+
 export interface DesktopUpdateInfo {
 	currentVersion: string;
 	latestVersion?: string;
 	releaseUrl: string;
 	updateAvailable: boolean;
 	checkedAt: number;
+	/** Release assets matching the current platform; URLs are resolved by the main process. */
+	assets?: DesktopUpdateAsset[];
+}
+
+export type DesktopUpdateDownloadState =
+	| { phase: "idle" }
+	| { phase: "downloading"; assetName: string; receivedBytes: number; totalBytes?: number }
+	| { phase: "completed"; assetName: string; savedPath: string }
+	| { phase: "cancelled"; assetName: string }
+	| { phase: "failed"; assetName: string; message: string };
+
+export interface DesktopUpdateDownloadInput {
+	assetName: string;
 }
 
 export interface DesktopAuthenticationPromptResponseInput {
@@ -546,6 +612,7 @@ export interface DesktopApi {
 	chooseImages(): Promise<DesktopImageAttachment[]>;
 	attachDroppedImages(files: File[]): Promise<DesktopImageAttachment[]>;
 	restoreImageAttachments(input: DesktopRestoreImageAttachmentsInput): Promise<DesktopImageAttachment[]>;
+	restoreMessageImages(input: DesktopRestoreMessageImagesInput): Promise<DesktopImageAttachment[]>;
 	discardImageAttachment(id: string): Promise<void>;
 	importDroppedFiles(
 		files: File[],
@@ -576,6 +643,7 @@ export interface DesktopApi {
 	logoutProvider(input: DesktopProviderLogoutInput): Promise<DesktopSnapshot>;
 	respondToAuthenticationPrompt(input: DesktopAuthenticationPromptResponseInput): Promise<DesktopSnapshot>;
 	listWorkspaceFiles(): Promise<DesktopWorkspaceEntry[]>;
+	listWorkspaceDirectory(path?: string): Promise<DesktopWorkspaceDirectoryListing>;
 	searchWorkspaceFiles(query: string): Promise<DesktopWorkspaceEntry[]>;
 	readWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<DesktopWorkspaceFilePreview>;
 	openWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<void>;
@@ -607,10 +675,16 @@ export interface DesktopApi {
 	testModel(input: DesktopModelTestInput): Promise<DesktopModelTestResult>;
 	openCustomCss(): Promise<string>;
 	checkForUpdates(): Promise<DesktopUpdateInfo>;
+	downloadUpdate(input: DesktopUpdateDownloadInput): Promise<DesktopUpdateDownloadState>;
+	cancelUpdateDownload(): Promise<void>;
+	getUpdateDownloadState(): Promise<DesktopUpdateDownloadState>;
+	installUpdate(): Promise<void>;
+	onUpdateDownloadProgress(listener: (state: DesktopUpdateDownloadState) => void): Unsubscribe;
 	toggleSkill(input: DesktopToggleSkillInput): Promise<DesktopSnapshot>;
 	installPlugin(input: DesktopPluginSourceInput): Promise<DesktopSnapshot>;
 	removePlugin(input: DesktopPluginSourceInput): Promise<DesktopSnapshot>;
 	togglePlugin(input: DesktopTogglePluginInput): Promise<DesktopSnapshot>;
+	savePluginPackageFilters(input: DesktopPluginPackageFilterInput): Promise<DesktopSnapshot>;
 	reloadSession(): Promise<DesktopSnapshot>;
 	getPluginPackages(): Promise<DesktopPluginPackage[]>;
 	listSkillsDetailed(): Promise<DesktopSkillInfo[]>;
@@ -723,6 +797,25 @@ export function isDesktopRestoreImageAttachmentsInput(value: unknown): value is 
 	);
 }
 
+export function isDesktopRestoreMessageImagesInput(value: unknown): value is DesktopRestoreMessageImagesInput {
+	return (
+		isExactRecord(value, ["messageId"]) &&
+		typeof value.messageId === "string" &&
+		value.messageId.length <= 120 &&
+		/^\d+:/u.test(value.messageId)
+	);
+}
+
+export function isDesktopUpdateDownloadInput(value: unknown): value is DesktopUpdateDownloadInput {
+	return (
+		isExactRecord(value, ["assetName"]) &&
+		typeof value.assetName === "string" &&
+		value.assetName.length > 0 &&
+		value.assetName.length <= 300 &&
+		/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(value.assetName)
+	);
+}
+
 export function isDesktopRemoveWorktreeInput(value: unknown): value is DesktopRemoveWorktreeInput {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
 	const input = value as Record<string, unknown>;
@@ -774,6 +867,39 @@ export function isDesktopPluginSourceInput(value: unknown): value is DesktopPlug
 		value.source.length <= 2000 &&
 		typeof value.local === "boolean"
 	);
+}
+
+function isValidFilterPatternList(value: unknown): value is string[] {
+	return (
+		Array.isArray(value) &&
+		value.length <= 100 &&
+		value.every(
+			(pattern) =>
+				typeof pattern === "string" &&
+				pattern.length > 0 &&
+				pattern.length <= 200 &&
+				!pattern.includes("\0") &&
+				!/[\p{C}]/u.test(pattern),
+		)
+	);
+}
+
+export function isDesktopPluginPackageFilterInput(value: unknown): value is DesktopPluginPackageFilterInput {
+	if (!isExactRecord(value, ["source", "local", "autoload", "filters"])) return false;
+	if (typeof value.source !== "string" || value.source.length === 0 || value.source.length > 2000) return false;
+	if (typeof value.local !== "boolean" || typeof value.autoload !== "boolean") return false;
+	if (typeof value.filters !== "object" || value.filters === null || Array.isArray(value.filters)) return false;
+	const filters = value.filters as Record<string, unknown>;
+	if (
+		!isExactRecord(filters, ["extensions", "skills", "prompts", "themes"]) ||
+		!isValidFilterPatternList(filters.extensions) ||
+		!isValidFilterPatternList(filters.skills) ||
+		!isValidFilterPatternList(filters.prompts) ||
+		!isValidFilterPatternList(filters.themes)
+	) {
+		return false;
+	}
+	return true;
 }
 
 export function isDesktopSaveModelsConfigInput(value: unknown): value is DesktopSaveModelsConfigInput {
@@ -951,5 +1077,18 @@ export function isDesktopWorkspaceFileInput(value: unknown): value is DesktopWor
 		!value.path.startsWith("/") &&
 		!value.path.includes("\0") &&
 		!value.path.split("/").includes("..")
+	);
+}
+
+export function isDesktopWorkspaceDirectoryPath(value: unknown): value is string {
+	return (
+		typeof value === "string" &&
+		value.length > 0 &&
+		value.length <= 2_000 &&
+		!value.includes("\\") &&
+		!value.startsWith("/") &&
+		!value.endsWith("/") &&
+		!value.includes("\0") &&
+		value.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..")
 	);
 }

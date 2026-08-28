@@ -32,6 +32,7 @@ import {
 	isDesktopOpenExternalUrlInput,
 	isDesktopOpenSessionInput,
 	isDesktopOpenWorkspacePathInput,
+	isDesktopPluginPackageFilterInput,
 	isDesktopPluginSourceInput,
 	isDesktopProjectTrustInput,
 	isDesktopPromptInput,
@@ -39,14 +40,20 @@ import {
 	isDesktopProviderSetupInput,
 	isDesktopRemoveWorktreeInput,
 	isDesktopRestoreImageAttachmentsInput,
+	isDesktopRestoreMessageImagesInput,
 	isDesktopSaveModelsConfigInput,
 	isDesktopToggleSkillInput,
 	isDesktopToolApprovalDecisionInput,
+	isDesktopUpdateDownloadInput,
+	isDesktopWorkspaceDirectoryPath,
 	isDesktopWorkspaceFileInput,
 } from "../shared/contracts.ts";
 import { isNewerVersion } from "../shared/version.ts";
 import { DesktopAgentHost, type DesktopPromptImage } from "./desktop-agent-host.ts";
+import { DesktopUpdateDownloader, selectUpdateAssets } from "./desktop-updater.ts";
 import { importDroppedFiles } from "./dropped-file-import.ts";
+import { getImageMimeType, imageExtensionFor } from "./image-mime.ts";
+import { loadWindowState, trackWindowState, type WindowStateTracker } from "./window-state.ts";
 
 const currentDirectory = fileURLToPath(new URL(".", import.meta.url));
 let mainWindow: BrowserWindow | undefined;
@@ -54,6 +61,9 @@ let host: DesktopAgentHost | undefined;
 let tray: Tray | undefined;
 let isQuitting = false;
 let closeQuits = false;
+let windowStateTracker: WindowStateTracker | undefined;
+let updateDownloader: DesktopUpdateDownloader | undefined;
+let latestReleaseAssets: ReturnType<typeof selectUpdateAssets> = [];
 
 const TRAY_ICON_WHITE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><path fill="#1a1a1a" d="M3 5h8v1.8H7.8v1.4h2.9V10H7.8v3H3V5Zm11 0h1.8v1.8H14V5Zm0 2.6h1.8V13H14V7.6Z" opacity="0.9"/></svg>`;
 const TRAY_ICON_COLOR_BASE64 =
@@ -127,43 +137,12 @@ function isExactRecord(value: unknown, keys: readonly string[]): value is Record
 	return actualKeys.length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 }
 
-function getImageMimeType(content: Buffer): string | undefined {
-	if (
-		content.length >= 8 &&
-		content[0] === 0x89 &&
-		content[1] === 0x50 &&
-		content[2] === 0x4e &&
-		content[3] === 0x47 &&
-		content[4] === 0x0d &&
-		content[5] === 0x0a &&
-		content[6] === 0x1a &&
-		content[7] === 0x0a
-	) {
-		return "image/png";
-	}
-	if (content.length >= 3 && content[0] === 0xff && content[1] === 0xd8 && content[2] === 0xff) {
-		return "image/jpeg";
-	}
-	if (
-		content.length >= 6 &&
-		(content.subarray(0, 6).toString("ascii") === "GIF87a" || content.subarray(0, 6).toString("ascii") === "GIF89a")
-	) {
-		return "image/gif";
-	}
-	if (
-		content.length >= 12 &&
-		content.subarray(0, 4).toString("ascii") === "RIFF" &&
-		content.subarray(8, 12).toString("ascii") === "WEBP"
-	) {
-		return "image/webp";
-	}
-	return undefined;
-}
-
 function createWindow(): BrowserWindow {
+	const state = loadWindowState();
 	const window = new BrowserWindow({
-		width: 1440,
-		height: 920,
+		...(state.x !== undefined && state.y !== undefined ? { x: state.x, y: state.y } : {}),
+		width: state.width,
+		height: state.height,
 		minWidth: 900,
 		minHeight: 600,
 		backgroundColor: "#161615",
@@ -176,6 +155,8 @@ function createWindow(): BrowserWindow {
 			sandbox: true,
 		},
 	});
+	if (state.maximized) window.maximize();
+	windowStateTracker = trackWindowState(window);
 
 	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 	window.webContents.on("will-navigate", (event) => event.preventDefault());
@@ -224,27 +205,7 @@ function createTray(): void {
 	tray.on("click", () => showMainWindow());
 }
 
-async function prepareImageAttachments(filePaths: string[]): Promise<DesktopImageAttachment[]> {
-	if (filePaths.length > MAX_IMAGE_ATTACHMENTS) {
-		throw new Error(`一次最多选择 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
-	}
-	const selected: PendingImageAttachment[] = [];
-	for (const filePath of filePaths) {
-		const content = await readFile(filePath);
-		if (content.length === 0 || content.length > MAX_IMAGE_BYTES) {
-			throw new Error("每张图片必须大于 0 字节且不超过 10 MB。");
-		}
-		const mimeType = getImageMimeType(content);
-		if (!mimeType) throw new Error("仅支持 PNG、JPEG、GIF 和 WebP 图片。");
-		const id = randomUUID();
-		selected.push({
-			id,
-			name: filePath.split(/[\\/]/u).at(-1) ?? "图片",
-			mimeType,
-			size: content.length,
-			image: { data: content.toString("base64"), mimeType },
-		});
-	}
+async function persistImageAttachments(selected: PendingImageAttachment[]): Promise<DesktopImageAttachment[]> {
 	await mkdir(pendingImageDirectory(), { recursive: true, mode: 0o700 });
 	for (const attachment of selected) {
 		pendingImageAttachments.set(attachment.id, attachment);
@@ -278,6 +239,30 @@ async function prepareImageAttachments(filePaths: string[]): Promise<DesktopImag
 			.resize({ width: 72, height: 72, quality: "good" })
 			.toDataURL(),
 	}));
+}
+
+async function prepareImageAttachments(filePaths: string[]): Promise<DesktopImageAttachment[]> {
+	if (filePaths.length > MAX_IMAGE_ATTACHMENTS) {
+		throw new Error(`一次最多选择 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
+	}
+	const selected: PendingImageAttachment[] = [];
+	for (const filePath of filePaths) {
+		const content = await readFile(filePath);
+		if (content.length === 0 || content.length > MAX_IMAGE_BYTES) {
+			throw new Error("每张图片必须大于 0 字节且不超过 10 MB。");
+		}
+		const mimeType = getImageMimeType(content);
+		if (!mimeType) throw new Error("仅支持 PNG、JPEG、GIF 和 WebP 图片。");
+		const id = randomUUID();
+		selected.push({
+			id,
+			name: filePath.split(/[\\/]/u).at(-1) ?? "图片",
+			mimeType,
+			size: content.length,
+			image: { data: content.toString("base64"), mimeType },
+		});
+	}
+	return persistImageAttachments(selected);
 }
 
 async function restoreImageAttachments(ids: string[]): Promise<DesktopImageAttachment[]> {
@@ -428,6 +413,32 @@ function registerIpc(): void {
 			throw new Error("无效的图片草稿恢复请求。");
 		}
 		return restoreImageAttachments(value.ids);
+	});
+	ipcMain.handle("pi-desktop:restore-message-images", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (!isDesktopRestoreMessageImagesInput(value)) {
+			throw new Error("无效的消息图片恢复请求。");
+		}
+		const images = getHost().getMessageImages(value.messageId);
+		if (images.length > MAX_IMAGE_ATTACHMENTS) {
+			throw new Error(`一次最多恢复 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
+		}
+		const selected: PendingImageAttachment[] = images.map((image, index) => {
+			const content = Buffer.from(image.data, "base64");
+			if (content.length === 0 || content.length > MAX_IMAGE_BYTES) {
+				throw new Error("消息中的图片超过 10 MB，无法恢复。");
+			}
+			const mimeType = getImageMimeType(content);
+			if (!mimeType) throw new Error("仅支持恢复 PNG、JPEG、GIF 和 WebP 图片。");
+			return {
+				id: randomUUID(),
+				name: `message-image-${index + 1}.${imageExtensionFor(mimeType)}`,
+				mimeType,
+				size: content.length,
+				image: { data: content.toString("base64"), mimeType },
+			};
+		});
+		return persistImageAttachments(selected);
 	});
 	ipcMain.handle("pi-desktop:discard-image-attachment", async (event, value: unknown) => {
 		assertMainWindowSender(event);
@@ -706,6 +717,14 @@ function registerIpc(): void {
 		assertMainWindowSender(event);
 		return getHost().listWorkspaceFiles();
 	});
+	ipcMain.handle("pi-desktop:list-workspace-directory", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (value === undefined || value === "") return getHost().listWorkspaceDirectory("");
+		if (!isDesktopWorkspaceDirectoryPath(value)) {
+			throw new Error("无效的项目目录请求。");
+		}
+		return getHost().listWorkspaceDirectory(value);
+	});
 	ipcMain.handle("pi-desktop:search-workspace-files", async (event, value: unknown) => {
 		assertMainWindowSender(event);
 		if (typeof value !== "string" || value.length > 200) throw new Error("无效的文件搜索请求。");
@@ -926,15 +945,42 @@ function registerIpc(): void {
 			headers: { Accept: "application/vnd.github+json", "User-Agent": "pi-agent-desktop" },
 		})) as FetchResponse;
 		if (!response.ok) throw new Error(`检查更新失败（HTTP ${response.status}）。`);
-		const release = (await response.json()) as { tag_name?: string; html_url?: string };
+		const release = (await response.json()) as {
+			tag_name?: string;
+			html_url?: string;
+			assets?: Array<{ name?: unknown; size?: unknown; browser_download_url?: unknown }>;
+		};
 		const latestVersion = release.tag_name?.replace(/^v/u, "");
+		latestReleaseAssets = selectUpdateAssets(release.assets ?? []);
 		return {
 			currentVersion: app.getVersion(),
 			...(latestVersion ? { latestVersion } : {}),
 			releaseUrl: release.html_url ?? "https://github.com/abcwyc/pi-agent-desktop/releases",
 			updateAvailable: Boolean(latestVersion && isNewerVersion(latestVersion, app.getVersion())),
 			checkedAt: Date.now(),
+			...(latestReleaseAssets.length ? { assets: latestReleaseAssets } : {}),
 		};
+	});
+	ipcMain.handle("pi-desktop:download-update", async (event, value: unknown) => {
+		assertMainWindowSender(event);
+		if (!isDesktopUpdateDownloadInput(value)) {
+			throw new Error("无效的更新下载请求。");
+		}
+		if (!updateDownloader) throw new Error("更新组件尚未就绪。");
+		return updateDownloader.download(value.assetName, latestReleaseAssets);
+	});
+	ipcMain.handle("pi-desktop:cancel-update-download", (event): void => {
+		assertMainWindowSender(event);
+		updateDownloader?.cancel();
+	});
+	ipcMain.handle("pi-desktop:get-update-download-state", (event) => {
+		assertMainWindowSender(event);
+		return updateDownloader?.getState() ?? { phase: "idle" };
+	});
+	ipcMain.handle("pi-desktop:install-update", async (event): Promise<void> => {
+		assertMainWindowSender(event);
+		if (!updateDownloader) throw new Error("更新组件尚未就绪。");
+		await updateDownloader.install();
 	});
 	ipcMain.handle("pi-desktop:toggle-skill", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
@@ -983,6 +1029,13 @@ function registerIpc(): void {
 			throw new Error("无效的插件启停请求。");
 		}
 		return getHost().togglePlugin(value.source, value.local, value.enabled);
+	});
+	ipcMain.handle("pi-desktop:save-plugin-filters", async (event, value: unknown): Promise<DesktopSnapshot> => {
+		assertMainWindowSender(event);
+		if (!isDesktopPluginPackageFilterInput(value)) {
+			throw new Error("无效的插件过滤配置。");
+		}
+		return getHost().savePluginPackageFilters(value);
 	});
 	ipcMain.handle("pi-desktop:reload-session", async (event): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
@@ -1061,6 +1114,9 @@ if (!hasSingleInstanceLock) {
 				mainWindow.webContents.send("pi-desktop:extension-ui", event);
 			}
 		});
+		updateDownloader = new DesktopUpdateDownloader(join(app.getPath("userData"), "updates"), () =>
+			mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+		);
 		mainWindow = createWindow();
 		createTray();
 
@@ -1073,6 +1129,7 @@ if (!hasSingleInstanceLock) {
 
 	app.on("before-quit", () => {
 		isQuitting = true;
+		windowStateTracker?.flush();
 		void host?.dispose();
 	});
 }

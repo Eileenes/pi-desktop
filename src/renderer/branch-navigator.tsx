@@ -1,5 +1,6 @@
 import { memo, useCallback, useMemo } from "react";
 import type { DesktopSessionTreeNode } from "../shared/contracts.ts";
+import { useI18n } from "./i18n.ts";
 import { Icon } from "./icons.tsx";
 
 interface BranchNavigatorProps {
@@ -114,10 +115,11 @@ export const BranchNavigator = memo(function BranchNavigator({
 	open,
 	onToggle,
 }: BranchNavigatorProps) {
+	const { t } = useI18n();
 	const activePath = useMemo(() => buildActivePath(tree, activeLeafId), [tree, activeLeafId]);
 	const first = tree[0] ? compress(tree[0]).node : undefined;
 	const hasContent = hasSession && first !== undefined && (first.children.length > 1 || hasBranch(tree));
-	const reason = !hasSession ? "没有活动会话" : "当前会话还没有可用分支。";
+	const reason = !hasSession ? t("noActiveSession") : t("noBranchesYet");
 	const select = useCallback((entryId: string) => onLeafChange(entryId), [onLeafChange]);
 
 	return (
@@ -131,13 +133,13 @@ export const BranchNavigator = memo(function BranchNavigator({
 				onClick={onToggle}
 			>
 				<Icon name="branch" size={12} />
-				<span>分支</span>
+				<span>{t("branches")}</span>
 			</button>
 			{open ? (
-				<div className="branch-popover" role="menu" aria-label="分支">
+				<div className="branch-popover" role="menu" aria-label={t("branches")}>
 					<div className="branch-popover-header">
-						<strong>会话分支树</strong>
-						<small>选择节点后从该处继续对话</small>
+						<strong>{t("sessionBranchTree")}</strong>
+						<small>{t("branchTreeHint")}</small>
 					</div>
 					<div className="branch-list">
 						{hasContent && first ? (
@@ -158,7 +160,7 @@ export const BranchNavigator = memo(function BranchNavigator({
 					</div>
 					<div className="branch-popover-footer">
 						<button type="button" onClick={onFork}>
-							Fork 为独立会话
+							{t("forkAsSession")}
 						</button>
 					</div>
 				</div>

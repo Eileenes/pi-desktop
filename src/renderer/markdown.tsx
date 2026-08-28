@@ -1,4 +1,5 @@
 import katex from "katex";
+import { useI18n } from "./i18n.ts";
 import "katex/dist/katex.min.css";
 import { Marked, type Token, type TokenizerExtension, type Tokens } from "marked";
 import { memo, type ReactNode, useMemo, useState } from "react";
@@ -68,6 +69,7 @@ function safeHref(href: string): string | undefined {
 }
 
 const CodeBlock = memo(function CodeBlock({ code, language }: { code: string; language?: string }) {
+	const { t } = useI18n();
 	const [copied, setCopied] = useState(false);
 
 	async function handleCopy(): Promise<void> {
@@ -84,8 +86,8 @@ const CodeBlock = memo(function CodeBlock({ code, language }: { code: string; la
 		<div className="code-block">
 			<div className="code-block-toolbar">
 				<span>{language || "text"}</span>
-				<button type="button" aria-label="复制代码" onClick={() => void handleCopy()}>
-					{copied ? "已复制" : "复制"}
+				<button type="button" aria-label={t("copyCode")} onClick={() => void handleCopy()}>
+					{copied ? t("copied") : t("copy")}
 				</button>
 			</div>
 			<pre>

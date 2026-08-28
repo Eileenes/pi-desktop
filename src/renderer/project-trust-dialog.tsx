@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { useI18n } from "./i18n.ts";
 
 interface ProjectTrustDialogProps {
 	workspacePath: string;
@@ -15,6 +16,7 @@ export const ProjectTrustDialog = memo(function ProjectTrustDialog({
 	onCancel,
 	onConfirm,
 }: ProjectTrustDialogProps) {
+	const { t } = useI18n();
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: backdrop pointer handling does not expose an interactive control
 		<div
@@ -42,18 +44,18 @@ export const ProjectTrustDialog = memo(function ProjectTrustDialog({
 						<path d="M12 16h.01" />
 					</svg>
 					<div>
-						<h2 id="project-trust-title">信任此项目？</h2>
-						<p>项目设置、说明和扩展程序可能会运行。仅在你信任该文件夹的来源时继续。</p>
+						<h2 id="project-trust-title">{t("trustDialogTitle")}</h2>
+						<p>{t("trustDescription")}</p>
 						<code>{workspacePath}</code>
 						{error ? <p className="trust-dialog-error">{error}</p> : null}
 					</div>
 				</div>
 				<div className="trust-dialog-actions">
 					<button className="quiet-button" type="button" disabled={busy} onClick={onCancel}>
-						取消
+						{t("cancel")}
 					</button>
 					<button className="accent-button" type="button" disabled={busy} onClick={onConfirm}>
-						{busy ? "处理中" : "信任项目"}
+						{busy ? t("processing") : t("trustProject")}
 					</button>
 				</div>
 			</div>

@@ -1,5 +1,6 @@
 import mermaid from "mermaid";
 import { memo, useEffect, useId, useState } from "react";
+import { useI18n } from "./i18n.ts";
 import { HighlightedCode } from "./syntax-highlight.tsx";
 
 let initialized = false;
@@ -16,6 +17,7 @@ function initializeMermaid(): void {
 }
 
 export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string }) {
+	const { t } = useI18n();
 	const reactId = useId().replaceAll(":", "");
 	const [preview, setPreview] = useState(true);
 	const [svg, setSvg] = useState<string>();
@@ -58,7 +60,7 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
 				<div className="code-block-toolbar">
 					<span>mermaid</span>
 					<button type="button" onClick={() => setPreview(true)}>
-						预览
+						{t("preview")}
 					</button>
 				</div>
 				<pre>
@@ -74,25 +76,25 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
 				<div className="code-block-toolbar">
 					<span>Mermaid</span>
 					<button type="button" onClick={() => setPreview(false)}>
-						源码
+						{t("source")}
 					</button>
 					{svg ? (
 						<button type="button" onClick={() => setZoomed(true)}>
-							放大
+							{t("zoom")}
 						</button>
 					) : null}
 				</div>
 				{error ? (
-					<p>Mermaid 图表语法无效。</p>
+					<p>{t("mermaidInvalid")}</p>
 				) : svg ? (
 					// biome-ignore lint/security/noDangerouslySetInnerHtml: Mermaid uses strict security mode before producing this SVG.
 					<div className="mermaid-svg" dangerouslySetInnerHTML={{ __html: svg }} />
 				) : (
-					<div className="mermaid-loading">正在渲染图表…</div>
+					<div className="mermaid-loading">{t("mermaidRendering")}</div>
 				)}
 			</div>
 			{zoomed && svg ? (
-				<div className="mermaid-zoom-backdrop" role="dialog" aria-modal="true" aria-label="Mermaid 图表查看器">
+				<div className="mermaid-zoom-backdrop" role="dialog" aria-modal="true" aria-label={t("mermaidViewer")}>
 					<div className="mermaid-zoom-toolbar">
 						<button
 							type="button"
@@ -110,11 +112,11 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
 							+
 						</button>
 						<button type="button" onClick={() => setZoomPercent(100)}>
-							重置
+							{t("reset")}
 						</button>
 					</div>
 					<button type="button" className="mermaid-zoom-close" onClick={() => setZoomed(false)}>
-						关闭
+						{t("close")}
 					</button>
 					<div className="mermaid-zoom-canvas">
 						{/* biome-ignore lint/security/noDangerouslySetInnerHtml: Mermaid uses strict security mode before producing this SVG. */}

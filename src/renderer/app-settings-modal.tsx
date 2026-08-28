@@ -1,15 +1,24 @@
 import { memo, useCallback, useEffect, useState } from "react";
-import type { DesktopUpdateInfo } from "../shared/contracts.ts";
-import { checkForUpdates, openCustomCss, openExternalUrl, quitApp, setCloseQuits } from "./desktop-store.ts";
-import type { AppLanguage } from "./i18n.ts";
+import type { DesktopUpdateDownloadState, DesktopUpdateInfo } from "../shared/contracts.ts";
+import {
+	cancelUpdateDownload,
+	checkForUpdates,
+	downloadUpdate,
+	getUpdateDownloadState,
+	installUpdate,
+	onUpdateDownloadProgress,
+	openCustomCss,
+	openExternalUrl,
+	quitApp,
+	setCloseQuits,
+} from "./desktop-store.ts";
+import { useI18n } from "./i18n.ts";
 import { Modal } from "./modal.tsx";
 
 interface AppSettingsModalProps {
 	theme: "dark" | "light";
-	language: AppLanguage;
 	notifyOnComplete: boolean;
 	onChangeTheme: (theme: "dark" | "light") => void;
-	onChangeLanguage: (language: AppLanguage) => void;
 	onToggleNotify: () => void;
 	onClose: () => void;
 }
@@ -17,6 +26,12 @@ interface AppSettingsModalProps {
 const PRODUCT_NAME = "Pi Agent";
 const REPOSITORY = "abcwyc/pi-agent-desktop";
 const RELEASES_URL = "https://github.com/abcwyc/pi-agent-desktop/releases";
+
+function formatAssetSize(sizeBytes: number): string {
+	if (sizeBytes <= 0) return "";
+	if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(0)} KB`;
+	return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 function ChoiceButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) {
 	return (
@@ -33,19 +48,21 @@ function ChoiceButton({ active, onClick, children }: { active: boolean; onClick:
 
 export const AppSettingsModal = memo(function AppSettingsModal({
 	theme,
-	language,
 	notifyOnComplete,
 	onChangeTheme,
-	onChangeLanguage,
 	onToggleNotify,
 	onClose,
 }: AppSettingsModalProps) {
+	const { t, language, setLanguage } = useI18n();
 	const [closeQuits, setCloseQuitsState] = useState<boolean>(
 		() => localStorage.getItem("pi-desktop-close-quits") === "on",
 	);
 	const [update, setUpdate] = useState<DesktopUpdateInfo>();
 	const [checkingUpdate, setCheckingUpdate] = useState(true);
 	const [updateError, setUpdateError] = useState<string>();
+	const [downloadState, setDownloadState] = useState<DesktopUpdateDownloadState>({ phase: "idle" });
+	const [selectedAsset, setSelectedAsset] = useState<string>();
+	const [installError, setInstallError] = useState<string>();
 	const [cssBusy, setCssBusy] = useState(false);
 	const [cssError, setCssError] = useState<string>();
 
@@ -53,12 +70,22 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 		setCheckingUpdate(true);
 		setUpdateError(undefined);
 		try {
-			setUpdate(await checkForUpdates());
+			const info = await checkForUpdates();
+			setUpdate(info);
+			setSelectedAsset((current) => current ?? info.assets?.[0]?.name);
 		} catch (error: unknown) {
 			setUpdateError(error instanceof Error ? error.message : String(error));
 		} finally {
 			setCheckingUpdate(false);
 		}
+	}, []);
+
+	useEffect(() => {
+		void getUpdateDownloadState()
+			.then(setDownloadState)
+			.catch(() => {});
+		const unsubscribe = onUpdateDownloadProgress(setDownloadState);
+		return unsubscribe;
 	}, []);
 
 	useEffect(() => {
@@ -72,78 +99,175 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 		void setCloseQuits(next);
 	}
 
-	const versionText = checkingUpdate ? "正在检查更新…" : (update?.currentVersion ?? "…");
+	async function handleDownload(): Promise<void> {
+		if (!selectedAsset) return;
+		setInstallError(undefined);
+		setDownloadState({ phase: "downloading", assetName: selectedAsset, receivedBytes: 0 });
+		try {
+			setDownloadState(await downloadUpdate(selectedAsset));
+		} catch (error: unknown) {
+			setDownloadState({
+				phase: "failed",
+				assetName: selectedAsset,
+				message: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
+
+	async function handleInstall(): Promise<void> {
+		setInstallError(undefined);
+		try {
+			await installUpdate();
+		} catch (error: unknown) {
+			setInstallError(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	const versionText = checkingUpdate ? t("checkingUpdate") : (update?.currentVersion ?? "…");
 	const latestText = update?.latestVersion ? `latest ${update.latestVersion}` : undefined;
 	const updateAvailable = update?.updateAvailable === true;
+	const assets = update?.assets ?? [];
+	const downloading = downloadState.phase === "downloading";
+	const downloadProgress =
+		downloadState.phase === "downloading" && downloadState.totalBytes
+			? Math.min(100, Math.round((downloadState.receivedBytes / downloadState.totalBytes) * 100))
+			: undefined;
 
 	return (
-		<Modal title={PRODUCT_NAME} subtitle="本地 AI 编码智能体" className="app-settings-dialog" onClose={onClose}>
+		<Modal title={PRODUCT_NAME} subtitle={t("localAiAgent")} className="app-settings-dialog" onClose={onClose}>
 			<div className="settings-meta-row">
 				<button
 					className="settings-meta-chip"
 					type="button"
-					title="打开仓库主页"
+					title={t("openRepoHint")}
 					onClick={() => void openExternalUrl(`https://github.com/${REPOSITORY}`)}
 				>
-					<span>仓库</span>
+					<span>{t("repository")}</span>
 					<span className="is-value">{REPOSITORY}</span>
 					<span aria-hidden="true">↗</span>
 				</button>
 				<button
 					className={`settings-meta-chip ${updateAvailable ? "is-emphasized" : ""}`}
 					type="button"
-					title={latestText ? `当前 ${versionText} · ${latestText}` : `当前版本 ${versionText}`}
+					title={
+						latestText
+							? t("chipTitleLatest", { version: versionText, latest: latestText })
+							: t("chipTitle", { version: versionText })
+					}
 					onClick={() => void openExternalUrl(update?.releaseUrl ?? RELEASES_URL)}
 				>
-					<span>{updateAvailable ? `v${versionText} → v${update?.latestVersion}` : `版本 ${versionText}`}</span>
+					<span>
+						{updateAvailable
+							? `v${versionText} → v${update?.latestVersion}`
+							: t("versionChip", { version: versionText })}
+					</span>
 					{updateAvailable ? <span aria-hidden="true">↗</span> : null}
 				</button>
-				{updateAvailable ? (
-					<button
-						className="accent-button"
-						type="button"
-						onClick={() => void openExternalUrl(update?.releaseUrl ?? RELEASES_URL)}
-					>
-						获取更新
-					</button>
-				) : null}
+				{!updateAvailable && !checkingUpdate ? <span className="settings-update-ok">{t("upToDate")}</span> : null}
 			</div>
 			{updateError ? (
 				<p className="settings-update-error" aria-live="polite">
 					{updateError}
 					<button className="settings-update-retry" type="button" onClick={() => void runUpdateCheck()}>
-						重试
+						{t("retry")}
 					</button>
 				</p>
 			) : null}
+			{updateAvailable ? (
+				<div className="settings-update-panel" aria-live="polite">
+					{assets.length > 0 ? (
+						<div className="settings-update-asset-row">
+							<label>
+								<span>{t("installerPackage")}</span>
+								<select
+									value={selectedAsset ?? ""}
+									disabled={downloading}
+									onChange={(event) => setSelectedAsset(event.target.value)}
+								>
+									{!selectedAsset ? <option value="">{t("chooseInstaller")}</option> : null}
+									{assets.map((asset) => (
+										<option key={asset.name} value={asset.name}>
+											{asset.name}
+											{asset.sizeBytes ? ` (${formatAssetSize(asset.sizeBytes)})` : ""}
+										</option>
+									))}
+								</select>
+							</label>
+							{downloadState.phase === "completed" && downloadState.assetName === selectedAsset ? (
+								<button className="accent-button" type="button" onClick={() => void handleInstall()}>
+									{t("openInstaller")}
+								</button>
+							) : downloading ? (
+								<button
+									className="outline-button"
+									type="button"
+									onClick={() => void cancelUpdateDownload().catch(() => {})}
+								>
+									{t("cancelDownload")}
+								</button>
+							) : (
+								<button
+									className="accent-button"
+									type="button"
+									disabled={!selectedAsset}
+									onClick={() => void handleDownload()}
+								>
+									{downloadState.phase === "failed" ? t("retryDownload") : t("downloadUpdate")}
+								</button>
+							)}
+						</div>
+					) : (
+						<p className="settings-update-hint">{t("noInstallerForPlatform")}</p>
+					)}
+					{downloading ? (
+						<div className="settings-update-progress">
+							<div className="settings-update-progress-track">
+								<div className="settings-update-progress-fill" style={{ width: `${downloadProgress ?? 0}%` }} />
+							</div>
+							<span>
+								{downloadProgress !== undefined
+									? `${downloadProgress}%`
+									: formatAssetSize(downloadState.receivedBytes)}
+							</span>
+						</div>
+					) : null}
+					{downloadState.phase === "completed" ? (
+						<p className="settings-update-hint">{t("downloadCompleteHint", { name: downloadState.assetName })}</p>
+					) : null}
+					{downloadState.phase === "failed" ? (
+						<p className="settings-update-error">{downloadState.message}</p>
+					) : null}
+					{installError ? <p className="settings-update-error">{installError}</p> : null}
+				</div>
+			) : null}
 			<div className="app-settings-cards">
 				<section className="app-settings-card">
-					<strong>语言</strong>
-					<p>选择应用界面使用的语言。</p>
+					<strong>{t("language")}</strong>
+					<p>{t("languageDescription")}</p>
 					<div className="choice-row">
-						<ChoiceButton active={language === "zh-CN"} onClick={() => onChangeLanguage("zh-CN")}>
+						<ChoiceButton active={language === "zh-CN"} onClick={() => setLanguage("zh-CN")}>
 							简体中文
 						</ChoiceButton>
-						<ChoiceButton active={language === "en"} onClick={() => onChangeLanguage("en")}>
+						<ChoiceButton active={language === "en"} onClick={() => setLanguage("en")}>
 							English
 						</ChoiceButton>
 					</div>
 				</section>
 				<section className="app-settings-card">
-					<strong>外观</strong>
-					<p>选择适合当前环境的显示主题。</p>
+					<strong>{t("appearance")}</strong>
+					<p>{t("appearanceDescription")}</p>
 					<div className="choice-row">
 						<ChoiceButton active={theme === "light"} onClick={() => onChangeTheme("light")}>
-							浅色
+							{t("light")}
 						</ChoiceButton>
 						<ChoiceButton active={theme === "dark"} onClick={() => onChangeTheme("dark")}>
-							深色
+							{t("dark")}
 						</ChoiceButton>
 					</div>
 					<div className="custom-css-row">
 						<span>
-							<strong>自定义样式表</strong>
-							<small>修改字体、颜色与尺寸，重载窗口后生效。</small>
+							<strong>{t("customCss")}</strong>
+							<small>{t("customCssHint")}</small>
 						</span>
 						<button
 							className="outline-button"
@@ -159,31 +283,31 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 									.finally(() => setCssBusy(false));
 							}}
 						>
-							{cssBusy ? "正在打开…" : "打开 custom.css"}
+							{cssBusy ? t("opening") : t("openCustomCss")}
 						</button>
 					</div>
 					{cssError ? <p className="sidebar-error">{cssError}</p> : null}
 				</section>
 				<section className="app-settings-card">
-					<strong>桌面应用</strong>
-					<p>控制关闭窗口和后台任务的行为。</p>
+					<strong>{t("desktopApp")}</strong>
+					<p>{t("desktopAppDescription")}</p>
 					<div className="app-settings-options">
 						<label className="toggle-row">
 							<span>
-								<strong>任务完成通知</strong>
-								<small>窗口处于后台时，在任务完成后发送系统通知。</small>
+								<strong>{t("notifyOnComplete")}</strong>
+								<small>{t("notifyHint")}</small>
 							</span>
 							<input type="checkbox" checked={notifyOnComplete} onChange={onToggleNotify} />
 						</label>
 						<label className="toggle-row">
 							<span>
-								<strong>关闭窗口时退出</strong>
-								<small>关闭窗口时退出应用；关闭后可通过桌面图标重新启动。</small>
+								<strong>{t("closeQuits")}</strong>
+								<small>{t("closeQuitsHint")}</small>
 							</span>
 							<input type="checkbox" checked={closeQuits} onChange={handleToggleCloseQuits} />
 						</label>
 						<button className="outline-button settings-quit" type="button" onClick={() => void quitApp()}>
-							退出 Pi
+							{t("quitPi")}
 						</button>
 					</div>
 				</section>

@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { DesktopExtensionWidget } from "../shared/contracts.ts";
 import { normalizeCustomPanelLines, parseAnsiLine } from "./ansi.ts";
+import { useI18n } from "./i18n.ts";
 import { asBracketedPaste, toTerminalKeyData } from "./terminal-input.ts";
 
 interface ExtensionCustomPanelProps {
@@ -14,6 +15,7 @@ export const ExtensionCustomPanel = memo(function ExtensionCustomPanel({
 	lines,
 	onInput,
 }: ExtensionCustomPanelProps) {
+	const { t } = useI18n();
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const composingRef = useRef(false);
 	const displayLines = useMemo(() => normalizeCustomPanelLines(lines), [lines]);
@@ -26,14 +28,14 @@ export const ExtensionCustomPanel = memo(function ExtensionCustomPanel({
 				className="extension-custom-panel"
 				role="dialog"
 				aria-modal="true"
-				aria-label="扩展交互面板"
+				aria-label={t("extensionPanel")}
 				onClick={() => inputRef.current?.focus()}
 				onKeyDown={() => inputRef.current?.focus()}
 			>
 				<textarea
 					ref={inputRef}
 					className="extension-custom-input"
-					aria-label="扩展面板输入"
+					aria-label={t("extensionPanelInput")}
 					autoCapitalize="off"
 					autoComplete="off"
 					autoCorrect="off"
@@ -71,10 +73,10 @@ export const ExtensionCustomPanel = memo(function ExtensionCustomPanel({
 					}}
 				/>
 				<header className="extension-custom-header">
-					<strong>扩展交互面板</strong>
-					<span>键盘输入会直接发送给扩展</span>
+					<strong>{t("extensionPanel")}</strong>
+					<span>{t("extensionPanelHint")}</span>
 					<button type="button" onClick={() => onInput(id, "\x03")}>
-						关闭
+						{t("close")}
 					</button>
 				</header>
 				<pre className="extension-custom-terminal" aria-live="polite">

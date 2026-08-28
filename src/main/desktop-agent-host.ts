@@ -28,9 +28,11 @@ import type {
 	DesktopGitWorktree,
 	DesktopModel,
 	DesktopModelScope,
+	DesktopModelScopeStatus,
 	DesktopModelTestResult,
 	DesktopPlugin,
 	DesktopPluginPackage,
+	DesktopPluginPackageFilterInput,
 	DesktopProviderConfig,
 	DesktopProviderModelConfig,
 	DesktopRemoveWorktreeResult,
@@ -46,6 +48,7 @@ import type {
 	DesktopTranscriptBlock,
 	DesktopTranscriptMessage,
 	DesktopWorkspaceChange,
+	DesktopWorkspaceDirectoryListing,
 	DesktopWorkspaceEntry,
 	DesktopWorkspaceFilePreview,
 } from "../shared/contracts.ts";
@@ -104,6 +107,7 @@ interface ManagedSession {
 	projectTrusted: boolean;
 	unsubscribe: () => void;
 	error?: string;
+	modelScope?: DesktopModelScopeStatus;
 	extensionStatuses: DesktopExtensionStatus[];
 	extensionWidgets: DesktopExtensionWidget[];
 	extensionCustomUi: ExtensionCustomUiController;
@@ -232,7 +236,7 @@ function toMessageRole(value: unknown): DesktopTranscriptMessage["role"] {
 	return "system";
 }
 
-function imageThumbnailDataUrl(block: Record<string, unknown>): string | undefined {
+function decodeImageBlock(block: Record<string, unknown>): { data: string; mimeType: string } | undefined {
 	let data: string | undefined;
 	let mimeType: string | undefined;
 	const source = block.source;
@@ -252,8 +256,14 @@ function imageThumbnailDataUrl(block: Record<string, unknown>): string | undefin
 		mimeType = typeof block.mimeType === "string" ? block.mimeType : undefined;
 	}
 	if (!data || !mimeType?.startsWith("image/") || data.length > 16_000_000) return undefined;
+	return { data, mimeType };
+}
+
+function imageThumbnailDataUrl(block: Record<string, unknown>): string | undefined {
+	const decoded = decodeImageBlock(block);
+	if (!decoded) return undefined;
 	try {
-		const image = nativeImage.createFromBuffer(Buffer.from(data, "base64"));
+		const image = nativeImage.createFromBuffer(Buffer.from(decoded.data, "base64"));
 		if (image.isEmpty()) return undefined;
 		return image.resize({ width: 240, height: 240, quality: "good" }).toDataURL();
 	} catch {
@@ -453,6 +463,8 @@ export class DesktopAgentHost {
 		if (this.authenticationUserCode) snapshot.authenticationUserCode = this.authenticationUserCode;
 		if (this.authenticationExpiresAt) snapshot.authenticationExpiresAt = this.authenticationExpiresAt;
 		if (this.workspacePath) snapshot.workspacePath = this.workspacePath;
+		const activeManaged = this.activeSessionId ? this.managedSessions.get(this.activeSessionId) : undefined;
+		if (activeManaged?.modelScope) snapshot.modelScope = activeManaged.modelScope;
 		if (!this.session) {
 			snapshot.notice = this.error ?? this.authenticationNotice ?? "正在准备本地智能体会话。";
 			return snapshot;
@@ -688,6 +700,15 @@ export class DesktopAgentHost {
 			projectTrusted: options.projectTrusted,
 			unsubscribe: () => undefined,
 			...(created.modelFallbackMessage ? { error: "没有可用模型。请在设置中配置模型服务商。" } : {}),
+			modelScope:
+				modelScope.patterns.length > 0
+					? {
+							patterns: modelScope.patterns,
+							warnings: modelScope.warnings,
+							matched: modelScope.scopedModels.length,
+							fixedLevels: modelScope.fixedLevels,
+						}
+					: undefined,
 			extensionStatuses: [],
 			extensionWidgets: [],
 			extensionCustomUi: new ExtensionCustomUiController(
@@ -818,6 +839,19 @@ export class DesktopAgentHost {
 			);
 		} catch {
 			// UI 桥不可用时扩展交互静默降级。
+		}
+
+		if (
+			!options.sessionFile &&
+			created.session.messages.length === 0 &&
+			!created.modelFallbackMessage &&
+			created.session.model
+		) {
+			const currentModel = created.session.model;
+			const scoped = modelScope.scopedModels.find(
+				(entry) => entry.model.provider === currentModel.provider && entry.model.id === currentModel.id,
+			);
+			if (scoped?.thinkingLevel) created.session.setThinkingLevel(scoped.thinkingLevel);
 		}
 
 		managed.unsubscribe = created.session.subscribe((event: unknown) => {
@@ -1080,6 +1114,10 @@ export class DesktopAgentHost {
 		this.error = undefined;
 		try {
 			await this.session.setModel(model, { persist: true });
+			const scoped = this.session.scopedModels.find(
+				(entry) => entry.model.provider === providerId && entry.model.id === modelId,
+			);
+			if (scoped?.thinkingLevel) this.session.setThinkingLevel(scoped.thinkingLevel, { persist: true });
 		} catch (error) {
 			this.error = error instanceof Error ? error.message : String(error);
 		}
@@ -1369,6 +1407,10 @@ export class DesktopAgentHost {
 		return this.getTrustedWorkspaceBrowser().list();
 	}
 
+	async listWorkspaceDirectory(path?: string): Promise<DesktopWorkspaceDirectoryListing> {
+		return this.getTrustedWorkspaceBrowser().listDirectory(path ?? "");
+	}
+
 	async searchWorkspaceFiles(query: string): Promise<DesktopWorkspaceEntry[]> {
 		const workspacePath = this.workspacePath;
 		if (!workspacePath) throw new Error("请先选择项目，再搜索文件。");
@@ -1389,6 +1431,29 @@ export class DesktopAgentHost {
 
 	async readWorkspaceFile(path: string): Promise<DesktopWorkspaceFilePreview> {
 		return this.getTrustedWorkspaceBrowser().read(path);
+	}
+
+	/** Extract original image bytes from a historical user message for editor restoration. */
+	getMessageImages(messageId: string): DesktopPromptImage[] {
+		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
+		const indexText = messageId.split(":", 1)[0] ?? "";
+		if (!/^\d+$/u.test(indexText)) throw new Error("无效的消息标识。");
+		const message = this.session.messages[Number(indexText)] as unknown as Record<string, unknown> | undefined;
+		if (!message || message.role !== "user") throw new Error("只能从历史用户消息恢复图片。");
+		const images: DesktopPromptImage[] = [];
+		const content = message.content;
+		if (Array.isArray(content)) {
+			for (const item of content) {
+				if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
+				const block = item as Record<string, unknown>;
+				if (block.type !== "image") continue;
+				const decoded = decodeImageBlock(block);
+				if (decoded) images.push({ data: decoded.data, mimeType: decoded.mimeType });
+				if (images.length >= 10) break;
+			}
+		}
+		if (images.length === 0) throw new Error("该消息没有可恢复的图片附件。");
+		return images;
 	}
 
 	async openWorkspaceFile(path: string): Promise<void> {
@@ -1452,6 +1517,15 @@ export class DesktopAgentHost {
 			if (managed.settingsManager !== settingsManager) await managed.settingsManager.reload();
 			const scope = await this.resolveModelScope(managed.settingsManager, modelRuntime);
 			managed.session.setScopedModels(scope.scopedModels);
+			managed.modelScope =
+				scope.patterns.length > 0
+					? {
+							patterns: scope.patterns,
+							warnings: scope.warnings,
+							matched: scope.scopedModels.length,
+							fixedLevels: scope.fixedLevels,
+						}
+					: undefined;
 			const currentModel = managed.session.model;
 			if (
 				scope.scopedModels.length > 0 &&
@@ -1460,7 +1534,11 @@ export class DesktopAgentHost {
 					(scoped) => scoped.model.provider === currentModel.provider && scoped.model.id === currentModel.id,
 				)
 			) {
-				await managed.session.setModel(scope.scopedModels[0].model, { persist: true });
+				const fallbackScoped = scope.scopedModels[0];
+				await managed.session.setModel(fallbackScoped.model, { persist: true });
+				if (fallbackScoped.thinkingLevel) {
+					managed.session.setThinkingLevel(fallbackScoped.thinkingLevel, { persist: true });
+				}
 			}
 		}
 		this.auditLog.write("models.scope", "succeeded", { patternCount: patterns.length });
@@ -1672,6 +1750,41 @@ export class DesktopAgentHost {
 		return this.reloadSessionResources();
 	}
 
+	async savePluginPackageFilters(input: DesktopPluginPackageFilterInput): Promise<DesktopSnapshot> {
+		if (this.hasStreamingSession()) throw new Error("请等待当前智能体任务完成后，再修改插件。");
+		if (input.local && !this.projectTrusted) throw new Error("请先信任当前项目，再修改项目插件。");
+		const settingsManager = this.requireSettingsManager();
+		const current = input.local
+			? (settingsManager.getProjectSettings().packages ?? [])
+			: settingsManager.getPackages();
+		let matched = false;
+		const next = current.map((entry): PackageSource => {
+			const entrySource = typeof entry === "string" ? entry : entry.source;
+			if (entrySource !== input.source) return entry;
+			matched = true;
+			// Spread object entries to preserve configuration fields the editor does not expose.
+			const base = typeof entry === "string" ? { source: entry } : { ...entry };
+			return {
+				...base,
+				source: input.source,
+				autoload: input.autoload,
+				extensions: [...input.filters.extensions],
+				skills: [...input.filters.skills],
+				prompts: [...input.filters.prompts],
+				themes: [...input.filters.themes],
+			};
+		});
+		if (!matched) throw new Error("找不到对应的插件配置，请刷新后重试。");
+		if (input.local) settingsManager.setProjectPackages(next);
+		else settingsManager.setPackages(next);
+		this.auditLog.write("plugin.filters", "succeeded", {
+			source: input.source,
+			scope: input.local ? "project" : "user",
+			autoload: input.autoload,
+		});
+		return this.publish();
+	}
+
 	async getPluginPackages(): Promise<DesktopPluginPackage[]> {
 		const settingsManager = this.requireSettingsManager();
 		const packageManager = new DefaultPackageManager({
@@ -1687,6 +1800,10 @@ export class DesktopAgentHost {
 		const themes = resourceLoader?.getThemes();
 		const settingsFor = (scope: "user" | "project"): PackageSource[] =>
 			scope === "user" ? settingsManager.getPackages() : (settingsManager.getProjectSettings().packages ?? []);
+		const settingsEntryFor = (source: string, scope: "user" | "project"): PackageSource | undefined =>
+			settingsFor(scope).find(
+				(candidate) => (typeof candidate === "string" ? candidate : candidate.source) === source,
+			);
 		const isDisabled = (source: string, scope: "user" | "project"): boolean => {
 			const entry = settingsFor(scope).find(
 				(candidate) => (typeof candidate === "string" ? candidate : candidate.source) === source,
@@ -1774,6 +1891,8 @@ export class DesktopAgentHost {
 				}
 				const enabled = !isDisabled(pkg.source, pkg.scope);
 				const resourceCount = extensionPaths.length + skillPaths.length + promptPaths.length + themePaths.length;
+				const settingsEntry = settingsEntryFor(pkg.source, pkg.scope);
+				const objectEntry = typeof settingsEntry === "object" ? settingsEntry : undefined;
 				return {
 					source: pkg.source,
 					scope: pkg.scope,
@@ -1792,6 +1911,17 @@ export class DesktopAgentHost {
 					...(version ? { version } : {}),
 					...(configuredVersionOf(pkg.source) ? { configuredVersion: configuredVersionOf(pkg.source) } : {}),
 					...(pkg.filtered ? { filtered: true } : {}),
+					...(objectEntry
+						? {
+								autoload: objectEntry.autoload !== false,
+								filters: {
+									extensions: [...(objectEntry.extensions ?? [])],
+									skills: [...(objectEntry.skills ?? [])],
+									prompts: [...(objectEntry.prompts ?? [])],
+									themes: [...(objectEntry.themes ?? [])],
+								},
+							}
+						: {}),
 					resources: {
 						extensions: extensionPaths,
 						skills: skillPaths,
@@ -2195,17 +2325,27 @@ export class DesktopAgentHost {
 	): Promise<{
 		scopedModels: Array<AgentSession["scopedModels"][number]>;
 		warnings: string[];
+		patterns: string[];
+		fixedLevels: DesktopModelScopeStatus["fixedLevels"];
 	}> {
 		const patterns =
 			settingsManager
 				.getEnabledModels()
 				?.map((pattern) => pattern.trim())
 				.filter(Boolean) ?? [];
-		if (patterns.length === 0) return { scopedModels: [], warnings: [] };
+		if (patterns.length === 0) return { scopedModels: [], warnings: [], patterns: [], fixedLevels: [] };
 		const resolved = await resolveModelScopeWithDiagnostics(patterns, modelRuntime);
 		return {
 			scopedModels: resolved.scopedModels,
 			warnings: resolved.diagnostics.map((diagnostic) => diagnostic.message),
+			patterns,
+			fixedLevels: resolved.scopedModels
+				.filter((scoped) => scoped.thinkingLevel !== undefined)
+				.map((scoped) => ({
+					provider: scoped.model.provider,
+					modelId: scoped.model.id,
+					level: scoped.thinkingLevel as string,
+				})),
 		};
 	}
 

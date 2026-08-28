@@ -9,22 +9,28 @@ import type {
 	DesktopNavigateTreeInput,
 	DesktopOpenSessionInput,
 	DesktopPluginPackage,
+	DesktopPluginPackageFilterInput,
 	DesktopProviderConfig,
 	DesktopProviderModelConfig,
 	DesktopProviderSetupInput,
 	DesktopRemoveWorktreeResult,
 	DesktopRestoreImageAttachmentsInput,
+	DesktopRestoreMessageImagesInput,
 	DesktopSkillInfo,
 	DesktopSkillSearchResult,
 	DesktopSkillUpdateResult,
 	DesktopSnapshot,
 	DesktopSnapshotListener,
 	DesktopToolApprovalDecisionInput,
+	DesktopUpdateDownloadInput,
+	DesktopUpdateDownloadState,
 	DesktopWorkspaceChange,
+	DesktopWorkspaceDirectoryListing,
 	DesktopWorkspaceEntry,
 	DesktopWorkspaceFilePreview,
 	Unsubscribe,
 } from "../shared/contracts.ts";
+import { getAppLanguage, translate } from "./i18n.ts";
 
 let snapshot: DesktopSnapshot = {
 	apiKeyProviders: [],
@@ -77,7 +83,7 @@ export async function startDesktopStore(): Promise<void> {
 			startupError = message;
 			publish({
 				...snapshot,
-				notice: `Pi 桌面端初始化失败：${message}。请解决问题后重试。`,
+				notice: translate(getAppLanguage(), "startupFailed", { message }),
 			});
 		} finally {
 			if (!started) startPromise = undefined;
@@ -111,6 +117,11 @@ export function attachDroppedImages(files: File[]): Promise<DesktopImageAttachme
 export function restoreImageAttachments(ids: string[]): Promise<DesktopImageAttachment[]> {
 	const input: DesktopRestoreImageAttachmentsInput = { ids };
 	return window.piDesktop.restoreImageAttachments(input);
+}
+
+export function restoreMessageImages(messageId: string): Promise<DesktopImageAttachment[]> {
+	const input: DesktopRestoreMessageImagesInput = { messageId };
+	return window.piDesktop.restoreMessageImages(input);
 }
 
 export function discardImageAttachment(id: string): Promise<void> {
@@ -277,6 +288,10 @@ export function listWorkspaceFiles(): Promise<DesktopWorkspaceEntry[]> {
 	return window.piDesktop.listWorkspaceFiles();
 }
 
+export function listWorkspaceDirectory(path?: string): Promise<DesktopWorkspaceDirectoryListing> {
+	return window.piDesktop.listWorkspaceDirectory(path);
+}
+
 export function searchWorkspaceFiles(query: string): Promise<DesktopWorkspaceEntry[]> {
 	return window.piDesktop.searchWorkspaceFiles(query);
 }
@@ -395,6 +410,27 @@ export function checkForUpdates() {
 	return window.piDesktop.checkForUpdates();
 }
 
+export function downloadUpdate(assetName: string): Promise<DesktopUpdateDownloadState> {
+	const input: DesktopUpdateDownloadInput = { assetName };
+	return window.piDesktop.downloadUpdate(input);
+}
+
+export function cancelUpdateDownload(): Promise<void> {
+	return window.piDesktop.cancelUpdateDownload();
+}
+
+export function getUpdateDownloadState(): Promise<DesktopUpdateDownloadState> {
+	return window.piDesktop.getUpdateDownloadState();
+}
+
+export function installUpdate(): Promise<void> {
+	return window.piDesktop.installUpdate();
+}
+
+export function onUpdateDownloadProgress(listener: (state: DesktopUpdateDownloadState) => void): Unsubscribe {
+	return window.piDesktop.onUpdateDownloadProgress(listener);
+}
+
 export async function toggleSkill(filePath: string, disable: boolean): Promise<DesktopSnapshot> {
 	const next = await window.piDesktop.toggleSkill({ filePath, disable });
 	publish(next);
@@ -415,6 +451,12 @@ export async function removePlugin(source: string, local: boolean): Promise<Desk
 
 export async function togglePlugin(source: string, local: boolean, enabled: boolean): Promise<DesktopSnapshot> {
 	const next = await window.piDesktop.togglePlugin({ source, local, enabled });
+	publish(next);
+	return next;
+}
+
+export async function savePluginPackageFilters(input: DesktopPluginPackageFilterInput): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.savePluginPackageFilters(input);
 	publish(next);
 	return next;
 }

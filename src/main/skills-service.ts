@@ -136,7 +136,7 @@ export async function listSkillsDetailed(options: {
 
 	for (const group of groups) {
 		if (!existsSync(group.dir)) continue;
-		const { skills: loaded } = loadSkillsFromDir({ dir: group.dir, source: group.scope });
+		const { skills: loaded, diagnostics } = loadSkillsFromDir({ dir: group.dir, source: group.scope });
 		for (const skill of loaded) {
 			const install = getInstallInfo(group.scope === "global" ? globalLock : projectLock, skill.name, group.scope);
 			skills.push({
@@ -145,7 +145,27 @@ export async function listSkillsDetailed(options: {
 				filePath: skill.filePath,
 				disableModelInvocation: skill.disableModelInvocation,
 				scope: group.scope,
+				available: true,
 				...(install ? { install } : {}),
+			});
+		}
+		for (const diagnostic of diagnostics) {
+			const diagnosticPath = diagnostic.path;
+			if (!diagnosticPath || diagnostic.type === "collision") continue;
+			const normalizedPath = diagnosticPath.replaceAll("\\", "/");
+			if (skills.some((skill) => resolve(skill.filePath) === resolve(diagnosticPath))) continue;
+			const segments = normalizedPath.split("/").filter(Boolean);
+			const folderName = normalizedPath.toLocaleLowerCase().endsWith("skill.md")
+				? (segments.at(-2) ?? segments.at(-1))
+				: segments.at(-1);
+			skills.push({
+				name: folderName ?? diagnosticPath,
+				description: "",
+				filePath: diagnosticPath,
+				disableModelInvocation: false,
+				scope: group.scope,
+				available: false,
+				error: diagnostic.message,
 			});
 		}
 	}

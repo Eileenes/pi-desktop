@@ -1,4 +1,4 @@
-import type { CSSProperties, FormEvent } from "react";
+import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type {
 	DesktopAuthenticationPrompt,
@@ -39,7 +39,7 @@ import {
 	importDroppedFiles,
 	listGitChanges,
 	listGitWorktrees,
-	listWorkspaceFiles,
+	listWorkspaceDirectory,
 	navigateTree,
 	newSession,
 	notifyComplete,
@@ -55,6 +55,7 @@ import {
 	respondToAuthenticationPrompt,
 	respondToExtensionDialog,
 	restoreImageAttachments,
+	restoreMessageImages,
 	revealWorkspaceFile,
 	saveFullBashOutput,
 	saveWorkspaceFile,
@@ -71,11 +72,12 @@ import {
 import { DirectoryPicker } from "./directory-picker.tsx";
 import { ExtensionCustomPanel, ExtensionWidgetStack } from "./extension-custom-panel.tsx";
 import { ExtensionDialog } from "./extension-dialog.tsx";
-import { type AppLanguage, translate } from "./i18n.ts";
+import { type I18n, useI18n } from "./i18n.ts";
 import { MarkdownBody } from "./markdown.tsx";
 import { ModelsConfigModal } from "./models-config-modal.tsx";
 import { PluginsConfigModal } from "./plugins-config-modal.tsx";
 import { ProjectTrustDialog } from "./project-trust-dialog.tsx";
+import { forgetScrollPosition, readScrollPosition, writeScrollPosition } from "./scroll-memory.ts";
 import { ContextUsageRing, SessionStatsPanel } from "./session-stats.tsx";
 import { SkillsConfigModal } from "./skills-config-modal.tsx";
 import { SourceControl } from "./source-control.tsx";
@@ -369,16 +371,16 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 	);
 }
 
-function formatWorkspace(path: string | undefined): string {
-	if (!path) return "未选择项目";
+function formatWorkspace(path: string | undefined, t: I18n["t"]): string {
+	if (!path) return t("noWorkspaceSelected");
 	const segments = path.split(/[\\/]/u).filter(Boolean);
 	return segments.at(-1) ?? path;
 }
 
-function sessionTitle(info: DesktopSessionInfo): string {
+function sessionTitle(info: DesktopSessionInfo, t: I18n["t"]): string {
 	if (info.name) return info.name;
 	const first = info.firstMessage.trim();
-	if (!first) return "新会话";
+	if (!first) return t("newSession");
 	return first.length > 40 ? `${first.slice(0, 40)}…` : first;
 }
 
@@ -399,9 +401,9 @@ function getModelKey(provider: string, id: string): string {
 	return `${provider}\u0000${id}`;
 }
 
-function formatAttachmentSize(size: number): string {
-	if (size < 1024 * 1024) return `${Math.ceil(size / 1024)} 千字节`;
-	return `${(size / (1024 * 1024)).toFixed(1)} 兆字节`;
+function formatAttachmentSize(size: number, t: I18n["t"]): string {
+	if (size < 1024 * 1024) return t("sizeKilobytes", { count: Math.ceil(size / 1024) });
+	return t("sizeMegabytes", { value: (size / (1024 * 1024)).toFixed(1) });
 }
 
 function formatMessageTime(timestamp: number): string {
@@ -465,39 +467,39 @@ function isHtmlFile(path: string): boolean {
 	return extension === "html" || extension === "htm";
 }
 
-function getFileKindLabel(path: string): string {
+function getFileKindLabel(path: string, t: I18n["t"]): string {
 	const extension = getFileExtension(path);
 	const labels: Record<string, string> = {
 		c: "C",
 		cpp: "C++",
 		css: "CSS",
-		gif: "GIF 图片",
+		gif: t("gifImage"),
 		go: "Go",
-		h: "头文件",
+		h: t("headerFile"),
 		html: "HTML",
 		java: "Java",
-		jpeg: "JPEG 图片",
-		jpg: "JPEG 图片",
+		jpeg: t("jpegImage"),
+		jpg: t("jpegImage"),
 		js: "JavaScript",
 		jsx: "JSX",
 		json: "JSON",
 		md: "Markdown",
 		markdown: "Markdown",
 		mdx: "MDX",
-		png: "PNG 图片",
+		png: t("pngImage"),
 		py: "Python",
 		rs: "Rust",
 		sh: "Shell",
-		svg: "SVG 图片",
+		svg: t("svgImage"),
 		toml: "TOML",
 		ts: "TypeScript",
 		tsx: "TSX",
-		txt: "文本",
-		webp: "WebP 图片",
+		txt: t("textFile"),
+		webp: t("webpImage"),
 		yaml: "YAML",
 		yml: "YAML",
 	};
-	return labels[extension] ?? (extension ? extension.toUpperCase() : "文件");
+	return labels[extension] ?? (extension ? extension.toUpperCase() : t("fileLabel"));
 }
 
 function formatByteSize(size: number): string {
@@ -571,12 +573,13 @@ interface ToolApprovalCardProps {
 }
 
 const ToolApprovalCard = memo(function ToolApprovalCard({ approval, resolving, onDecide }: ToolApprovalCardProps) {
+	const { t } = useI18n();
 	const inputText = JSON.stringify(approval.input, null, 2);
 	return (
 		<article className="approval-card">
 			<div className="card-heading">
 				<div>
-					<p className="section-kicker">工具审批</p>
+					<p className="section-kicker">{t("toolApproval")}</p>
 					<h3>{approval.toolName}</h3>
 				</div>
 				<span className="card-id">{approval.toolCallId.slice(0, 8)}</span>
@@ -589,7 +592,7 @@ const ToolApprovalCard = memo(function ToolApprovalCard({ approval, resolving, o
 					disabled={resolving}
 					onClick={() => void onDecide(approval.id, false)}
 				>
-					拒绝
+					{t("reject")}
 				</button>
 				<button
 					type="button"
@@ -597,7 +600,7 @@ const ToolApprovalCard = memo(function ToolApprovalCard({ approval, resolving, o
 					disabled={resolving}
 					onClick={() => void onDecide(approval.id, true)}
 				>
-					{resolving ? "处理中" : "本次允许"}
+					{resolving ? t("processing") : t("allowOnce")}
 				</button>
 			</div>
 		</article>
@@ -673,11 +676,12 @@ const EditDiffView = memo(function EditDiffView({
 }: {
 	lines: Array<{ kind: "add" | "del" | "ctx"; text: string; oldLine?: number; newLine?: number }>;
 }) {
+	const { t } = useI18n();
 	return (
 		<div className="edit-diff edit-diff-split">
 			<div className="edit-diff-head">
-				<span>旧内容</span>
-				<span>新内容</span>
+				<span>{t("oldContent")}</span>
+				<span>{t("newContent")}</span>
 			</div>
 			{lines.map((line, index) => (
 				// biome-ignore lint/suspicious/noArrayIndexKey: diff 行顺序固定
@@ -718,6 +722,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
 	block: DesktopTranscriptBlock;
 	durationMs?: number;
 }) {
+	const { t } = useI18n();
 	const [expanded, setExpanded] = useState(false);
 	if (block.type === "text") return <MarkdownBody text={block.text} />;
 	if (block.type === "image") {
@@ -734,11 +739,11 @@ const TranscriptBlock = memo(function TranscriptBlock({
 					<span className="entry-chevron">
 						<Icon name="chevron" size={11} />
 					</span>
-					思考过程
+					{t("thinkingProcess")}
 					<span className="block-dim">
 						{durationMs !== undefined
-							? `耗时 ${(durationMs / 1000).toFixed(1)}s`
-							: `${formatCompact(block.text.length)} 字符`}
+							? t("thinkingDuration", { seconds: (durationMs / 1000).toFixed(1) })
+							: t("thinkingChars", { count: formatCompact(block.text.length) })}
 					</span>
 				</button>
 				{expanded ? (
@@ -796,6 +801,7 @@ const UserMessageBody = memo(function UserMessageBody({
 	text: string;
 	blocks?: DesktopTranscriptBlock[];
 }) {
+	const { t } = useI18n();
 	const [collapsed, setCollapsed] = useState(false);
 	const [overflowing, setOverflowing] = useState(false);
 	const bodyRef = useRef<HTMLDivElement>(null);
@@ -844,7 +850,7 @@ const UserMessageBody = memo(function UserMessageBody({
 				{text ? <MarkdownBody text={text} /> : null}
 			</div>
 			<button type="button" className="message-user-expand" onClick={() => setCollapsed((current) => !current)}>
-				{collapsed ? "展开全部" : "收起"}
+				{collapsed ? t("expandAll") : t("collapse")}
 				<span className="entry-chevron">
 					<Icon name="chevron" size={11} />
 				</span>
@@ -870,6 +876,7 @@ const TranscriptMessage = memo(function TranscriptMessage({
 	onEdit: (message: DesktopTranscriptMessage) => void;
 	onFork: (entryId: string) => void;
 }) {
+	const { t } = useI18n();
 	const [copied, setCopied] = useState(false);
 	const [streamTps, setStreamTps] = useState<number>();
 	const streamStartRef = useRef<number | undefined>(undefined);
@@ -936,8 +943,8 @@ const TranscriptMessage = memo(function TranscriptMessage({
 			<div className="message-content">
 				{isAssistant && (message.errorMessage || message.stopReason === "error") ? (
 					<div className="message-provider-error" role="alert">
-						<strong>模型服务商错误</strong>
-						<span>{message.errorMessage ?? "模型响应异常终止。"}</span>
+						<strong>{t("providerError")}</strong>
+						<span>{message.errorMessage ?? t("modelAborted")}</span>
 					</div>
 				) : null}
 				{isAssistant && message.blocks?.length ? (
@@ -965,18 +972,18 @@ const TranscriptMessage = memo(function TranscriptMessage({
 						<span className={`message-tps ${speedTone(completedTps)}`}>{completedTps.toFixed(1)} t/s</span>
 					) : null}
 					<button type="button" onClick={() => void copyMessage()}>
-						{copied ? "已复制" : "复制"}
+						{copied ? t("copied") : t("copy")}
 					</button>
 					{message.timestamp && isLastAssistant ? <time>{formatMessageTime(message.timestamp)}</time> : null}
 				</div>
 			) : (
 				<div className="message-actions">
 					<button type="button" onClick={() => void copyMessage()} disabled={!message.text}>
-						{copied ? "已复制" : "复制"}
+						{copied ? t("copied") : t("copy")}
 					</button>
-					{!isAssistant && message.text ? (
+					{!isAssistant && (message.text || message.blocks?.some((block) => block.type === "image")) ? (
 						<button type="button" onClick={() => onEdit(message)}>
-							编辑
+							{t("edit")}
 						</button>
 					) : null}
 					{!isAssistant && message.forkEntryId ? (
@@ -1007,6 +1014,7 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 	toolCall?: { name: string; input: string };
 	previousTimestamp?: number;
 }) {
+	const { t } = useI18n();
 	const [expanded, setExpanded] = useState(false);
 	const [copied, setCopied] = useState(false);
 	const [fullOutput, setFullOutput] = useState<string>();
@@ -1062,10 +1070,10 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 				</span>
 				<span>
 					{message.command
-						? `终端 · ${message.command}`
+						? t("terminalEntry", { command: message.command })
 						: message.role === "tool"
-							? `${message.isError ? "工具失败" : "工具结果"}${message.toolName ? ` · ${message.toolName}` : toolCall ? ` · ${toolCall.name}` : ""}`
-							: "系统消息"}
+							? `${message.isError ? t("toolFailed") : t("toolResult")}${message.toolName ? ` · ${message.toolName}` : toolCall ? ` · ${toolCall.name}` : ""}`
+							: t("systemMessage")}
 				</span>
 				{message.toolCallId ? <code className="tool-call-id">#{message.toolCallId.slice(-6)}</code> : null}
 				{durationSeconds !== undefined ? <small className="entry-duration">{durationSeconds}s</small> : null}
@@ -1092,28 +1100,28 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 						</code>
 						{message.command ? (
 							<small>
-								{message.cancelled ? "已取消" : `退出码 ${message.exitCode ?? "未知"}`}
-								{message.truncated ? " · 输出已截断" : ""}
+								{message.cancelled ? t("cancelled") : t("exitCode", { code: message.exitCode ?? t("unknown") })}
+								{message.truncated ? ` · ${t("outputTruncated")}` : ""}
 							</small>
 						) : null}
 					</pre>
 					<div className="entry-detail-actions">
 						<button type="button" onClick={() => void copyOutput()} disabled={!displayedOutput}>
-							{copied ? "已复制" : "复制输出"}
+							{copied ? t("copied") : t("copyOutput")}
 						</button>
 						{message.truncated && message.fullOutputAvailable && fullOutput === undefined ? (
 							<button type="button" disabled={loadingFullOutput} onClick={() => void loadFullOutput()}>
-								{loadingFullOutput ? "正在读取…" : "查看完整输出"}
+								{loadingFullOutput ? t("reading") : t("viewFullOutput")}
 							</button>
 						) : message.truncated && fullOutput === undefined ? (
-							<span>输出已截断</span>
+							<span>{t("outputTruncated")}</span>
 						) : null}
 						{message.fullOutputAvailable ? (
 							<button type="button" disabled={savingFullOutput} onClick={() => void downloadFullOutput()}>
-								{savingFullOutput ? "正在保存…" : "下载完整输出"}
+								{savingFullOutput ? t("saving") : t("downloadFullOutput")}
 							</button>
 						) : null}
-						{fullOutput !== undefined ? <span>已显示完整输出</span> : null}
+						{fullOutput !== undefined ? <span>{t("fullOutputShown")}</span> : null}
 						{fullOutputError ? <span className="is-error">{fullOutputError}</span> : null}
 					</div>
 				</div>
@@ -1137,6 +1145,7 @@ const AuthenticationPromptCard = memo(function AuthenticationPromptCard({
 	onChange,
 	onSubmit,
 }: AuthenticationPromptCardProps) {
+	const { t } = useI18n();
 	const isSelection = prompt.type === "select";
 	return (
 		<form
@@ -1148,7 +1157,7 @@ const AuthenticationPromptCard = memo(function AuthenticationPromptCard({
 		>
 			<div className="card-heading">
 				<div>
-					<p className="section-kicker">模型配置</p>
+					<p className="section-kicker">{t("modelConfig")}</p>
 					<h3>{prompt.message}</h3>
 				</div>
 				<span className="card-id">{prompt.type.replaceAll("_", " ")}</span>
@@ -1171,17 +1180,27 @@ const AuthenticationPromptCard = memo(function AuthenticationPromptCard({
 				/>
 			)}
 			<button className="accent-button" type="submit" disabled={resolving}>
-				{resolving ? "处理中" : "继续"}
+				{resolving ? t("processing") : t("continue")}
 			</button>
 		</form>
 	);
 });
 
+interface DirectoryNode {
+	status: "loading" | "loaded" | "error";
+	directories: DesktopWorkspaceEntry[];
+	files: DesktopWorkspaceEntry[];
+	error?: string;
+	truncated?: boolean;
+}
+
 interface ExplorerProps {
-	entries: DesktopWorkspaceEntry[];
 	error: string | undefined;
-	isLoading: boolean;
 	isTrusted: boolean;
+	/** Bumped to reload every already-loaded directory (manual refresh, watcher events). */
+	reloadSignal: number;
+	/** Requests a reload of a single directory (for example after an upload). */
+	directoryReload: { path: string; token: number } | undefined;
 	selectedPath: string | undefined;
 	workspacePath: string | undefined;
 	onChooseWorkspace: () => void;
@@ -1194,10 +1213,10 @@ interface ExplorerProps {
 }
 
 function Explorer({
-	entries,
 	error,
-	isLoading,
 	isTrusted,
+	reloadSignal,
+	directoryReload,
 	selectedPath,
 	workspacePath,
 	onChooseWorkspace,
@@ -1208,10 +1227,77 @@ function Explorer({
 	onTrustProject,
 	onUpload,
 }: ExplorerProps) {
-	const [collapsedDirectories, setCollapsedDirectories] = useState<Set<string>>(new Set());
+	const { t } = useI18n();
+	const [directoryNodes, setDirectoryNodes] = useState<Record<string, DirectoryNode>>({});
+	const [expandedDirectories, setExpandedDirectories] = useState<Set<string>>(new Set());
 	const [searchQuery, setSearchQuery] = useState("");
+	const [searchResults, setSearchResults] = useState<DesktopWorkspaceEntry[] | undefined>();
+	const [searching, setSearching] = useState(false);
 	const [uploadDirectory, setUploadDirectory] = useState("");
 	const [gitChanges, setGitChanges] = useState<DesktopGitChange[]>([]);
+
+	const loadDirectory = useCallback(async (path: string): Promise<void> => {
+		setDirectoryNodes((current) => ({
+			...current,
+			[path]: {
+				status: "loading",
+				directories: current[path]?.directories ?? [],
+				files: current[path]?.files ?? [],
+			},
+		}));
+		try {
+			const listing = await listWorkspaceDirectory(path || undefined);
+			setDirectoryNodes((current) => ({
+				...current,
+				[path]: {
+					status: "loaded",
+					directories: listing.directories,
+					files: listing.files,
+					...(listing.truncated ? { truncated: true } : {}),
+				},
+			}));
+		} catch (loadError) {
+			setDirectoryNodes((current) => ({
+				...current,
+				[path]: {
+					status: "error",
+					directories: [],
+					files: [],
+					error: loadError instanceof Error ? loadError.message : String(loadError),
+				},
+			}));
+		}
+	}, []);
+
+	// Reset the whole tree when the workspace or trust state changes.
+	useEffect(() => {
+		setDirectoryNodes({});
+		setExpandedDirectories(new Set());
+		setUploadDirectory("");
+		if (!workspacePath || !isTrusted) return;
+		void loadDirectory("");
+	}, [isTrusted, loadDirectory, workspacePath]);
+
+	// Global reloads (watcher events, manual refresh) invalidate loaded directories only.
+	const lastReloadSignalRef = useRef(reloadSignal);
+	const directoryNodesRef = useRef(directoryNodes);
+	directoryNodesRef.current = directoryNodes;
+	useEffect(() => {
+		if (lastReloadSignalRef.current === reloadSignal) return;
+		lastReloadSignalRef.current = reloadSignal;
+		if (!workspacePath || !isTrusted) return;
+		for (const [path, node] of Object.entries(directoryNodesRef.current)) {
+			if (node.status === "loaded" || node.status === "error") void loadDirectory(path);
+		}
+	}, [isTrusted, loadDirectory, reloadSignal, workspacePath]);
+
+	// Targeted reload after uploads.
+	const lastDirectoryReloadTokenRef = useRef(0);
+	useEffect(() => {
+		if (!directoryReload || directoryReload.token === lastDirectoryReloadTokenRef.current) return;
+		lastDirectoryReloadTokenRef.current = directoryReload.token;
+		void loadDirectory(directoryReload.path);
+	}, [directoryReload, loadDirectory]);
 
 	useEffect(() => {
 		setUploadDirectory("");
@@ -1233,6 +1319,37 @@ function Explorer({
 		};
 	}, [workspacePath, isTrusted]);
 
+	// Composer-style search reuses the bounded deep workspace index.
+	useEffect(() => {
+		const query = searchQuery.trim();
+		if (!query) {
+			setSearchResults(undefined);
+			setSearching(false);
+			return;
+		}
+		let active = true;
+		setSearching(true);
+		const timer = window.setTimeout(() => {
+			void searchWorkspaceFiles(query)
+				.then((entries) => {
+					if (active) {
+						setSearchResults(entries.filter((entry) => entry.type === "file"));
+						setSearching(false);
+					}
+				})
+				.catch(() => {
+					if (active) {
+						setSearchResults([]);
+						setSearching(false);
+					}
+				});
+		}, 160);
+		return () => {
+			active = false;
+			window.clearTimeout(timer);
+		};
+	}, [searchQuery]);
+
 	const gitStatusByPath = useMemo(
 		() => new Map(gitChanges.map((change) => [change.path, change.status])),
 		[gitChanges],
@@ -1247,40 +1364,142 @@ function Explorer({
 		}
 		return directories;
 	}, [gitChanges]);
-	const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
-	const visibleEntries = useMemo(() => {
-		if (normalizedSearch) {
-			return entries.filter(
-				(entry) => entry.type === "file" && entry.path.toLocaleLowerCase().includes(normalizedSearch),
-			);
-		}
-		if (collapsedDirectories.size === 0) return entries;
-		return entries.filter((entry) => {
-			const segments = entry.path.split("/");
-			for (let index = 1; index < segments.length; index += 1) {
-				if (collapsedDirectories.has(segments.slice(0, index).join("/"))) return false;
-			}
-			return true;
-		});
-	}, [entries, collapsedDirectories, normalizedSearch]);
 
-	function toggleDirectory(path: string): void {
-		setCollapsedDirectories((current) => {
+	function toggleDirectory(path: string, node: DirectoryNode | undefined): void {
+		setExpandedDirectories((current) => {
 			const next = new Set(current);
 			if (next.has(path)) next.delete(path);
 			else next.add(path);
 			return next;
 		});
+		if (!node && !directoryNodes[path]) void loadDirectory(path);
+	}
+
+	function renderFileRow(entry: DesktopWorkspaceEntry, displayPath: string): ReactNode {
+		const gitStatus = gitStatusByPath.get(entry.path);
+		return (
+			<div
+				className={`tree-entry file-entry ${selectedPath === entry.path ? "is-selected" : ""}`}
+				key={entry.path}
+				style={{ "--entry-depth": entry.depth } as CSSProperties}
+			>
+				<button className="tree-entry-main" type="button" onClick={() => onOpenFile(entry)}>
+					<span className="tree-file-icon">
+						<Icon name={fileIconFor(entry.path)} size={13} />
+					</span>
+					<span className="tree-entry-name">{displayPath}</span>
+				</button>
+				{gitStatus ? (
+					<span className={`tree-git-status is-${gitStatus}`}>{gitStatus.slice(0, 1).toUpperCase()}</span>
+				) : null}
+				<div className="tree-entry-actions">
+					<button
+						type="button"
+						title={t("mentionAria", { path: entry.path })}
+						onClick={() => onMention(entry.path)}
+					>
+						@
+					</button>
+					<button
+						type="button"
+						title={t("downloadAria", { path: entry.path })}
+						onClick={() => onDownload(entry.path)}
+					>
+						↓
+					</button>
+				</div>
+			</div>
+		);
+	}
+
+	function renderNodeRows(path: string): ReactNode {
+		const node = directoryNodes[path];
+		if (!node) {
+			return (
+				<p className="sidebar-loading" key={`${path}:loading`}>
+					{t("reading")}
+				</p>
+			);
+		}
+		if (node.status === "loading") {
+			return (
+				<p className="sidebar-loading" key={`${path}:loading`}>
+					{t("reading")}
+				</p>
+			);
+		}
+		if (node.status === "error") {
+			return (
+				<div className="tree-directory-error" key={`${path}:error`}>
+					<span>{node.error}</span>
+					<button type="button" onClick={() => void loadDirectory(path)}>
+						{t("retry")}
+					</button>
+				</div>
+			);
+		}
+		const rows: ReactNode[] = [];
+		for (const entry of node.directories) {
+			const expanded = expandedDirectories.has(entry.path);
+			rows.push(
+				<button
+					className={`tree-entry directory-entry ${expanded ? "" : "is-collapsed"} ${uploadDirectory === entry.path ? "is-upload-target" : ""}`}
+					key={entry.path}
+					style={{ "--entry-depth": entry.depth } as CSSProperties}
+					type="button"
+					onDragOver={(event) => {
+						event.preventDefault();
+						event.stopPropagation();
+						setUploadDirectory(entry.path);
+					}}
+					onDrop={(event) => {
+						event.preventDefault();
+						event.stopPropagation();
+						onUpload(Array.from(event.dataTransfer.files), entry.path);
+					}}
+					onClick={() => {
+						setUploadDirectory(entry.path);
+						toggleDirectory(entry.path, directoryNodes[entry.path]);
+					}}
+				>
+					<span className="tree-chevron">
+						<Icon name="chevron" size={12} />
+					</span>
+					<Icon name="folder" size={14} />
+					<span>{entry.name}</span>
+					{changedDirectories.has(entry.path) ? <span className="directory-change-dot" /> : null}
+				</button>,
+			);
+			if (expanded) rows.push(renderNodeRows(entry.path));
+		}
+		for (const entry of node.files) {
+			rows.push(renderFileRow(entry, entry.name));
+		}
+		if (node.directories.length === 0 && node.files.length === 0) {
+			rows.push(
+				<p className="sidebar-loading" key={`${path}:empty`}>
+					{t("emptyDirectory")}
+				</p>,
+			);
+		}
+		if (node.truncated) {
+			rows.push(
+				<p className="sidebar-loading" key={`${path}:truncated`}>
+					{t("listingTruncated")}
+				</p>,
+			);
+		}
+		return rows;
 	}
 
 	if (!workspacePath)
 		return (
 			<div className="sidebar-empty">
 				<Icon name="folder" size={22} />
-				<strong>打开项目</strong>
-				<p>选择本地文件夹后即可开始 Pi 会话。</p>
+				<strong>{t("openProject")}</strong>
+				<p>{t("openProjectHint")}</p>
 				<button className="outline-button" type="button" onClick={onChooseWorkspace}>
-					选择文件夹
+					{t("chooseFolder")}
 				</button>
 			</div>
 		);
@@ -1288,17 +1507,17 @@ function Explorer({
 		return (
 			<div className="sidebar-empty">
 				<span className="lock-mark">⌁</span>
-				<strong>文件浏览已锁定</strong>
-				<p>信任该项目后，Pi 桌面端才会读取项目文件。</p>
+				<strong>{t("fileBrowsingLocked")}</strong>
+				<p>{t("trustToBrowse")}</p>
 				<button className="outline-button" type="button" onClick={onTrustProject}>
-					信任项目
+					{t("trustProject")}
 				</button>
 			</div>
 		);
 	return (
 		<section
 			className="explorer-body"
-			aria-label="项目文件树和上传区域"
+			aria-label={t("explorerAria")}
 			onDragOver={(event) => event.preventDefault()}
 			onDrop={(event) => {
 				event.preventDefault();
@@ -1306,8 +1525,8 @@ function Explorer({
 			}}
 		>
 			<div className="sidebar-section-title">
-				<span>文件</span>
-				<label className="file-upload-button" title={`上传到 ${uploadDirectory || "项目根目录"}`}>
+				<span>{t("files")}</span>
+				<label className="file-upload-button" title={t("uploadTo", { dir: uploadDirectory || t("rootDirectory") })}>
 					＋
 					<input
 						type="file"
@@ -1318,12 +1537,12 @@ function Explorer({
 				<button
 					className="file-upload-target"
 					type="button"
-					title="上传目标目录"
+					title={t("uploadTargetTitle")}
 					onClick={() => setUploadDirectory("")}
 				>
-					{uploadDirectory || "根目录"}
+					{uploadDirectory || t("rootDirectory")}
 				</button>
-				<button className="icon-button compact" type="button" aria-label="刷新文件" onClick={onRefresh}>
+				<button className="icon-button compact" type="button" aria-label={t("refreshFiles")} onClick={onRefresh}>
 					↻
 				</button>
 			</div>
@@ -1332,73 +1551,27 @@ function Explorer({
 				<input
 					type="search"
 					value={searchQuery}
-					placeholder="按路径搜索文件"
+					placeholder={t("searchFilesPlaceholder")}
 					onChange={(event) => setSearchQuery(event.target.value)}
 				/>
 			</label>
 			{error ? <p className="sidebar-error">{error}</p> : null}
-			{isLoading ? <p className="sidebar-loading">正在读取项目文件…</p> : null}
 			<div className="file-list">
-				{visibleEntries.map((entry) =>
-					isFileEntry(entry) ? (
-						<div
-							className={`tree-entry file-entry ${selectedPath === entry.path ? "is-selected" : ""}`}
-							key={entry.path}
-							style={{ "--entry-depth": entry.depth } as CSSProperties}
-						>
-							<button className="tree-entry-main" type="button" onClick={() => onOpenFile(entry)}>
-								<span className="tree-file-icon">
-									<Icon name={fileIconFor(entry.path)} size={13} />
-								</span>
-								<span className="tree-entry-name">{normalizedSearch ? entry.path : entry.name}</span>
-							</button>
-							{gitStatusByPath.get(entry.path) ? (
-								<span className={`tree-git-status is-${gitStatusByPath.get(entry.path)}`}>
-									{gitStatusByPath.get(entry.path)?.slice(0, 1).toUpperCase()}
-								</span>
-							) : null}
-							<div className="tree-entry-actions">
-								<button type="button" title={`提及 ${entry.path}`} onClick={() => onMention(entry.path)}>
-									@
-								</button>
-								<button type="button" title={`下载 ${entry.path}`} onClick={() => onDownload(entry.path)}>
-									↓
-								</button>
-							</div>
-						</div>
-					) : (
-						<button
-							className={`tree-entry directory-entry ${collapsedDirectories.has(entry.path) ? "is-collapsed" : ""} ${uploadDirectory === entry.path ? "is-upload-target" : ""}`}
-							key={entry.path}
-							style={{ "--entry-depth": entry.depth } as CSSProperties}
-							type="button"
-							onDragOver={(event) => {
-								event.preventDefault();
-								event.stopPropagation();
-								setUploadDirectory(entry.path);
-							}}
-							onDrop={(event) => {
-								event.preventDefault();
-								event.stopPropagation();
-								onUpload(Array.from(event.dataTransfer.files), entry.path);
-							}}
-							onClick={() => {
-								setUploadDirectory(entry.path);
-								toggleDirectory(entry.path);
-							}}
-						>
-							<span className="tree-chevron">
-								<Icon name="chevron" size={12} />
-							</span>
-							<Icon name="folder" size={14} />
-							<span>{entry.name}</span>
-							{changedDirectories.has(entry.path) ? <span className="directory-change-dot" /> : null}
-						</button>
-					),
-				)}
-				{normalizedSearch && visibleEntries.length === 0 ? (
-					<p className="sidebar-loading">没有匹配的文件。</p>
-				) : null}
+				{searchResults
+					? searching
+						? [
+								<p className="sidebar-loading" key="searching">
+									{t("searchingShort")}
+								</p>,
+							]
+						: searchResults.length
+							? searchResults.map((entry) => renderFileRow(entry, entry.path))
+							: [
+									<p className="sidebar-loading" key="no-match">
+										{t("noMatchingFiles")}
+									</p>,
+								]
+					: renderNodeRows("")}
 			</div>
 		</section>
 	);
@@ -1435,6 +1608,7 @@ function Inspector({
 	onQuoteLine: (path: string, line: number) => void;
 	onQuoteLineRange: (path: string, line: number, extend: boolean) => void;
 }) {
+	const { t } = useI18n();
 	const [mode, setMode] = useState<"diff" | "preview" | "source">("source");
 	const [contentQuery, setContentQuery] = useState("");
 	const [wrapLines, setWrapLines] = useState(() => localStorage.getItem("pi-desktop-file-wrap") === "on");
@@ -1492,7 +1666,7 @@ function Inspector({
 	const byteSize = preview ? new TextEncoder().encode(preview.content).length : 0;
 
 	return (
-		<aside className="inspector" aria-label="文件预览">
+		<aside className="inspector" aria-label={t("inspectorAria")}>
 			<div className="inspector-header">
 				<div className="inspector-title">
 					{preview ? (
@@ -1505,11 +1679,11 @@ function Inspector({
 								<button
 									className="file-live-badge"
 									type="button"
-									title="文件已在磁盘上更新，点击重新加载"
+									title={t("reloadChangedHint")}
 									onClick={onReloadChanged}
 								>
 									<span className="file-live-dot" />
-									已更新
+									{t("updated")}
 								</button>
 							) : (
 								<span className="file-live-badge is-static">
@@ -1519,24 +1693,24 @@ function Inspector({
 							)}
 							<small className="inspector-meta">
 								{isImage
-									? getFileKindLabel(preview.path)
-									: `${getFileKindLabel(preview.path)} · ${lineCount} 行 · ${formatByteSize(byteSize)}`}
+									? getFileKindLabel(preview.path, t)
+									: `${getFileKindLabel(preview.path, t)} · ${t("lines", { count: lineCount })} · ${formatByteSize(byteSize)}`}
 							</small>
 						</>
 					) : (
-						<strong>未选择文件</strong>
+						<strong>{t("noFileSelected")}</strong>
 					)}
 				</div>
 				<div className="inspector-header-actions">
 					{preview && !isImage && !isAudio && !isPdf && !isDocx ? (
-						<div className="inspector-segmented" role="tablist" aria-label="显示模式">
+						<div className="inspector-segmented" role="tablist" aria-label={t("displayModes")}>
 							<button
 								aria-pressed={mode === "source"}
 								className={mode === "source" ? "is-active" : ""}
 								type="button"
 								onClick={() => setMode("source")}
 							>
-								源码
+								{t("source")}
 							</button>
 							{isPreviewable ? (
 								<button
@@ -1545,7 +1719,7 @@ function Inspector({
 									type="button"
 									onClick={() => setMode("preview")}
 								>
-									预览
+									{t("preview")}
 								</button>
 							) : null}
 							<button
@@ -1554,7 +1728,7 @@ function Inspector({
 								type="button"
 								onClick={() => setMode("diff")}
 							>
-								差异
+								{t("diff")}
 							</button>
 						</div>
 					) : null}
@@ -1562,7 +1736,7 @@ function Inspector({
 						<button
 							className={`icon-button ${wrapLines ? "is-active" : ""}`}
 							type="button"
-							aria-label={wrapLines ? "关闭自动换行" : "开启自动换行"}
+							aria-label={wrapLines ? t("disableWrap") : t("enableWrap")}
 							aria-pressed={wrapLines}
 							onClick={() => setWrapLines((current) => !current)}
 						>
@@ -1573,7 +1747,7 @@ function Inspector({
 						<button
 							className="icon-button"
 							type="button"
-							aria-label="复制文件路径"
+							aria-label={t("copyPathAria")}
 							onClick={() => onCopyPath(preview.path)}
 						>
 							<Icon name="copy" size={16} />
@@ -1583,7 +1757,7 @@ function Inspector({
 						<button
 							className="icon-button"
 							type="button"
-							aria-label="复制文件内容"
+							aria-label={t("copyContentAria")}
 							onClick={() => onCopyContent(preview.content)}
 						>
 							<Icon name="copy" size={16} />
@@ -1593,7 +1767,7 @@ function Inspector({
 						<button
 							className="icon-button"
 							type="button"
-							aria-label="下载文件"
+							aria-label={t("downloadFileAria")}
 							onClick={() => onDownload(preview.path)}
 						>
 							<Icon name="doc" size={16} />
@@ -1603,7 +1777,7 @@ function Inspector({
 						<button
 							className="icon-button"
 							type="button"
-							aria-label="用默认应用打开"
+							aria-label={t("openWithDefaultAria")}
 							onClick={() => onOpenFile(preview.path)}
 						>
 							<Icon name="external" size={16} />
@@ -1613,13 +1787,13 @@ function Inspector({
 						<button
 							className="icon-button"
 							type="button"
-							aria-label="在文件管理器中显示"
+							aria-label={t("revealInFinderAria")}
 							onClick={() => onRevealFile(preview.path)}
 						>
 							<Icon name="folder" size={16} />
 						</button>
 					) : null}
-					<button className="icon-button" type="button" aria-label="关闭预览" onClick={onClose}>
+					<button className="icon-button" type="button" aria-label={t("closePreviewAria")} onClick={onClose}>
 						<Icon name="close" size={16} />
 					</button>
 				</div>
@@ -1630,7 +1804,7 @@ function Inspector({
 					<input
 						type="search"
 						value={contentQuery}
-						placeholder="搜索文件内容"
+						placeholder={t("searchContentPlaceholder")}
 						onChange={(event) => setContentQuery(event.target.value)}
 					/>
 				</label>
@@ -1643,11 +1817,15 @@ function Inspector({
 				) : isAudio ? (
 					<div className="file-audio-preview">
 						{/* biome-ignore lint/a11y/useMediaCaption: 音频文件预览，无字幕轨可提供 */}
-						<audio controls src={preview.audioDataUrl} aria-label={`音频预览：${preview.path}`} />
+						<audio
+							controls
+							src={preview.audioDataUrl}
+							aria-label={t("audioPreviewAria", { path: preview.path })}
+						/>
 					</div>
 				) : isPdf ? (
 					<div className="file-document-preview">
-						<iframe src={preview.pdfDataUrl} title={`PDF 预览：${preview.path}`} />
+						<iframe src={preview.pdfDataUrl} title={t("pdfPreviewAria", { path: preview.path })} />
 					</div>
 				) : mode === "preview" && isPreviewable ? (
 					isHtmlFile(preview.path) || isDocx ? (
@@ -1655,7 +1833,7 @@ function Inspector({
 							<iframe
 								sandbox=""
 								srcDoc={isDocx ? preview.docxHtml : preview.content}
-								title={`${isDocx ? "DOCX" : "HTML"} 预览：${preview.path}`}
+								title={t("docPreviewAria", { kind: isDocx ? "DOCX" : "HTML", path: preview.path })}
 							/>
 						</div>
 					) : (
@@ -1665,7 +1843,7 @@ function Inspector({
 					)
 				) : mode === "diff" ? (
 					diffLoading ? (
-						<p className="inspector-diff-empty">正在读取差异…</p>
+						<p className="inspector-diff-empty">{t("loadingDiff")}</p>
 					) : diffText ? (
 						<div className="file-preview-source is-diff-view">
 							{diffText.split("\n").map((line, index) => (
@@ -1677,7 +1855,7 @@ function Inspector({
 							))}
 						</div>
 					) : (
-						<p className="inspector-diff-empty">该文件没有未提交的更改。</p>
+						<p className="inspector-diff-empty">{t("noUncommittedDiff")}</p>
 					)
 				) : (
 					<div className={`file-preview-source ${wrapLines ? "is-wrapped" : ""}`}>
@@ -1686,7 +1864,7 @@ function Inspector({
 								className={`source-line ${sourceLine.match ? "is-match" : ""}`}
 								key={sourceLine.line}
 								type="button"
-								title="点击引用此行，Shift+点击引用行范围"
+								title={t("quoteLineHint")}
 								onClick={(event) => onQuoteLineRange(preview.path, sourceLine.line, event.shiftKey)}
 							>
 								<span className="source-line-number">{sourceLine.line}</span>
@@ -1700,7 +1878,7 @@ function Inspector({
 			) : (
 				<div className="inspector-empty">
 					<Icon name="panel" size={22} />
-					<p>选择已信任项目中的文件，即可在这里预览。</p>
+					<p>{t("inspectorEmptyHint")}</p>
 				</div>
 			)}
 		</aside>
@@ -1710,10 +1888,7 @@ function Inspector({
 export function App() {
 	const snapshot = useSyncExternalStore(subscribeDesktopSnapshot, getDesktopSnapshot, getDesktopSnapshot);
 	const startupError = getDesktopStartupError();
-	const [language, setLanguage] = useState<AppLanguage>(() =>
-		localStorage.getItem("pi-desktop-language") === "en" ? "en" : "zh-CN",
-	);
-	const t = (key: Parameters<typeof translate>[1]) => translate(language, key);
+	const { t } = useI18n();
 	const [theme, setTheme] = useState<"dark" | "light">(() => {
 		const stored = localStorage.getItem("pi-desktop-theme");
 		return stored === "light" || stored === "dark"
@@ -1803,8 +1978,9 @@ export function App() {
 	const [fileTabs, setFileTabs] = useState<FileTab[]>([]);
 	const [activeTabPath, setActiveTabPath] = useState<string | undefined>();
 	const [fileExplorerError, setFileExplorerError] = useState<string>();
-	const [loadingFiles, setLoadingFiles] = useState(false);
-	const [loadingFilePath, setLoadingFilePath] = useState<string>();
+	const [explorerReloadSignal, setExplorerReloadSignal] = useState(0);
+	const [explorerDirectoryReload, setExplorerDirectoryReload] = useState<{ path: string; token: number }>();
+	const explorerDirectoryReloadTokenRef = useRef(0);
 	const [inspectorOpen, setInspectorOpen] = useState(() => localStorage.getItem("pi-desktop-inspector-open") === "on");
 	const [rightPanelMode, setRightPanelMode] = useState<"files" | "source">(
 		() => (localStorage.getItem("pi-desktop-right-panel-mode") as "files" | "source" | null) ?? "files",
@@ -1851,7 +2027,7 @@ export function App() {
 	const stickToBottomRef = useRef(true);
 	const previousMessageSignatureRef = useRef("");
 	const previousSessionIdRef = useRef<string | undefined>(undefined);
-	const scrollMemoryRef = useRef(new Map<string, { scrollTop: number; visibleItemCount: number }>());
+	const lastScrollPersistAtRef = useRef(0);
 	const promptRef = useRef<HTMLTextAreaElement>(null);
 	const composingRef = useRef(false);
 	const promptHistoryRef = useRef<string[]>([]);
@@ -1885,7 +2061,7 @@ export function App() {
 	const firstUserText = session?.messages.find((message) => message.role === "user")?.text.trim() ?? "";
 	const topBarTitle =
 		session?.name ??
-		(firstUserText ? (firstUserText.length > 40 ? `${firstUserText.slice(0, 40)}…` : firstUserText) : "新任务");
+		(firstUserText ? (firstUserText.length > 40 ? `${firstUserText.slice(0, 40)}…` : firstUserText) : t("newTask"));
 	const topBarSubtitle = snapshot.workspacePath
 		? (snapshot.workspacePath.split(/[\\/]/u).filter(Boolean).at(-1) ?? snapshot.workspacePath)
 		: (snapshot.userHomeName ?? "Pi");
@@ -1894,10 +2070,16 @@ export function App() {
 		const compaction = session?.lastCompaction;
 		if (!compaction) return undefined;
 		const saved = compaction.tokensAfter !== undefined ? compaction.tokensBefore - compaction.tokensAfter : undefined;
-		const after = compaction.tokensAfter !== undefined ? ` → ${formatCompact(compaction.tokensAfter)}k` : "";
-		return `上下文已压缩（${compaction.reason}）：${formatCompact(compaction.tokensBefore)}k${after} tokens${
-			saved !== undefined && saved > 0 ? `，节省 ${formatCompact(saved)}k` : ""
-		}`;
+		const after =
+			compaction.tokensAfter !== undefined
+				? t("compactionAfter", { after: formatCompact(compaction.tokensAfter) })
+				: "";
+		return t("compactionBanner", {
+			reason: compaction.reason,
+			before: formatCompact(compaction.tokensBefore),
+			after,
+			saved: saved !== undefined && saved > 0 ? t("compactionSaved", { saved: formatCompact(saved) }) : "",
+		});
 	})();
 	const filteredModels = (() => {
 		const query = modelFilter.trim().toLocaleLowerCase();
@@ -1915,6 +2097,19 @@ export function App() {
 		return parts.join(" · ");
 	})();
 	const transcriptItems = useMemo(() => partitionTranscript(session?.messages ?? []), [session?.messages]);
+	const modelScopeNotice = (() => {
+		const scope = snapshot.modelScope;
+		if (!scope) return undefined;
+		const parts = [...scope.warnings];
+		if (scope.matched === 0) parts.push(t("modelScopeUnmatched"));
+		return parts.length ? parts.join(" ") : undefined;
+	})();
+	const scopedThinkingFixed = (() => {
+		const scope = snapshot.modelScope;
+		const model = session?.model;
+		if (!scope || !model) return undefined;
+		return scope.fixedLevels.find((entry) => entry.provider === model.provider && entry.modelId === model.id)?.level;
+	})();
 	const conversationTurns = useMemo(() => buildConversationTurns(session?.messages ?? []), [session?.messages]);
 	const conversationTurnIndexes = useMemo(
 		() => new Map(conversationTurns.map((turn, index) => [turn.messageId, index])),
@@ -1958,27 +2153,31 @@ export function App() {
 	const slashActive = slashMatch !== null;
 	const slashQuery = slashMatch?.[1]?.toLocaleLowerCase() ?? "";
 	const slashCommands = [
-		{ name: "compact", description: "压缩对话上下文，可附加指示", category: "会话" },
-		{ name: "name", description: "重命名当前会话", category: "会话" },
-		{ name: "copy", description: "复制最后一条回答", category: "会话" },
-		{ name: "session", description: "查看会话统计", category: "会话" },
-		{ name: "reload", description: "重新加载扩展与资源", category: "会话" },
-		{ name: "help", description: "显示桌面端可用命令", category: "帮助" },
-		{ name: "model", description: "打开具体模型选择", category: "模型" },
-		{ name: "login", description: "配置模型服务商", category: "模型" },
-		{ name: "project", description: "打开项目文件夹", category: "项目" },
-		{ name: "files", description: "打开文件浏览", category: "项目" },
-		{ name: "settings", description: "打开设置", category: "设置" },
-		{ name: "skills", description: "打开技能列表", category: "扩展" },
-		{ name: "plugins", description: "打开插件列表", category: "扩展" },
-		{ name: "trust", description: "切换当前项目的信任状态", category: "安全" },
+		{ name: "compact", description: t("cmdCompact"), category: t("categorySession") },
+		{ name: "name", description: t("cmdName"), category: t("categorySession") },
+		{ name: "copy", description: t("cmdCopy"), category: t("categorySession") },
+		{ name: "session", description: t("cmdSession"), category: t("categorySession") },
+		{ name: "reload", description: t("cmdReload"), category: t("categorySession") },
+		{ name: "help", description: t("cmdHelp"), category: t("categoryHelp") },
+		{ name: "model", description: t("cmdModel"), category: t("categoryModels") },
+		{ name: "login", description: t("cmdLogin"), category: t("categoryModels") },
+		{ name: "project", description: t("cmdProject"), category: t("categoryProject") },
+		{ name: "files", description: t("cmdFiles"), category: t("categoryProject") },
+		{ name: "settings", description: t("cmdSettings"), category: t("categorySettings") },
+		{ name: "skills", description: t("cmdSkills"), category: t("categoryExtensions") },
+		{ name: "plugins", description: t("cmdPlugins"), category: t("categoryExtensions") },
+		{ name: "trust", description: t("cmdTrust"), category: t("categorySecurity") },
 		...snapshot.skills.map((skill) => ({
 			name: `skill:${skill.name}`,
 			description: skill.description,
-			category: "技能",
+			category: t("categorySkills"),
 		})),
 		...snapshot.plugins.flatMap((plugin) =>
-			plugin.commands.map((command) => ({ name: command, description: `插件 ${plugin.name}`, category: "插件" })),
+			plugin.commands.map((command) => ({
+				name: command,
+				description: t("pluginCommand", { name: plugin.name }),
+				category: t("categoryPlugins"),
+			})),
 		),
 	]
 		.map((command) => ({ ...command, score: fuzzyMatchScore(`${command.name} ${command.description}`, slashQuery) }))
@@ -2173,10 +2372,6 @@ export function App() {
 		};
 	}, []);
 	useEffect(() => {
-		localStorage.setItem("pi-desktop-language", language);
-		document.documentElement.lang = language;
-	}, [language]);
-	useEffect(() => {
 		if (!projectMenuOpen && composerMenu !== "project") setProjectFilter("");
 	}, [composerMenu, projectMenuOpen]);
 	useEffect(() => {
@@ -2246,10 +2441,10 @@ export function App() {
 		if (completed.length) {
 			setUnreadSessionIds((current) => new Set([...current, ...completed.map((item) => item.id)]));
 			if (notifyOnComplete) {
-				for (const item of completed) void notifyComplete(sessionTitle(item), true);
+				for (const item of completed) void notifyComplete(sessionTitle(item, t), true);
 			}
 		}
-	}, [notifyOnComplete, session?.id, snapshot.sessions]);
+	}, [notifyOnComplete, session?.id, snapshot.sessions, t]);
 	useEffect(() => {
 		if (!session?.id) return;
 		setUnreadSessionIds((current) => {
@@ -2272,14 +2467,11 @@ export function App() {
 		if (!scroll) return;
 		if (previousSessionIdRef.current !== session?.id) {
 			if (previousSessionIdRef.current) {
-				scrollMemoryRef.current.set(previousSessionIdRef.current, {
-					scrollTop: scroll.scrollTop,
-					visibleItemCount,
-				});
+				writeScrollPosition(previousSessionIdRef.current, { scrollTop: scroll.scrollTop, visibleItemCount });
 			}
 			previousSessionIdRef.current = session?.id;
 			previousMessageSignatureRef.current = messageSignature;
-			const remembered = session?.id ? scrollMemoryRef.current.get(session.id) : undefined;
+			const remembered = session?.id ? readScrollPosition(session.id) : undefined;
 			setVisibleItemCount(remembered?.visibleItemCount ?? 40);
 			requestAnimationFrame(() => {
 				const currentScroll = chatScrollRef.current;
@@ -2344,16 +2536,13 @@ export function App() {
 
 	const refreshWorkspaceFiles = useCallback(async () => {
 		const requestId = ++fileRequestId.current;
-		setLoadingFiles(true);
-		setFileExplorerError(undefined);
 		try {
-			const entries = await listWorkspaceFiles();
-			if (requestId === fileRequestId.current) setWorkspaceEntries(entries);
-		} catch (error) {
-			if (requestId === fileRequestId.current)
-				setFileExplorerError(error instanceof Error ? error.message : String(error));
-		} finally {
-			if (requestId === fileRequestId.current) setLoadingFiles(false);
+			const listing = await listWorkspaceDirectory("");
+			if (requestId === fileRequestId.current) {
+				setWorkspaceEntries([...listing.directories, ...listing.files]);
+			}
+		} catch {
+			if (requestId === fileRequestId.current) setWorkspaceEntries([]);
 		}
 	}, []);
 
@@ -2363,6 +2552,7 @@ export function App() {
 		setFileTabs([]);
 		setActiveTabPath(undefined);
 		setFileExplorerError(undefined);
+		setExplorerDirectoryReload(undefined);
 		let active = true;
 		if (snapshot.projectTrusted && snapshot.workspacePath) {
 			void refreshWorkspaceFiles();
@@ -2471,6 +2661,7 @@ export function App() {
 			if (!snapshot.projectTrusted || !snapshot.workspacePath) return;
 			setWorkspaceRefreshToken((value) => value + 1);
 			void refreshWorkspaceFiles();
+			setExplorerReloadSignal((value) => value + 1);
 			if (activeTabPath && changes.some((change) => change.path === activeTabPath)) {
 				void readWorkspaceFile(activeTabPath)
 					.then((preview) => {
@@ -2510,7 +2701,11 @@ export function App() {
 			}
 			const isAway = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 80;
 			if (session?.id) {
-				scrollMemoryRef.current.set(session.id, { scrollTop: scroll.scrollTop, visibleItemCount });
+				const now = Date.now();
+				if (isAway && now - lastScrollPersistAtRef.current > 1500) {
+					lastScrollPersistAtRef.current = now;
+					writeScrollPosition(session.id, { scrollTop: scroll.scrollTop, visibleItemCount });
+				}
 			}
 			stickToBottomRef.current = !isAway;
 			setAwayFromBottom((current) => (current === isAway ? current : isAway));
@@ -2675,7 +2870,7 @@ export function App() {
 				setActionError(undefined);
 				try {
 					const output = await executeBashCommand(command, false);
-					pushNotice("success", output ? output.slice(0, 300) : "命令执行完成。");
+					pushNotice("success", output ? output.slice(0, 300) : t("commandDone"));
 					clearSubmittedComposer(submissionSessionId, submissionDraftKey);
 				} catch (error) {
 					pushNotice("error", error instanceof Error ? error.message : String(error));
@@ -2692,7 +2887,7 @@ export function App() {
 				setActionError(undefined);
 				try {
 					const output = await executeBashCommand(command, true);
-					pushNotice("success", output ? output.slice(0, 300) : "命令执行完成（不进入上下文）。");
+					pushNotice("success", output ? output.slice(0, 300) : t("commandDoneNoContext"));
 					clearSubmittedComposer(submissionSessionId, submissionDraftKey);
 				} catch (error) {
 					pushNotice("error", error instanceof Error ? error.message : String(error));
@@ -2703,7 +2898,7 @@ export function App() {
 			return;
 		}
 		if (session?.phase === "running" && attachments.length > 0) {
-			setActionError("智能体运行中不能在引导或排队消息中附加图片。");
+			setActionError(t("noImagesWhileRunning"));
 			return;
 		}
 		setSubmittingSessionId(submissionSessionId);
@@ -2726,7 +2921,7 @@ export function App() {
 	async function handleSteer(): Promise<void> {
 		if (!canSubmit || session?.phase !== "running") return;
 		if (attachments.length > 0) {
-			setActionError("智能体运行中不能在引导或排队消息中附加图片。");
+			setActionError(t("noImagesWhileRunning"));
 			return;
 		}
 		const submissionSessionId = session.id;
@@ -2826,7 +3021,7 @@ export function App() {
 		setActionError(undefined);
 		try {
 			await setModel({ provider, modelId });
-			pushNotice("success", `模型已切换到 ${modelId}`);
+			pushNotice("success", t("modelSwitched", { id: modelId }));
 		} catch (error) {
 			setActionError(error instanceof Error ? error.message : String(error));
 		} finally {
@@ -2852,7 +3047,7 @@ export function App() {
 		setCompactError(undefined);
 		try {
 			await compactSession();
-			pushNotice("success", "上下文压缩完成。");
+			pushNotice("success", t("compactionDone"));
 		} catch (error) {
 			setCompactError(error instanceof Error ? error.message : String(error));
 		} finally {
@@ -2866,7 +3061,7 @@ export function App() {
 		setCompactError(undefined);
 		try {
 			await compactSession(instructions);
-			pushNotice("success", "上下文压缩完成。");
+			pushNotice("success", t("compactionDone"));
 		} catch (error) {
 			setCompactError(error instanceof Error ? error.message : String(error));
 		} finally {
@@ -2907,7 +3102,7 @@ export function App() {
 		}
 		try {
 			await renameSession(renamingSession.path, name);
-			pushNotice("success", "会话已重命名。");
+			pushNotice("success", t("sessionRenamed"));
 		} catch (error) {
 			pushNotice("error", error instanceof Error ? error.message : String(error));
 		} finally {
@@ -2921,9 +3116,11 @@ export function App() {
 			return;
 		}
 		try {
+			const deletedId = snapshot.sessions.find((item) => item.path === sessionPath)?.id;
+			if (deletedId) forgetScrollPosition(deletedId);
 			await deleteSession(sessionPath);
 			setDeleteSessionPath(undefined);
-			pushNotice("success", "会话已删除。");
+			pushNotice("success", t("sessionDeleted"));
 		} catch (error) {
 			pushNotice("error", error instanceof Error ? error.message : String(error));
 		}
@@ -2944,7 +3141,7 @@ export function App() {
 			const remaining = Math.max(0, MAX_IMAGE_ATTACHMENTS - attachments.length);
 			const selectedImages = images.slice(0, remaining);
 			if (images.length > remaining) {
-				pushNotice("warning", `一次对话最多添加 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
+				pushNotice("warning", t("maxImages", { count: MAX_IMAGE_ATTACHMENTS }));
 			}
 			setActionError(undefined);
 			if (selectedImages.length) {
@@ -2966,7 +3163,7 @@ export function App() {
 					const mention = ok.map((item) => `@${item.name}`).join(" ");
 					setDraft((current) => (current ? `${current} ${mention}` : `${mention} `));
 					promptRef.current?.focus();
-					pushNotice("success", `已导入 ${ok.length} 个文件到项目根目录。`);
+					pushNotice("success", t("importedToRoot", { count: ok.length }));
 				}
 				if (conflicts.length) {
 					const names = new Set(conflicts.map((item) => item.name));
@@ -2978,13 +3175,13 @@ export function App() {
 					});
 				}
 				for (const item of failed) {
-					pushNotice("warning", `${item.name} 导入失败：${item.error}`);
+					pushNotice("warning", t("importFailed", { name: item.name, error: item.error ?? t("unknown") }));
 				}
 			} catch (error) {
 				pushNotice("error", error instanceof Error ? error.message : String(error));
 			}
 		} else if (others.length) {
-			pushNotice("warning", "请先信任项目，再导入非图片文件。");
+			pushNotice("warning", t("trustBeforeImport"));
 		}
 	}
 
@@ -2997,8 +3194,12 @@ export function App() {
 				const conflicts = results.filter((item) => item.conflict);
 				const failed = results.filter((item) => item.error && !item.conflict);
 				if (imported.length) {
-					await refreshWorkspaceFiles();
-					pushNotice("success", `已上传 ${imported.length} 个文件到 ${targetDirectory || "项目根目录"}。`);
+					void refreshWorkspaceFiles();
+					setExplorerDirectoryReload({ path: targetDirectory, token: ++explorerDirectoryReloadTokenRef.current });
+					pushNotice(
+						"success",
+						t("uploadedTo", { count: imported.length, dir: targetDirectory || t("rootDirectory") }),
+					);
 				}
 				if (conflicts.length) {
 					const names = new Set(conflicts.map((item) => item.name));
@@ -3009,33 +3210,38 @@ export function App() {
 						targetDirectory,
 					});
 				}
-				for (const item of failed) pushNotice("warning", `${item.name}：${item.error}`);
+				for (const item of failed)
+					pushNotice("warning", t("itemError", { name: item.name, error: item.error ?? t("unknown") }));
 			} catch (error) {
 				pushNotice("error", error instanceof Error ? error.message : String(error));
 			}
 		},
-		[pushNotice, refreshWorkspaceFiles],
+		[pushNotice, refreshWorkspaceFiles, t],
 	);
 
 	async function handleFileConflictDecision(replace: boolean): Promise<void> {
 		const pending = pendingFileConflicts;
 		setPendingFileConflicts(undefined);
 		if (!pending || !replace) {
-			if (pending) pushNotice("warning", `已跳过 ${pending.names.length} 个同名文件。`);
+			if (pending) pushNotice("warning", t("skippedConflicts", { count: pending.names.length }));
 			return;
 		}
 		try {
 			const results = await importDroppedFiles(pending.files, true, pending.targetDirectory);
 			const imported = results.filter((item) => !item.error);
-			await refreshWorkspaceFiles();
+			void refreshWorkspaceFiles();
+			setExplorerDirectoryReload({
+				path: pending.targetDirectory,
+				token: ++explorerDirectoryReloadTokenRef.current,
+			});
 			if (pending.mentionAfterImport && imported.length) {
 				const mention = imported.map((item) => `@${item.path ?? item.name}`).join(" ");
 				setDraft((current) => (current ? `${current} ${mention}` : `${mention} `));
 				promptRef.current?.focus();
 			}
-			pushNotice("success", `已替换 ${imported.length} 个同名文件。`);
+			pushNotice("success", t("replacedConflicts", { count: imported.length }));
 			for (const item of results.filter((result) => result.error)) {
-				pushNotice("error", `${item.name}：${item.error}`);
+				pushNotice("error", t("itemError", { name: item.name, error: item.error ?? t("unknown") }));
 			}
 		} catch (error) {
 			pushNotice("error", error instanceof Error ? error.message : String(error));
@@ -3045,13 +3251,13 @@ export function App() {
 	async function handleChooseImages(): Promise<void> {
 		const remaining = Math.max(0, MAX_IMAGE_ATTACHMENTS - attachments.length);
 		if (remaining === 0) {
-			pushNotice("warning", `一次对话最多添加 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
+			pushNotice("warning", t("maxImages", { count: MAX_IMAGE_ATTACHMENTS }));
 			return;
 		}
 		try {
 			const selected = await chooseImages();
 			if (selected.length > remaining) {
-				pushNotice("warning", `一次对话最多添加 ${MAX_IMAGE_ATTACHMENTS} 张图片。`);
+				pushNotice("warning", t("maxImages", { count: MAX_IMAGE_ATTACHMENTS }));
 			}
 			setAttachments((current) => [...current, ...selected.slice(0, remaining)]);
 			promptRef.current?.focus();
@@ -3065,10 +3271,7 @@ export function App() {
 		const [command = "", ...argumentParts] = text.trimStart().slice(1).trim().split(/\s+/u);
 		const argument = argumentParts.join(" ");
 		if (command === "help") {
-			pushNotice(
-				"accent",
-				"命令：/compact /name /copy /session /reload /model /login /project /files /settings /skills /plugins /trust；输入 ! 执行 shell 命令。",
-			);
+			pushNotice("accent", t("helpNotice"));
 			return true;
 		}
 		if (command === "compact") {
@@ -3079,16 +3282,16 @@ export function App() {
 		if (command === "name") {
 			if (!argument) {
 				setConfigModal(undefined);
-				pushNotice("warning", "用法：/name 新名称");
+				pushNotice("warning", t("nameUsage"));
 				return true;
 			}
 			if (!currentSessionPath) {
-				pushNotice("error", "当前会话尚未写入历史文件。");
+				pushNotice("error", t("sessionNotSaved"));
 				return true;
 			}
 			try {
 				await renameSession(currentSessionPath, argument);
-				pushNotice("success", `会话已重命名为「${argument.slice(0, 40)}」`);
+				pushNotice("success", t("sessionRenamedTo", { name: argument.slice(0, 40) }));
 			} catch (error) {
 				pushNotice("error", error instanceof Error ? error.message : String(error));
 			}
@@ -3097,7 +3300,7 @@ export function App() {
 		if (command === "copy") {
 			try {
 				await copyLastAnswer();
-				pushNotice("success", "已复制最后一条回答。");
+				pushNotice("success", t("answerCopied"));
 			} catch (error) {
 				pushNotice("error", error instanceof Error ? error.message : String(error));
 			}
@@ -3110,7 +3313,7 @@ export function App() {
 		if (command === "reload") {
 			try {
 				await reloadSession();
-				pushNotice("success", "扩展与资源已重载。");
+				pushNotice("success", t("resourcesReloaded"));
 			} catch (error) {
 				pushNotice("error", error instanceof Error ? error.message : String(error));
 			}
@@ -3153,7 +3356,7 @@ export function App() {
 		}
 		if (command === "trust") {
 			if (!snapshot.workspacePath) {
-				setActionError("请先打开项目，才能修改项目信任状态。");
+				setActionError(t("openProjectFirst"));
 			} else {
 				await handleProjectTrust();
 			}
@@ -3178,7 +3381,6 @@ export function App() {
 	const handleOpenFile = useCallback(async (entry: DesktopWorkspaceEntry): Promise<void> => {
 		if (!isFileEntry(entry)) return;
 		const requestId = ++fileRequestId.current;
-		setLoadingFilePath(entry.path);
 		setFileExplorerError(undefined);
 		try {
 			const preview = await readWorkspaceFile(entry.path);
@@ -3194,8 +3396,6 @@ export function App() {
 			if (requestId === fileRequestId.current) {
 				setFileExplorerError(error instanceof Error ? error.message : String(error));
 			}
-		} finally {
-			if (requestId === fileRequestId.current) setLoadingFilePath(undefined);
 		}
 	}, []);
 
@@ -3238,12 +3438,25 @@ export function App() {
 	const handleEditMessage = useCallback(
 		async (message: DesktopTranscriptMessage): Promise<void> => {
 			if (draft.trim() || attachments.length > 0) {
-				setActionError("请先发送或清空当前草稿，再编辑历史消息。");
+				setActionError(t("clearDraftFirst"));
 				return;
 			}
 			try {
+				const hasImageBlocks = message.blocks?.some((block) => block.type === "image") ?? false;
+				const restoredImages = hasImageBlocks
+					? await restoreMessageImages(message.id).catch((error: unknown) => {
+							pushNotice(
+								"warning",
+								t("imageRestoreFailed", { reason: error instanceof Error ? error.message : String(error) }),
+							);
+							return [];
+						})
+					: [];
 				if (message.forkEntryId) await navigateTree({ entryId: message.forkEntryId });
 				setDraft(message.text);
+				if (restoredImages.length) {
+					setAttachments((current) => [...current, ...restoredImages].slice(0, MAX_IMAGE_ATTACHMENTS));
+				}
 				requestAnimationFrame(() => {
 					const prompt = promptRef.current;
 					if (!prompt) return;
@@ -3256,7 +3469,7 @@ export function App() {
 				setActionError(error instanceof Error ? error.message : String(error));
 			}
 		},
-		[attachments.length, draft],
+		[attachments.length, draft, pushNotice, t],
 	);
 
 	const handleForkFromMessage = useCallback(async (entryId: string): Promise<void> => {
@@ -3307,12 +3520,12 @@ export function App() {
 		async (path: string): Promise<void> => {
 			try {
 				const saved = await saveWorkspaceFile(path);
-				if (saved) pushNotice("success", `已保存到 ${saved}`);
+				if (saved) pushNotice("success", t("savedTo", { path: saved }));
 			} catch (error) {
 				pushNotice("error", error instanceof Error ? error.message : String(error));
 			}
 		},
-		[pushNotice],
+		[pushNotice, t],
 	);
 
 	const handleReloadActiveTab = useCallback(
@@ -3320,12 +3533,12 @@ export function App() {
 			try {
 				const preview = await readWorkspaceFile(path);
 				setFileTabs((tabs) => tabs.map((tab) => (tab.path === path ? { ...tab, preview } : tab)));
-				pushNotice("success", "文件已重新加载。");
+				pushNotice("success", t("fileReloaded"));
 			} catch (error) {
 				pushNotice("error", error instanceof Error ? error.message : String(error));
 			}
 		},
-		[pushNotice],
+		[pushNotice, t],
 	);
 
 	function beginResize(side: "fileTree" | "inspector" | "sidebar", startX: number): void {
@@ -3444,7 +3657,7 @@ export function App() {
 									>
 										<Icon name="folder" size={15} />
 										<span className="sidebar-project-tree-copy">
-											<span className="sidebar-project-tree-name">{formatWorkspace(root)}</span>
+											<span className="sidebar-project-tree-name">{formatWorkspace(root, t)}</span>
 											{branch ? <small>⎇ {formatGitBranch(branch)}</small> : null}
 										</span>
 										<span className="sidebar-project-badges">
@@ -3456,7 +3669,7 @@ export function App() {
 									<button
 										className="sidebar-project-tree-action"
 										type="button"
-										aria-label="新建会话"
+										aria-label={t("newSessionAria")}
 										onClick={() => void handleNewSessionForProject(root)}
 									>
 										<Icon name="plus" size={13} />
@@ -3465,7 +3678,7 @@ export function App() {
 										<button
 											className="sidebar-project-tree-action"
 											type="button"
-											aria-label="项目操作"
+											aria-label={t("projectActions")}
 											aria-expanded={projectRowMenuOpen === root}
 											onClick={() =>
 												setProjectRowMenuOpen((current) => (current === root ? undefined : root))
@@ -3482,7 +3695,7 @@ export function App() {
 														void handleNewSessionForProject(root);
 													}}
 												>
-													新建会话
+													{t("newChat")}
 												</button>
 												<button
 													type="button"
@@ -3491,7 +3704,7 @@ export function App() {
 														void handleRevealFile(root);
 													}}
 												>
-													在文件管理器中显示
+													{t("revealInFinder")}
 												</button>
 												{root !== snapshot.workspacePath &&
 												gitWorktrees.some((tree) => tree.path === root) ? (
@@ -3502,7 +3715,7 @@ export function App() {
 															void handleSwitchWorkspacePath(root);
 														}}
 													>
-														切换到此 Worktree
+														{t("switchToWorktree")}
 													</button>
 												) : null}
 												<button
@@ -3512,7 +3725,7 @@ export function App() {
 														setArchivedProjectRoots((current) => new Set(current).add(root));
 													}}
 												>
-													归档项目
+													{t("archiveProject")}
 												</button>
 											</div>
 										) : null}
@@ -3540,7 +3753,7 @@ export function App() {
 															<input
 																// biome-ignore lint/a11y/noAutofocus: 用户刚触发了内联重命名
 																autoFocus
-																aria-label="会话名称"
+																aria-label={t("sessionNameAria")}
 																value={renamingSession.name}
 																onChange={(event) =>
 																	setRenamingSession({ ...renamingSession, name: event.target.value })
@@ -3549,13 +3762,13 @@ export function App() {
 																	if (event.key === "Escape") setRenamingSession(undefined);
 																}}
 															/>
-															<button type="submit">保存</button>
+															<button type="submit">{t("save")}</button>
 														</form>
 													) : (
 														<button
 															className="session-row"
 															type="button"
-															title={`${sessionTitle(item)} · ${item.messageCount} · ${formatSessionDate(item.modified)}`}
+															title={`${sessionTitle(item, t)} · ${item.messageCount} · ${formatSessionDate(item.modified)}`}
 															onClick={() =>
 																isCurrent
 																	? promptRef.current?.focus()
@@ -3567,7 +3780,7 @@ export function App() {
 															>
 																<Icon name="chat" size={14} />
 															</span>
-															<span className="session-row-title">{sessionTitle(item)}</span>
+															<span className="session-row-title">{sessionTitle(item, t)}</span>
 															{unreadSessionIds.has(item.id) ? (
 																<span className="session-unread-dot" />
 															) : null}
@@ -3577,7 +3790,7 @@ export function App() {
 														<button
 															className="session-more"
 															type="button"
-															aria-label="会话操作"
+															aria-label={t("sessionActions")}
 															aria-expanded={sessionMenuOpen === item.path}
 															onClick={() =>
 																setSessionMenuOpen((open) =>
@@ -3596,11 +3809,11 @@ export function App() {
 																	setSessionMenuOpen(undefined);
 																	setRenamingSession({
 																		path: item.path,
-																		name: item.name ?? sessionTitle(item),
+																		name: item.name ?? sessionTitle(item, t),
 																	});
 																}}
 															>
-																重命名
+																{t("rename")}
 															</button>
 															{isCurrent ? (
 																<button
@@ -3610,7 +3823,7 @@ export function App() {
 																		setTopPanel("session");
 																	}}
 																>
-																	会话统计
+																	{t("sessionStats")}
 																</button>
 															) : null}
 															{isCurrent ? (
@@ -3622,7 +3835,7 @@ export function App() {
 																		void handleForkSession();
 																	}}
 																>
-																	Fork 为独立会话
+																	{t("forkAsSession")}
 																</button>
 															) : null}
 															<button
@@ -3638,17 +3851,21 @@ export function App() {
 																	void handleDeleteSession(item.path, event.shiftKey);
 																}}
 															>
-																{deleteSessionPath === item.path ? "确认删除" : "删除会话"}
+																{deleteSessionPath === item.path
+																	? t("confirmDelete")
+																	: t("deleteSession")}
 															</button>
 															{deleteSessionPath === item.path ? (
 																<button type="button" onClick={() => setDeleteSessionPath(undefined)}>
-																	取消
+																	{t("cancel")}
 																</button>
 															) : null}
 															<div className="session-more-meta">
 																<span>{formatSessionDate(item.modified)}</span>
-																<span>{item.messageCount} 条消息</span>
-																<span>{item.parentSessionPath ? "Fork" : "主分支"}</span>
+																<span>{t("messageCount", { count: item.messageCount })}</span>
+																<span>
+																	{item.parentSessionPath ? t("forkBadge") : t("mainBranchBadge")}
+																</span>
 															</div>
 														</div>
 													) : null}
@@ -3661,7 +3878,7 @@ export function App() {
 												type="button"
 												onClick={() => setExpandedProjects((current) => new Set(current).add(root))}
 											>
-												显示更多 ({filteredItems.length - 5})
+												{t("showMore", { count: filteredItems.length - 5 })}
 											</button>
 										) : null}
 										{expanded && filteredItems.length > 5 ? (
@@ -3676,7 +3893,7 @@ export function App() {
 													})
 												}
 											>
-												显示更少
+												{t("showLess")}
 											</button>
 										) : null}
 									</div>
@@ -3691,7 +3908,7 @@ export function App() {
 							<button
 								className="icon-button compact"
 								type="button"
-								aria-label="项目操作"
+								aria-label={t("projectActions")}
 								aria-expanded={projectMenuOpen}
 								onClick={() => setProjectMenuOpen((open) => !open)}
 							>
@@ -3700,7 +3917,7 @@ export function App() {
 							<button
 								className="icon-button compact"
 								type="button"
-								aria-label="打开项目"
+								aria-label={t("openProject")}
 								disabled={!canChooseWorkspace}
 								onClick={() => void handleChooseWorkspace()}
 							>
@@ -3712,10 +3929,10 @@ export function App() {
 				)}
 				{archivedProjects.length ? (
 					<div className="archived-projects">
-						<div className="settings-group-label">已归档项目</div>
+						<div className="settings-group-label">{t("archivedProjects")}</div>
 						{archivedProjects.map(([root]) => (
 							<div className="archived-project-row" key={root}>
-								<span title={root}>{formatWorkspace(root)}</span>
+								<span title={root}>{formatWorkspace(root, t)}</span>
 								<button
 									type="button"
 									onClick={() =>
@@ -3726,7 +3943,7 @@ export function App() {
 										})
 									}
 								>
-									恢复
+									{t("restore")}
 								</button>
 							</div>
 						))}
@@ -3766,8 +3983,8 @@ export function App() {
 								className="project-menu-filter"
 								value={projectFilter}
 								onChange={(event) => setProjectFilter(event.target.value)}
-								placeholder={language === "en" ? "Filter projects…" : "筛选项目…"}
-								aria-label={language === "en" ? "Filter projects" : "筛选项目"}
+								placeholder={t("filterProjects")}
+								aria-label={t("filterProjects")}
 							/>
 						) : null}
 						{visibleRecentWorkspaces.slice(0, query ? visibleRecentWorkspaces.length : 7).map((path) => (
@@ -3784,13 +4001,11 @@ export function App() {
 								}}
 							>
 								<Icon name="folder" size={14} />
-								<span>{formatWorkspace(path)}</span>
+								<span>{formatWorkspace(path, t)}</span>
 							</button>
 						))}
 						{visibleRecentWorkspaces.length === 0 ? (
-							<p className="project-menu-empty">
-								{language === "en" ? "No matching projects." : "没有匹配的项目。"}
-							</p>
+							<p className="project-menu-empty">{t("noMatchingProjects")}</p>
 						) : null}
 					</>
 				) : null}
@@ -3820,13 +4035,13 @@ export function App() {
 				} as CSSProperties
 			}
 		>
-			<aside className="sidebar" aria-label="项目导航" aria-hidden={!sidebarOpen}>
+			<aside className="sidebar" aria-label={t("projectNavAria")} aria-hidden={!sidebarOpen}>
 				<header className="session-sidebar-header">
 					<div className="sidebar-controls-row">
 						<button
 							className="sidebar-chrome-button"
 							type="button"
-							aria-label={theme === "dark" ? "切换为浅色主题" : "切换为深色主题"}
+							aria-label={theme === "dark" ? t("switchToLight") : t("switchToDark")}
 							onClick={() => {
 								const next = theme === "dark" ? "light" : "dark";
 								const apply = () => {
@@ -3854,7 +4069,7 @@ export function App() {
 						<button
 							className="sidebar-chrome-button"
 							type="button"
-							aria-label="隐藏侧栏"
+							aria-label={t("hideSidebar")}
 							onClick={() => setSidebarOpen(false)}
 						>
 							<Icon name="panel" size={15} />
@@ -3880,7 +4095,7 @@ export function App() {
 							>
 								<Icon name="folder" size={15} />
 								<span className="project-switcher-name">
-									{openingWorkspace ? "正在打开项目…" : formatWorkspace(snapshot.workspacePath)}
+									{openingWorkspace ? t("openingProject") : formatWorkspace(snapshot.workspacePath, t)}
 								</span>
 								<span className="switcher-chevron">
 									<Icon name="chevron" size={14} />
@@ -3892,13 +4107,13 @@ export function App() {
 					<div className="sidebar-search-wrap">
 						<Icon name="search" size={13} />
 						<input
-							aria-label="搜索会话"
+							aria-label={t("searchSessionsAria")}
 							placeholder={t("searchSessions")}
 							value={sessionSearch}
 							onChange={(event) => setSessionSearch(event.target.value)}
 						/>
 						{sessionSearch ? (
-							<button type="button" aria-label="清除搜索" onClick={() => setSessionSearch("")}>
+							<button type="button" aria-label={t("clearSearchAria")} onClick={() => setSessionSearch("")}>
 								×
 							</button>
 						) : null}
@@ -3931,7 +4146,7 @@ export function App() {
 			{sidebarOpen ? (
 				<hr
 					className="column-resizer sidebar-resizer"
-					aria-label="调整会话栏宽度"
+					aria-label={t("resizeSidebarAria")}
 					aria-orientation="vertical"
 					aria-valuemin={180}
 					aria-valuemax={480}
@@ -3946,14 +4161,14 @@ export function App() {
 			) : null}
 			<section
 				className={`chat-workspace ${!session?.messages.length ? "is-session-empty" : ""}`}
-				aria-label="智能体对话"
+				aria-label={t("chatAria")}
 			>
 				<header className="top-bar">
 					{!sidebarOpen ? (
 						<button
 							className="sidebar-reopen-button"
 							type="button"
-							aria-label="显示侧栏"
+							aria-label={t("showSidebar")}
 							onClick={() => setSidebarOpen(true)}
 						>
 							<Icon name="panel" size={16} />
@@ -4006,14 +4221,14 @@ export function App() {
 										<span className="app-topbar-more-copy">
 											<span>
 												{namingState === "loading"
-													? "正在生成标题…"
+													? t("generatingTitle")
 													: namingState === "success"
-														? "已生成标题"
+														? t("generatedTitle")
 														: namingState === "error"
-															? "生成失败，请重试"
-															: "生成标题"}
+															? t("generateTitleFailed")
+															: t("generateTitle")}
 											</span>
-											<small>根据对话内容自动命名会话</small>
+											<small>{t("autoNameHint")}</small>
 										</span>
 									</button>
 									<button
@@ -4029,8 +4244,10 @@ export function App() {
 											<Icon name="terminal" size={14} />
 										</span>
 										<span className="app-topbar-more-copy">
-											<span>系统提示词</span>
-											<small>{session?.systemPrompt ? "查看当前系统指令" : "未设置系统提示词"}</small>
+											<span>{t("systemPrompt")}</span>
+											<small>
+												{session?.systemPrompt ? t("viewSystemPromptHint") : t("noSystemPrompt")}
+											</small>
 										</span>
 									</button>
 									<button
@@ -4046,8 +4263,8 @@ export function App() {
 											<Icon name="chart" size={14} />
 										</span>
 										<span className="app-topbar-more-copy">
-											<span>会话统计</span>
-											<small>{statsSummary ?? "暂无统计数据"}</small>
+											<span>{t("sessionStats")}</span>
+											<small>{statsSummary ?? t("noStats")}</small>
 										</span>
 									</button>
 								</div>
@@ -4062,13 +4279,13 @@ export function App() {
 							<Icon name="panel" size={16} />
 						</button>
 						{topPanel === "system" ? (
-							<div className="session-info-popover" role="dialog" aria-label="系统提示词">
+							<div className="session-info-popover" role="dialog" aria-label={t("systemPrompt")}>
 								<div className="session-info-header">
-									<strong>系统提示词</strong>
+									<strong>{t("systemPrompt")}</strong>
 									<button
 										className="icon-button compact"
 										type="button"
-										aria-label="关闭"
+										aria-label={t("close")}
 										onClick={() => setTopPanel(undefined)}
 									>
 										×
@@ -4077,7 +4294,7 @@ export function App() {
 								{session?.systemPrompt ? (
 									<pre className="system-prompt-body">{session.systemPrompt}</pre>
 								) : (
-									<p className="stats-empty">系统提示词为空（工具已禁用）。</p>
+									<p className="stats-empty">{t("systemPromptEmpty")}</p>
 								)}
 							</div>
 						) : null}
@@ -4095,11 +4312,9 @@ export function App() {
 				{!isOnline || startupError ? (
 					<output className="offline-banner">
 						<span className="offline-banner-dot" />
-						<span>
-							{isOnline ? "Pi Agent 初始化失败，部分功能暂不可用。" : "当前处于离线状态，模型请求将无法发送。"}
-						</span>
+						<span>{isOnline ? t("initFailedBanner") : t("offlineBanner")}</span>
 						<button type="button" onClick={() => void startDesktopStore()}>
-							重试
+							{t("retry")}
 						</button>
 					</output>
 				) : null}
@@ -4116,7 +4331,7 @@ export function App() {
 					<div className="chat-column">
 						{startupError ? (
 							<button className="retry-startup-button" type="button" onClick={() => void startDesktopStore()}>
-								重试初始化
+								{t("retryInit")}
 							</button>
 						) : null}
 						{actionError ? <output className="notice notice-error">{actionError}</output> : null}
@@ -4137,7 +4352,7 @@ export function App() {
 							</div>
 						) : null}
 						{snapshot.pendingToolApprovals.length > 0 ? (
-							<section className="card-stack" aria-label="待处理的工具审批">
+							<section className="card-stack" aria-label={t("pendingApprovalsAria")}>
 								{snapshot.pendingToolApprovals.map((approval) => (
 									<ToolApprovalCard
 										approval={approval}
@@ -4149,7 +4364,7 @@ export function App() {
 							</section>
 						) : null}
 						{authenticationPrompt ? (
-							<section className="card-stack" aria-label="待处理的模型配置提示">
+							<section className="card-stack" aria-label={t("pendingAuthPromptsAria")}>
 								<AuthenticationPromptCard
 									onChange={setAuthenticationResponse}
 									onSubmit={handleAuthenticationPrompt}
@@ -4169,7 +4384,7 @@ export function App() {
 									type="button"
 									onClick={() => setVisibleItemCount((current) => current + 60)}
 								>
-									加载更早的消息 ({transcriptItems.length - visibleItemCount})
+									{t("loadEarlier", { count: transcriptItems.length - visibleItemCount })}
 								</button>
 							) : null}
 							{session?.messages.length
@@ -4183,9 +4398,9 @@ export function App() {
 													<details>
 														<summary className="process-details-trigger">
 															<span>{t("processDetails")}</span>
-															<small>{item.messageCount} 条记录</small>
+															<small>{t("recordsCount", { count: item.messageCount })}</small>
 															{item.toolCallCount > 0 ? (
-																<small>{item.toolCallCount} 次工具调用</small>
+																<small>{t("toolCallsCount", { count: item.toolCallCount })}</small>
 															) : null}
 															{item.durationMs !== undefined ? (
 																<small>{(item.durationMs / 1000).toFixed(1)}s</small>
@@ -4269,13 +4484,13 @@ export function App() {
 												promptRef.current?.focus();
 											}}
 										>
-											取回
+											{t("retrieve")}
 										</button>
 									</div>
 									{session.pendingMessages.map((message, index) => (
 										<div className="queued-message" key={`${message.behavior}:${index}:${message.text}`}>
 											<span className={message.behavior === "steer" ? "is-steer" : ""}>
-												{message.behavior === "steer" ? "引导" : "跟进"}
+												{message.behavior === "steer" ? t("steer") : t("followUp")}
 											</span>
 											<p>{message.text}</p>
 										</div>
@@ -4286,14 +4501,20 @@ export function App() {
 								<output className="agent-running-status">
 									<span className="status-indicator is-running" />
 									{session.runningTools?.length
-										? `正在运行 ${session.runningTools.slice(0, 3).join("、")}${session.runningTools.length > 3 ? ` 等 ${session.runningTools.length} 个工具` : ""}`
-										: "等待模型响应…"}
+										? t("runningTools", {
+												tools: `${session.runningTools.slice(0, 3).join("、")}${session.runningTools.length > 3 ? "、" : ""}`,
+												count: session.runningTools.length,
+											})
+										: t("waitingForModel")}
 								</output>
 							) : null}
 							{session?.autoRetry ? (
 								<div className="retry-banner">
 									<span className="retry-banner-title">
-										正在自动重试（第 {session.autoRetry.attempt}/{session.autoRetry.maxAttempts} 次）
+										{t("autoRetry", {
+											attempt: session.autoRetry.attempt,
+											max: session.autoRetry.maxAttempts,
+										})}
 									</span>
 									<span className="retry-banner-error">{session.autoRetry.errorMessage}</span>
 								</div>
@@ -4305,7 +4526,7 @@ export function App() {
 				{awayFromBottom ? (
 					<button className="scroll-to-latest" type="button" onClick={scrollToLatest}>
 						<span>↓</span>
-						{unseenMessages > 0 ? `${unseenMessages} 条新动态` : "回到底部"}
+						{unseenMessages > 0 ? t("unseenCount", { count: unseenMessages }) : t("backToBottom")}
 					</button>
 				) : null}
 				<form
@@ -4324,11 +4545,15 @@ export function App() {
 						void handleDroppedImages(Array.from(event.dataTransfer.files));
 					}}
 				>
-					{draggingImages ? <div className="drop-image-overlay">释放以附加图片</div> : null}
+					{draggingImages ? <div className="drop-image-overlay">{t("dropToAttach")}</div> : null}
 					{compactError ? (
 						<output className="compact-editor-error" role="alert">
 							{compactError}
-							<button type="button" onClick={() => setCompactError(undefined)} aria-label="关闭压缩错误">
+							<button
+								type="button"
+								onClick={() => setCompactError(undefined)}
+								aria-label={t("closeCompactError")}
+							>
 								×
 							</button>
 						</output>
@@ -4336,7 +4561,7 @@ export function App() {
 					{!session?.messages.length ? (
 						<div className="start-task-copy">
 							<strong>{snapshot.workspacePath ? "Start a task" : "Get started"}</strong>
-							{!snapshot.workspacePath ? <span>1. 打开项目文件夹　2. 描述你想完成的任务</span> : null}
+							{!snapshot.workspacePath ? <span>{t("startHint")}</span> : null}
 						</div>
 					) : null}
 					<ExtensionWidgetStack
@@ -4344,10 +4569,10 @@ export function App() {
 					/>
 					<div className="composer-inner">
 						{slashActive ? (
-							<div className="slash-menu" role="listbox" aria-label="斜杠命令">
+							<div className="slash-menu" role="listbox" aria-label={t("slashCommandsAria")}>
 								<div className="slash-menu-header">
-									<span>{visibleSlashCommands.length} 个命令</span>
-									<small>Tab ↹ / Enter 选择 · Esc 关闭</small>
+									<span>{t("commandCount", { count: visibleSlashCommands.length })}</span>
+									<small>{t("menuHint")}</small>
 								</div>
 								{visibleSlashCommands.length ? (
 									<div className="slash-command-grid">
@@ -4368,15 +4593,15 @@ export function App() {
 										))}
 									</div>
 								) : (
-									<p className="slash-empty">没有匹配的桌面端命令，可直接发送给已加载的插件。</p>
+									<p className="slash-empty">{t("noMatchingCommands")}</p>
 								)}
 							</div>
 						) : null}
 						{hashActive ? (
-							<div className="slash-menu" role="listbox" aria-label="会话提及">
+							<div className="slash-menu" role="listbox" aria-label={t("sessionMentionAria")}>
 								<div className="slash-menu-header">
-									<span>会话</span>
-									<small>Tab ↹ / Enter 选择 · Esc 关闭</small>
+									<span>{t("sessions")}</span>
+									<small>{t("menuHint")}</small>
 								</div>
 								{hashSessions.length ? (
 									hashSessions.map((item, index) => (
@@ -4389,20 +4614,20 @@ export function App() {
 											onMouseDown={(event) => event.preventDefault()}
 											onClick={() => selectComposerSuggestion(index)}
 										>
-											<span>#{item.name ?? "未命名会话"}</span>
+											<span>#{item.name ?? t("unnamedSession")}</span>
 											<small>{item.firstMessage}</small>
 										</button>
 									))
 								) : (
-									<p className="slash-empty">没有匹配的会话。</p>
+									<p className="slash-empty">{t("noMatchingSessions")}</p>
 								)}
 							</div>
 						) : null}
 						{atActive ? (
-							<div className="slash-menu" role="listbox" aria-label="文件提及">
+							<div className="slash-menu" role="listbox" aria-label={t("fileMentionAria")}>
 								<div className="slash-menu-header">
-									<span>项目文件</span>
-									<small>Tab ↹ / Enter 选择 · Esc 关闭</small>
+									<span>{t("projectFiles")}</span>
+									<small>{t("menuHint")}</small>
 								</div>
 								{atEntries.length ? (
 									atEntries.map((entry, index) => {
@@ -4442,7 +4667,7 @@ export function App() {
 									})
 								) : (
 									<p className="slash-empty">
-										{workspaceEntries.length ? "没有匹配的项目文件。" : "正在读取项目文件…"}
+										{workspaceEntries.length ? t("noMatchingFilesShort") : t("readingFiles")}
 									</p>
 								)}
 							</div>
@@ -4453,7 +4678,7 @@ export function App() {
 									<div
 										className="attachment-chip"
 										key={attachment.id}
-										title={`${attachment.name} · ${formatAttachmentSize(attachment.size)}`}
+										title={`${attachment.name} · ${formatAttachmentSize(attachment.size, t)}`}
 									>
 										{attachment.thumbnailDataUrl ? (
 											<img className="attachment-thumbnail" src={attachment.thumbnailDataUrl} alt="" />
@@ -4463,7 +4688,7 @@ export function App() {
 											</span>
 										)}
 										<button
-											aria-label={`移除 ${attachment.name}`}
+											aria-label={t("removeAria", { name: attachment.name })}
 											type="button"
 											onClick={() => {
 												setAttachments((current) =>
@@ -4481,16 +4706,16 @@ export function App() {
 						{bashMode ? (
 							<div className={`bash-mode-hint ${draft.startsWith("!!") ? "is-excluded" : ""}`}>
 								<Icon name="terminal" size={12} />
-								<span>{draft.startsWith("!!") ? "Shell · 输出不进入上下文" : "Shell · 输出发送给模型"}</span>
+								<span>{draft.startsWith("!!") ? t("shellExcludeFromContext") : t("shellSendToModel")}</span>
 							</div>
 						) : null}
 						<div className="composer-editor">
 							{historyMenuOpen && promptHistoryRef.current.length > 0 ? (
-								<div className="prompt-history-menu" role="listbox" aria-label="输入历史">
+								<div className="prompt-history-menu" role="listbox" aria-label={t("promptHistory")}>
 									<div className="prompt-history-header">
 										<Icon name="history" size={13} />
-										<span>输入历史</span>
-										<small>↑↓ 选择 · Enter 回填 · Esc 关闭</small>
+										<span>{t("promptHistory")}</span>
+										<small>{t("historyHint")}</small>
 									</div>
 									<div className="prompt-history-list">
 										{promptHistoryRef.current.map((item, index) => (
@@ -4617,9 +4842,7 @@ export function App() {
 									}
 								}}
 								placeholder={
-									session?.phase === "running"
-										? "输入引导或排队跟进…"
-										: "消息…输入 / 使用命令，@ 查找文件，# 查找会话"
+									session?.phase === "running" ? t("composerRunningPlaceholder") : t("composerPlaceholder")
 								}
 								disabled={
 									submitting ||
@@ -4637,23 +4860,29 @@ export function App() {
 										disabled={!draft.trim() || submitting || attachments.length > 0}
 										onClick={() => void handleSteer()}
 									>
-										引导
+										{t("steer")}
 									</button>
 									<button
 										className="composer-followup-button"
 										type="submit"
 										disabled={!canSubmit || attachments.length > 0}
 									>
-										{submitting ? "排队中" : "跟进"}
+										{submitting ? t("queuedButton") : t("followUp")}
 									</button>
 								</div>
 							) : (
 								<button className="send-button composer-send-button" type="submit" disabled={!canSubmit}>
 									<Icon name="send" size={14} />
-									{submitting ? "正在发送" : t("send")}
+									{submitting ? t("sending") : t("send")}
 								</button>
 							)}
 						</div>
+						{modelScopeNotice ? (
+							<output className="composer-scope-warning" title={modelScopeNotice}>
+								<span className="composer-scope-warning-dot" />
+								{modelScopeNotice}
+							</output>
+						) : null}
 						<div className="composer-footer">
 							<div className="composer-footer-left">
 								{snapshot.extensionStatuses?.length ? (
@@ -4684,7 +4913,7 @@ export function App() {
 											className="composer-control-button chat-project-context"
 											type="button"
 											disabled={!canChooseWorkspace}
-											title={snapshot.workspacePath ?? "选择项目文件夹"}
+											title={snapshot.workspacePath ?? t("pickProjectFolder")}
 											aria-expanded={composerMenu === "project"}
 											onClick={() => {
 												setProjectFilter("");
@@ -4696,7 +4925,7 @@ export function App() {
 												{snapshot.workspacePath
 													? (snapshot.workspacePath.split(/[\\/]/u).filter(Boolean).at(-1) ??
 														snapshot.workspacePath)
-													: "选择项目"}
+													: t("chooseProjectLabel")}
 											</span>
 										</button>
 										{composerMenu === "project" ? (
@@ -4716,8 +4945,8 @@ export function App() {
 														className="composer-popover-filter"
 														value={projectFilter}
 														onChange={(event) => setProjectFilter(event.target.value)}
-														placeholder={language === "en" ? "Filter projects…" : "筛选项目…"}
-														aria-label={language === "en" ? "Filter projects" : "筛选项目"}
+														placeholder={t("filterProjects")}
+														aria-label={t("filterProjects")}
 													/>
 												) : null}
 												{knownWorkspacePaths
@@ -4741,7 +4970,7 @@ export function App() {
 															}}
 														>
 															{path === snapshot.workspacePath ? "✓ " : ""}
-															{formatWorkspace(path)}
+															{formatWorkspace(path, t)}
 														</button>
 													))}
 												{knownWorkspacePaths.length > 0 &&
@@ -4749,9 +4978,7 @@ export function App() {
 													(path) =>
 														!path.toLocaleLowerCase().includes(projectFilter.trim().toLocaleLowerCase()),
 												) ? (
-													<p className="composer-popover-empty">
-														{language === "en" ? "No matching projects." : "没有匹配的项目。"}
-													</p>
+													<p className="composer-popover-empty">{t("noMatchingProjects")}</p>
 												) : null}
 											</div>
 										) : null}
@@ -4766,7 +4993,7 @@ export function App() {
 											}
 										>
 											<Icon name="model" size={15} />
-											<span>{session?.model?.id ?? "模型"}</span>
+											<span>{session?.model?.id ?? t("modelButtonLabel")}</span>
 										</button>
 										{composerMenu === "model" ? (
 											<div className="composer-popover" role="menu">
@@ -4775,7 +5002,7 @@ export function App() {
 														// biome-ignore lint/a11y/noAutofocus: 打开菜单即筛选，参考项目行为
 														autoFocus
 														className="composer-popover-filter"
-														placeholder="筛选模型"
+														placeholder={t("filterModels")}
 														value={modelFilter}
 														onChange={(event) => setModelFilter(event.target.value)}
 														onKeyDown={(event) => {
@@ -4788,7 +5015,7 @@ export function App() {
 													/>
 												) : null}
 												{filteredModels.length === 0 ? (
-													<p className="composer-popover-empty">没有匹配的模型。</p>
+													<p className="composer-popover-empty">{t("noMatchingModels")}</p>
 												) : (
 													filteredModels.map((model) => (
 														<button
@@ -4827,12 +5054,22 @@ export function App() {
 											className="composer-control-button"
 											type="button"
 											disabled={!session || session.phase === "running"}
+											title={
+												scopedThinkingFixed
+													? t("scopeThinkingFixed", { level: scopedThinkingFixed })
+													: undefined
+											}
 											onClick={() =>
 												setComposerMenu((current) => (current === "thinking" ? undefined : "thinking"))
 											}
 										>
 											<Icon name="bulb" size={14} />
-											<span>{session?.thinkingLevel ?? "auto"}</span>
+											<span>
+												{session?.thinkingLevel ?? "auto"}
+												{scopedThinkingFixed && session?.thinkingLevel === scopedThinkingFixed
+													? t("scopeSuffix")
+													: ""}
+											</span>
 										</button>
 										{composerMenu === "thinking" ? (
 											<div className="composer-popover" role="menu">
@@ -4891,14 +5128,14 @@ export function App() {
 										onClick={() => void (compacting ? handleAbort() : handleCompact())}
 									>
 										<Icon name="compact" size={14} />
-										<span>{compacting ? "停止压缩" : "压缩"}</span>
+										<span>{compacting ? t("stopCompact") : t("compact")}</span>
 									</button>
 									<button
 										className="composer-control-button"
 										type="button"
-										aria-label="切换完成提示音"
+										aria-label={t("toggleSoundAria")}
 										aria-pressed={soundOnComplete}
-										title={soundOnComplete ? "完成提示音已开启" : "完成提示音已关闭"}
+										title={soundOnComplete ? t("soundOn") : t("soundOff")}
 										onClick={() => setSoundOnComplete((current) => !current)}
 									>
 										<Icon name={soundOnComplete ? "speaker" : "close"} size={14} />
@@ -4912,7 +5149,7 @@ export function App() {
 											disabled={aborting}
 											onClick={() => void handleAbort()}
 										>
-											{aborting ? "停止中" : "停止"}
+											{aborting ? t("stopping") : t("stop")}
 										</button>
 									) : null}
 								</div>
@@ -4927,7 +5164,7 @@ export function App() {
 			{inspectorOpen ? (
 				<hr
 					className="column-resizer inspector-resizer"
-					aria-label="调整检查器宽度"
+					aria-label={t("resizeInspectorAria")}
 					aria-orientation="vertical"
 					aria-valuemin={300}
 					aria-valuemax={1200}
@@ -4941,9 +5178,9 @@ export function App() {
 				/>
 			) : null}
 			{inspectorOpen ? (
-				<aside className="right-panel" aria-label="文件">
+				<aside className="right-panel" aria-label={t("files")}>
 					<header className="right-panel-header">
-						<div className="file-tab-bar" role="tablist" aria-label="已打开文件">
+						<div className="file-tab-bar" role="tablist" aria-label={t("openFilesAria")}>
 							{fileTabs.length === 0 ? (
 								<div className="file-tab-bar-empty">
 									<Icon name="files" size={14} />
@@ -4970,7 +5207,7 @@ export function App() {
 										<span>{tab.path.split("/").at(-1) ?? tab.path}</span>
 										<button
 											type="button"
-											aria-label={`关闭 ${tab.path}`}
+											aria-label={t("closeTabAria", { path: tab.path })}
 											onClick={(event) => {
 												event.stopPropagation();
 												handleCloseTab(tab.path);
@@ -4986,10 +5223,10 @@ export function App() {
 							<button
 								className={`icon-button ${rightPanelMode === "source" ? "is-active" : ""}`}
 								type="button"
-								aria-label="源代码管理"
+								aria-label={t("sourceControl")}
 								aria-pressed={rightPanelMode === "source"}
 								disabled={!snapshot.workspacePath || !snapshot.projectTrusted}
-								title={!snapshot.projectTrusted ? "信任项目后可查看源代码管理" : "源代码管理"}
+								title={!snapshot.projectTrusted ? t("trustForSourceControlHint") : t("sourceControl")}
 								onClick={() => setRightPanelMode((mode) => (mode === "source" ? "files" : "source"))}
 							>
 								<Icon name="branch" size={15} />
@@ -4997,7 +5234,7 @@ export function App() {
 							<button
 								className={`icon-button ${fileTreeOpen ? "is-active" : ""}`}
 								type="button"
-								aria-label={fileTreeOpen ? "隐藏文件树" : "显示文件树"}
+								aria-label={fileTreeOpen ? t("hideFileTree") : t("showFileTree")}
 								disabled={rightPanelMode === "source"}
 								onClick={() => setFileTreeOpen((open) => !open)}
 							>
@@ -5006,7 +5243,7 @@ export function App() {
 							<button
 								className="icon-button"
 								type="button"
-								aria-label="关闭右侧面板"
+								aria-label={t("closeRightPanel")}
 								onClick={() => setInspectorOpen(false)}
 							>
 								<Icon name="close" size={16} />
@@ -5030,14 +5267,14 @@ export function App() {
 								onDownload={(path) => void handleDownloadFile(path)}
 								onCopyPath={(path) => {
 									void navigator.clipboard.writeText(path).then(
-										() => pushNotice("success", "已复制文件路径。"),
-										() => pushNotice("error", "无法复制文件路径。"),
+										() => pushNotice("success", t("pathCopied")),
+										() => pushNotice("error", t("pathCopyFailed")),
 									);
 								}}
 								onCopyContent={(content) => {
 									void navigator.clipboard.writeText(content).then(
-										() => pushNotice("success", "已复制文件内容。"),
-										() => pushNotice("error", "无法复制文件内容。"),
+										() => pushNotice("success", t("contentCopied")),
+										() => pushNotice("error", t("contentCopyFailed")),
 									);
 								}}
 								onQuoteLine={handleQuoteLine}
@@ -5048,7 +5285,7 @@ export function App() {
 							<>
 								<hr
 									className="file-tree-resizer"
-									aria-label="调整文件树宽度"
+									aria-label={t("resizeFileTreeAria")}
 									aria-orientation="vertical"
 									aria-valuemin={220}
 									aria-valuemax={520}
@@ -5062,10 +5299,10 @@ export function App() {
 								/>
 								<div className="right-file-tree">
 									<Explorer
-										entries={workspaceEntries}
 										error={fileExplorerError}
-										isLoading={loadingFiles || loadingFilePath !== undefined}
 										isTrusted={snapshot.projectTrusted}
+										reloadSignal={explorerReloadSignal}
+										directoryReload={explorerDirectoryReload}
 										selectedPath={activeTabPath}
 										workspacePath={snapshot.workspacePath}
 										onChooseWorkspace={() => void handleChooseWorkspace()}
@@ -5075,7 +5312,10 @@ export function App() {
 											promptRef.current?.focus();
 										}}
 										onOpenFile={(entry) => void handleOpenFile(entry)}
-										onRefresh={() => void refreshWorkspaceFiles()}
+										onRefresh={() => {
+											void refreshWorkspaceFiles();
+											setExplorerReloadSignal((value) => value + 1);
+										}}
 										onTrustProject={() => void handleProjectTrust()}
 										onUpload={(files, targetDirectory) =>
 											void handleImportWorkspaceFiles(files, targetDirectory)
@@ -5136,10 +5376,8 @@ export function App() {
 			{configModal === "settings" ? (
 				<AppSettingsModal
 					theme={theme}
-					language={language}
 					notifyOnComplete={notifyOnComplete}
 					onChangeTheme={setTheme}
-					onChangeLanguage={setLanguage}
 					onToggleNotify={() => setNotifyOnComplete((current) => !current)}
 					onClose={() => setConfigModal(undefined)}
 				/>
@@ -5178,27 +5416,29 @@ export function App() {
 			) : null}
 			{pendingFileConflicts ? (
 				<div className="modal-backdrop">
-					<div className="models-discard-dialog" role="dialog" aria-modal="true" aria-label="处理同名文件">
-						<strong>项目中已有同名文件</strong>
+					<div className="models-discard-dialog" role="dialog" aria-modal="true" aria-label={t("conflictAria")}>
+						<strong>{t("conflictTitle")}</strong>
 						<p>
 							{pendingFileConflicts.names.slice(0, 4).join("、")}
-							{pendingFileConflicts.names.length > 4 ? ` 等 ${pendingFileConflicts.names.length} 个文件` : ""}
+							{pendingFileConflicts.names.length > 4
+								? t("conflictNamesSuffix", { count: pendingFileConflicts.names.length })
+								: ""}
 						</p>
-						<p>替换会覆盖项目中的现有内容；跳过则保留现有文件。</p>
+						<p>{t("conflictHint")}</p>
 						<div>
 							<button
 								className="outline-button"
 								type="button"
 								onClick={() => void handleFileConflictDecision(false)}
 							>
-								全部跳过
+								{t("skipAll")}
 							</button>
 							<button
 								className="accent-button"
 								type="button"
 								onClick={() => void handleFileConflictDecision(true)}
 							>
-								全部替换
+								{t("replaceAll")}
 							</button>
 						</div>
 					</div>

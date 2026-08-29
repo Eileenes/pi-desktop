@@ -20,6 +20,7 @@ import {
 import electronUpdater from "electron-updater";
 import type { Response as FetchResponse } from "undici-types";
 import {
+	type DesktopConfirmedPluginActionResult,
 	type DesktopDirectoryEntry,
 	type DesktopDirectoryListing,
 	type DesktopImageAttachment,
@@ -1045,28 +1046,56 @@ function registerIpc(): void {
 		}
 		return getHost().toggleSkill(value.filePath, value.disable);
 	});
-	ipcMain.handle("pi-desktop:install-plugin", async (event, value: unknown): Promise<DesktopSnapshot> => {
-		assertMainWindowSender(event);
-		if (!isDesktopPluginSourceInput(value)) {
-			throw new Error("无效的插件安装请求。");
-		}
-		const host = getHost();
-		if (value.local && !host.getSnapshot().projectTrusted) {
-			throw new Error("请先信任当前项目，再安装项目插件。");
-		}
-		const confirmation = await dialog.showMessageBox(mainWindow!, {
-			type: "warning",
-			title: "确认安装插件",
-			message: `安装${value.local ? "项目" : "用户"}插件？`,
-			detail: value.source,
-			buttons: ["取消", "安装"],
-			defaultId: 0,
-			cancelId: 0,
-			noLink: true,
-		});
-		if (confirmation.response !== 1) return host.getSnapshot();
-		return host.installPlugin(value.source, value.local);
-	});
+	ipcMain.handle(
+		"pi-desktop:install-plugin",
+		async (event, value: unknown): Promise<DesktopConfirmedPluginActionResult> => {
+			assertMainWindowSender(event);
+			if (!isDesktopPluginSourceInput(value)) {
+				throw new Error("无效的插件安装请求。");
+			}
+			const host = getHost();
+			if (value.local && !host.getSnapshot().projectTrusted) {
+				throw new Error("请先信任当前项目，再安装项目插件。");
+			}
+			const confirmation = await dialog.showMessageBox(mainWindow!, {
+				type: "warning",
+				title: "确认安装插件",
+				message: `安装${value.local ? "项目" : "用户"}插件？`,
+				detail: value.source,
+				buttons: ["取消", "安装"],
+				defaultId: 0,
+				cancelId: 0,
+				noLink: true,
+			});
+			if (confirmation.response !== 1) return { snapshot: host.getSnapshot(), performed: false };
+			return { snapshot: await host.installPlugin(value.source, value.local), performed: true };
+		},
+	);
+	ipcMain.handle(
+		"pi-desktop:update-plugin",
+		async (event, value: unknown): Promise<DesktopConfirmedPluginActionResult> => {
+			assertMainWindowSender(event);
+			if (!isDesktopPluginSourceInput(value)) {
+				throw new Error("无效的插件更新请求。");
+			}
+			const host = getHost();
+			if (value.local && !host.getSnapshot().projectTrusted) {
+				throw new Error("请先信任当前项目，再更新项目插件。");
+			}
+			const confirmation = await dialog.showMessageBox(mainWindow!, {
+				type: "warning",
+				title: "确认更新插件",
+				message: `更新${value.local ? "项目" : "用户"}插件？`,
+				detail: value.source,
+				buttons: ["取消", "更新"],
+				defaultId: 0,
+				cancelId: 0,
+				noLink: true,
+			});
+			if (confirmation.response !== 1) return { snapshot: host.getSnapshot(), performed: false };
+			return { snapshot: await host.updatePlugin(value.source, value.local), performed: true };
+		},
+	);
 	ipcMain.handle("pi-desktop:remove-plugin", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
 		if (!isDesktopPluginSourceInput(value)) {

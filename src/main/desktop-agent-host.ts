@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, mkdtemp, readFile, realpath, rm, unlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import {
 	type AgentSession,
 	createAgentSession,
@@ -9,6 +9,7 @@ import {
 	DefaultResourceLoader,
 	ModelRuntime,
 	type PackageSource,
+	type ResolvedResource,
 	resolveModelScopeWithDiagnostics,
 	SessionManager,
 	SettingsManager,
@@ -31,8 +32,10 @@ import type {
 	DesktopModelScopeStatus,
 	DesktopModelTestResult,
 	DesktopPlugin,
+	DesktopPluginDiagnostic,
 	DesktopPluginPackage,
 	DesktopPluginPackageFilterInput,
+	DesktopPluginPackagesResult,
 	DesktopProviderConfig,
 	DesktopProviderModelConfig,
 	DesktopRemoveWorktreeResult,
@@ -91,6 +94,57 @@ import { getWorkspaceKey, WorkspaceTrustStore } from "./workspace-trust-store.ts
 import { WorkspaceWatcher } from "./workspace-watcher.ts";
 
 type SnapshotListener = (snapshot: DesktopSnapshot) => void;
+
+type DesktopPluginResourceKind = keyof DesktopPluginPackage["resources"];
+
+function pluginPackageKey(source: string, scope: "user" | "project"): string {
+	return `${scope}\0${source}`;
+}
+
+function emptyPluginResources(): DesktopPluginPackage["resources"] {
+	return { extensions: [], skills: [], prompts: [], themes: [] };
+}
+
+function pluginResourceName(path: string, kind: DesktopPluginResourceKind): string {
+	const file = basename(path);
+	const extension = extname(file);
+	if (kind === "skills" && file.toLowerCase() === "skill.md") return basename(dirname(path));
+	if (extension) {
+		if (kind === "extensions" && /^index\.(?:ts|js)$/u.test(file)) return basename(dirname(path));
+		return file.slice(0, -extension.length);
+	}
+	return file;
+}
+
+function toDesktopPluginResource(
+	resource: ResolvedResource,
+	kind: DesktopPluginResourceKind,
+): DesktopPluginPackage["resources"][DesktopPluginResourceKind][number] {
+	const baseDir = resource.metadata.baseDir;
+	const relativePath = baseDir ? relative(baseDir, resource.path) : resource.path;
+	return {
+		name: pluginResourceName(resource.path, kind),
+		path: resource.path,
+		relativePath: relativePath && !relativePath.startsWith("..") ? relativePath : resource.path,
+	};
+}
+
+function configuredPluginVersion(source: string): string | undefined {
+	const npmSpec = source.startsWith("npm:") ? source.slice(4) : undefined;
+	if (npmSpec) {
+		const lastAt = npmSpec.lastIndexOf("@");
+		const packageNameEnd = npmSpec.startsWith("@") ? npmSpec.indexOf("/", 1) : 0;
+		if (lastAt > packageNameEnd) return npmSpec.slice(lastAt + 1) || undefined;
+		return undefined;
+	}
+	if (source.startsWith("git:") || /^[a-z]+:\/\//u.test(source)) {
+		const lastAt = source.lastIndexOf("@");
+		const lastSlash = source.lastIndexOf("/");
+		const lastColon = source.lastIndexOf(":");
+		if (lastAt > Math.max(lastSlash, lastColon)) return source.slice(lastAt + 1) || undefined;
+	}
+	return undefined;
+}
 
 interface ExtensionDialogOptions {
 	signal?: AbortSignal;
@@ -1744,6 +1798,33 @@ export class DesktopAgentHost {
 		}
 	}
 
+	async updatePlugin(source: string, local: boolean): Promise<DesktopSnapshot> {
+		if (this.hasStreamingSession()) {
+			throw new Error("请等待当前智能体任务完成后，再更新插件。");
+		}
+		if (local && !this.projectTrusted) throw new Error("请先信任当前项目，再更新项目插件。");
+		const settingsManager = this.requireSettingsManager();
+		const configured = local
+			? (settingsManager.getProjectSettings().packages ?? [])
+			: (settingsManager.getGlobalSettings().packages ?? []);
+		if (!configured.some((entry) => (typeof entry === "string" ? entry : entry.source) === source)) {
+			throw new Error("找不到对应范围内的插件配置，请刷新后重试。");
+		}
+		const packageManager = new DefaultPackageManager({
+			cwd: this.workspacePath ?? this.agentDir,
+			agentDir: this.agentDir,
+			settingsManager,
+		});
+		try {
+			await packageManager.update(source);
+			this.auditLog.write("plugin.update", "succeeded", { source, scope: local ? "project" : "user" });
+			return this.reloadSessionResources();
+		} catch (error) {
+			this.auditLog.write("plugin.update", "failed", { source, scope: local ? "project" : "user" });
+			throw error;
+		}
+	}
+
 	async removePlugin(source: string, local: boolean): Promise<DesktopSnapshot> {
 		if (this.hasStreamingSession()) {
 			throw new Error("请等待当前智能体任务完成后，再移除插件。");
@@ -1773,10 +1854,18 @@ export class DesktopAgentHost {
 		const next = current.map((entry): PackageSource => {
 			const entrySource = typeof entry === "string" ? entry : entry.source;
 			if (entrySource !== source) return entry;
-			return enabled ? source : { source, autoload: false, extensions: [], skills: [], prompts: [], themes: [] };
+			if (enabled) return source;
+			return {
+				...(typeof entry === "string" ? { source: entry } : entry),
+				extensions: [],
+				skills: [],
+				prompts: [],
+				themes: [],
+			};
 		});
 		if (local) settingsManager.setProjectPackages(next);
 		else settingsManager.setPackages(next);
+		await settingsManager.flush();
 		this.auditLog.write("plugin.toggle", "succeeded", { source, scope: local ? "project" : "user", enabled });
 		return this.reloadSessionResources();
 	}
@@ -1816,14 +1905,47 @@ export class DesktopAgentHost {
 		return this.publish();
 	}
 
-	async getPluginPackages(): Promise<DesktopPluginPackage[]> {
-		const settingsManager = this.requireSettingsManager();
+	async getPluginPackages(): Promise<DesktopPluginPackagesResult> {
+		const cwd = this.workspacePath ?? this.agentDir;
+		const settingsManager =
+			this.settingsManager ?? SettingsManager.create(cwd, this.agentDir, { projectTrusted: this.projectTrusted });
 		const packageManager = new DefaultPackageManager({
-			cwd: this.workspacePath ?? this.agentDir,
+			cwd,
 			agentDir: this.agentDir,
 			settingsManager,
 		});
 		const configured = packageManager.listConfiguredPackages();
+		const globalDiagnostics: DesktopPluginDiagnostic[] = [];
+		const resourcesByPackage = new Map<string, DesktopPluginPackage["resources"]>();
+		const collectResolvedResources = (kind: DesktopPluginResourceKind, resources: ResolvedResource[]): void => {
+			for (const resource of resources) {
+				if (!resource.enabled || resource.metadata.origin !== "package") continue;
+				const scope = resource.metadata.scope === "project" ? "project" : "user";
+				const key = pluginPackageKey(resource.metadata.source, scope);
+				const collected = resourcesByPackage.get(key) ?? emptyPluginResources();
+				collected[kind].push(toDesktopPluginResource(resource, kind));
+				resourcesByPackage.set(key, collected);
+			}
+		};
+		try {
+			const resolvedResources = await packageManager.resolve(async (source) => {
+				globalDiagnostics.push({
+					type: "warning",
+					source,
+					message: "插件已配置，但尚未安装。",
+				});
+				return "skip";
+			});
+			collectResolvedResources("extensions", resolvedResources.extensions);
+			collectResolvedResources("skills", resolvedResources.skills);
+			collectResolvedResources("prompts", resolvedResources.prompts);
+			collectResolvedResources("themes", resolvedResources.themes);
+		} catch (error) {
+			globalDiagnostics.push({
+				type: "error",
+				message: error instanceof Error ? error.message : String(error),
+			});
+		}
 		const resourceLoader = this.session?.resourceLoader;
 		const extensions = resourceLoader?.getExtensions();
 		const skills = resourceLoader?.getSkills();
@@ -1841,7 +1963,6 @@ export class DesktopAgentHost {
 			);
 			return (
 				typeof entry === "object" &&
-				entry.autoload === false &&
 				[entry.extensions, entry.skills, entry.prompts, entry.themes].every((patterns) => patterns?.length === 0)
 			);
 		};
@@ -1857,34 +1978,10 @@ export class DesktopAgentHost {
 			const root = resolve(installedPath);
 			return candidate === root || candidate.startsWith(`${root}${sep}`);
 		};
-		const configuredVersionOf = (source: string): string | undefined => {
-			const npmSource = source.startsWith("npm:") ? source.slice(4) : source;
-			const version = npmSource.match(/@([0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)$/u)?.[1];
-			return version;
-		};
-
-		return Promise.all(
+		const packages = await Promise.all(
 			configured.map(async (pkg): Promise<DesktopPluginPackage> => {
 				const installedPath = pkg.installedPath ?? packageManager.getInstalledPath(pkg.source, pkg.scope);
-				const extensionPaths =
-					extensions?.extensions
-						.filter((extension) =>
-							belongsTo(extension.sourceInfo.source, extension.path, pkg.source, installedPath),
-						)
-						.map((extension) => extension.path) ?? [];
-				const skillPaths =
-					skills?.skills
-						.filter((skill) => belongsTo(skill.sourceInfo.source, skill.filePath, pkg.source, installedPath))
-						.map((skill) => skill.filePath) ?? [];
-				const promptPaths =
-					prompts?.prompts
-						.filter((prompt) => belongsTo(prompt.sourceInfo.source, prompt.filePath, pkg.source, installedPath))
-						.map((prompt) => prompt.filePath) ?? [];
-				const themePaths =
-					themes?.themes
-						.filter((theme) => belongsTo(theme.sourceInfo?.source, theme.sourcePath, pkg.source, installedPath))
-						.map((theme) => theme.sourcePath)
-						.filter((path): path is string => path !== undefined) ?? [];
+				const resources = resourcesByPackage.get(pluginPackageKey(pkg.source, pkg.scope)) ?? emptyPluginResources();
 				const diagnostics: DesktopPluginPackage["diagnostics"] = [];
 				for (const error of extensions?.errors ?? []) {
 					if (belongsTo(undefined, error.path, pkg.source, installedPath)) {
@@ -1921,9 +2018,17 @@ export class DesktopAgentHost {
 					}
 				}
 				const enabled = !isDisabled(pkg.source, pkg.scope);
-				const resourceCount = extensionPaths.length + skillPaths.length + promptPaths.length + themePaths.length;
+				const resourceCount = Object.values(resources).reduce((total, entries) => total + entries.length, 0);
 				const settingsEntry = settingsEntryFor(pkg.source, pkg.scope);
 				const objectEntry = typeof settingsEntry === "object" ? settingsEntry : undefined;
+				const configuredVersion = configuredPluginVersion(pkg.source);
+				if (!installedPath) {
+					globalDiagnostics.push({
+						type: "warning",
+						source: pkg.source,
+						message: "未找到已配置插件的安装路径。",
+					});
+				}
 				return {
 					source: pkg.source,
 					scope: pkg.scope,
@@ -1940,7 +2045,7 @@ export class DesktopAgentHost {
 					...(installedPath ? { installedPath } : {}),
 					...(packageName ? { packageName } : {}),
 					...(version ? { version } : {}),
-					...(configuredVersionOf(pkg.source) ? { configuredVersion: configuredVersionOf(pkg.source) } : {}),
+					...(configuredVersion ? { configuredVersion } : {}),
 					...(pkg.filtered ? { filtered: true } : {}),
 					...(objectEntry
 						? {
@@ -1953,16 +2058,17 @@ export class DesktopAgentHost {
 								},
 							}
 						: {}),
-					resources: {
-						extensions: extensionPaths,
-						skills: skillPaths,
-						prompts: promptPaths,
-						themes: themePaths,
-					},
+					resources,
 					diagnostics,
 				};
 			}),
 		);
+		return {
+			packages,
+			diagnostics: globalDiagnostics,
+			hasActiveSession: this.session !== undefined,
+			projectResourcesLoaded: this.projectTrusted,
+		};
 	}
 
 	async reloadSession(): Promise<DesktopSnapshot> {

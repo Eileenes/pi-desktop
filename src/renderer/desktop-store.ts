@@ -8,8 +8,8 @@ import type {
 	DesktopModelSelectionInput,
 	DesktopNavigateTreeInput,
 	DesktopOpenSessionInput,
-	DesktopPluginPackage,
 	DesktopPluginPackageFilterInput,
+	DesktopPluginPackagesResult,
 	DesktopProviderConfig,
 	DesktopProviderModelConfig,
 	DesktopProviderSetupInput,
@@ -467,10 +467,16 @@ export async function toggleSkill(filePath: string, disable: boolean): Promise<D
 	return next;
 }
 
-export async function installPlugin(source: string, local: boolean): Promise<DesktopSnapshot> {
-	const next = await window.piDesktop.installPlugin({ source, local });
-	publish(next);
-	return next;
+export async function installPlugin(source: string, local: boolean): Promise<boolean> {
+	const result = await window.piDesktop.installPlugin({ source, local });
+	publish(result.snapshot);
+	return result.performed;
+}
+
+export async function updatePlugin(source: string, local: boolean): Promise<boolean> {
+	const result = await window.piDesktop.updatePlugin({ source, local });
+	publish(result.snapshot);
+	return result.performed;
 }
 
 export async function removePlugin(source: string, local: boolean): Promise<DesktopSnapshot> {
@@ -497,7 +503,7 @@ export async function reloadSession(): Promise<DesktopSnapshot> {
 	return next;
 }
 
-export function getPluginPackages(): Promise<DesktopPluginPackage[]> {
+export function getPluginPackages(): Promise<DesktopPluginPackagesResult> {
 	return window.piDesktop.getPluginPackages();
 }
 

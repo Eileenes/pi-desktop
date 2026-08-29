@@ -4981,6 +4981,10 @@ textarea:focus-visible {
 	color: var(--error-text);
 }
 
+.plugin-footer .plugin-diagnostic-count.is-warning {
+	color: var(--warning);
+}
+
 .chat-project-context span {
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -8355,5 +8359,553 @@ textarea:focus-visible {
 	.modal-backdrop,
 	.modal-panel {
 		animation: none;
+	}
+}
+
+/* Plugin manager mirrors pi-agent-desktop's compact two-pane settings layout. */
+.plugin-config-modal {
+	width: min(860px, calc(100vw - 16px));
+	height: min(76vh, 760px);
+	max-height: calc(100dvh - 16px);
+	overflow: hidden;
+}
+
+.plugin-config-modal .modal-body {
+	min-height: 0;
+	padding: 0;
+}
+
+.plugin-config-modal .resource-config-layout {
+	min-height: 0;
+}
+
+.plugin-config-modal .resource-config-sidebar {
+	width: 245px;
+	border-right: 1px solid var(--border-subtle);
+	background: var(--surface-recessed);
+}
+
+.plugin-trust-banner {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	padding: 8px 18px;
+	border-bottom: 1px solid var(--border-subtle);
+	color: var(--text-dim);
+	background: color-mix(in srgb, var(--warning) 8%, var(--surface-1));
+	font-size: 12px;
+}
+
+.plugin-trust-banner strong {
+	flex-shrink: 0;
+	color: var(--warning);
+}
+
+.plugin-package-group + .plugin-package-group {
+	margin-top: 4px;
+}
+
+.plugin-package-row {
+	display: grid;
+	width: 100%;
+	min-height: 52px;
+	grid-template-columns: 7px minmax(0, 1fr);
+	align-items: start;
+	gap: 8px;
+	margin: 0;
+	padding: 8px;
+	border: 0;
+	border-radius: 5px;
+	color: var(--text-dim);
+	background: transparent;
+	text-align: left;
+}
+
+.plugin-package-row:hover {
+	background: var(--hover);
+}
+
+.plugin-package-row.is-active {
+	background: var(--hover-strong);
+	box-shadow: none;
+}
+
+.plugin-package-row:focus-visible,
+.plugin-config-modal button:focus-visible,
+.plugin-config-modal input:focus-visible,
+.plugin-config-modal textarea:focus-visible,
+.plugin-filter-disclosure > summary:focus-visible {
+	outline: 2px solid color-mix(in srgb, var(--accent) 70%, white);
+	outline-offset: 2px;
+}
+
+.plugin-status-dot {
+	margin-top: 5px;
+}
+
+.plugin-status-dot.is-disabled,
+.plugin-status-dot.is-missing {
+	background: var(--muted);
+}
+
+.plugin-package-copy {
+	gap: 2px;
+}
+
+.plugin-package-copy strong {
+	color: var(--text);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	font-weight: 500;
+}
+
+.plugin-package-copy small {
+	color: var(--muted);
+	font-size: 10px;
+	font-weight: 400;
+}
+
+.resource-config-sidebar-footer .resource-config-add {
+	min-height: 36px;
+}
+
+.resource-config-add svg {
+	width: 14px;
+	height: 14px;
+	fill: none;
+	stroke: currentcolor;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	stroke-width: 2;
+}
+
+.plugin-config-modal .resource-config-detail {
+	padding: 20px;
+}
+
+.plugin-add-panel {
+	display: flex;
+	max-width: 660px;
+	min-height: 100%;
+	flex-direction: column;
+	gap: 18px;
+}
+
+.plugin-add-panel > p {
+	margin: -10px 0 0;
+	color: var(--muted);
+	font-size: 12px;
+	line-height: 1.55;
+}
+
+.plugin-add-heading {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+}
+
+.plugin-add-heading > div {
+	display: grid;
+	min-width: 0;
+	gap: 5px;
+}
+
+.plugin-add-heading strong {
+	color: var(--text);
+	font-size: 14px;
+	font-weight: 700;
+}
+
+.plugin-add-heading code {
+	overflow: hidden;
+	color: var(--muted);
+	font: 11px/1.4 var(--font-mono);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.plugin-add-heading a {
+	display: inline-flex;
+	min-height: 32px;
+	align-items: center;
+	gap: 5px;
+	flex-shrink: 0;
+	color: var(--accent-strong);
+	font-size: 12px;
+	text-decoration: none;
+}
+
+.plugin-add-heading a:hover {
+	text-decoration: underline;
+}
+
+.plugin-add-heading a svg {
+	fill: currentcolor;
+}
+
+.plugin-source-picker {
+	display: flex;
+	gap: 8px;
+}
+
+.plugin-source-picker input {
+	height: 36px;
+	min-width: 0;
+	flex: 1;
+	padding: 0 11px;
+}
+
+.plugin-source-picker .outline-button {
+	min-width: 76px;
+	height: 36px;
+	flex-shrink: 0;
+}
+
+.plugin-install-actions {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-wrap: wrap;
+}
+
+.plugin-install-actions > .accent-button {
+	min-height: 32px;
+}
+
+.plugin-scope-picker {
+	display: inline-flex;
+	width: auto;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	border: 1px solid var(--border-subtle);
+	border-radius: 7px;
+	background: transparent;
+}
+
+.plugin-scope-picker button {
+	width: 76px;
+	min-height: 30px;
+	padding: 5px 10px;
+	border: 0;
+	border-right: 1px solid var(--border-subtle);
+	border-radius: 0;
+	color: var(--muted);
+	background: transparent;
+	font-size: 12px;
+}
+
+.plugin-scope-picker button:last-child {
+	border-right: 0;
+}
+
+.plugin-scope-picker button.is-active {
+	color: var(--text);
+	background: var(--hover-strong);
+}
+
+.plugin-example-list {
+	display: grid;
+	gap: 6px;
+}
+
+.plugin-example-list > span {
+	margin-bottom: 1px;
+	color: var(--text-dim);
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.plugin-example-list button {
+	width: 100%;
+	min-height: 32px;
+	overflow: hidden;
+	padding: 6px 9px;
+	border: 1px solid var(--border-subtle);
+	border-radius: 6px;
+	color: var(--muted);
+	background: var(--surface-1);
+	font: 11px var(--font-mono);
+	text-align: left;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.plugin-example-list button:hover {
+	color: var(--text-dim);
+	background: var(--hover);
+}
+
+.plugin-detail {
+	display: flex;
+	max-width: 680px;
+	flex-direction: column;
+	gap: 20px;
+}
+
+.plugin-detail-heading {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.plugin-detail-identity {
+	display: flex;
+	min-width: 180px;
+	align-items: center;
+	gap: 8px;
+	flex: 1;
+}
+
+.plugin-detail-identity > code {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--text);
+	font: 12px/1.4 var(--font-mono);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.plugin-toggle-switch {
+	position: relative;
+	width: 40px;
+	height: 22px;
+	flex: 0 0 40px;
+	padding: 0;
+	border: 0;
+	border-radius: 11px;
+	background: var(--border-subtle);
+	transition: background 180ms ease;
+}
+
+.plugin-toggle-switch.is-on {
+	background: var(--accent);
+}
+
+.plugin-toggle-switch > span {
+	position: absolute;
+	top: 3px;
+	left: 3px;
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	background: var(--bg);
+	box-shadow: 0 1px 4px rgb(0 0 0 / 22%);
+	transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.plugin-toggle-switch.is-on > span {
+	transform: translateX(18px);
+}
+
+.plugin-state-tag {
+	padding: 1px 5px;
+	border-radius: 3px;
+	color: var(--muted);
+	background: var(--overlay-7);
+	font-size: 10px;
+	white-space: nowrap;
+}
+
+.plugin-state-tag.is-warning {
+	color: var(--warning);
+	background: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+.plugin-detail .resource-detail-actions {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.plugin-detail .resource-detail-actions button {
+	min-height: 32px;
+}
+
+.plugin-detail .danger-button {
+	border: 1px solid var(--border-subtle);
+	color: var(--danger);
+	background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+.plugin-meta-grid {
+	max-width: none;
+	grid-template-columns: minmax(96px, 130px) minmax(0, 1fr);
+	gap: 9px 14px;
+	margin: 0;
+	padding: 14px;
+	border: 1px solid var(--border-subtle);
+	border-radius: 8px;
+	background: var(--surface-1);
+}
+
+.plugin-meta-grid > strong.is-installed {
+	color: var(--warning);
+}
+
+.plugin-meta-grid > strong.is-disabled {
+	color: var(--muted);
+}
+
+.plugin-meta-grid > strong.is-error,
+.plugin-meta-grid > strong.is-missing {
+	color: var(--danger);
+}
+
+.plugin-resources-section {
+	display: grid;
+	gap: 8px;
+}
+
+.plugin-resources-section > strong {
+	color: var(--text);
+	font-size: 12px;
+}
+
+.plugin-resource-browser {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	padding: 12px 14px;
+	border: 1px solid var(--border-subtle);
+	border-radius: 8px;
+	background: var(--surface-recessed);
+}
+
+.plugin-resource-group {
+	display: grid;
+	gap: 6px;
+	padding: 12px 0;
+	border-top: 1px solid var(--border-subtle);
+}
+
+.plugin-resource-group:first-child {
+	padding-top: 0;
+	border-top: 0;
+}
+
+.plugin-resource-group:last-child {
+	padding-bottom: 0;
+}
+
+.plugin-resource-group > .plugin-resource-kind {
+	color: var(--muted);
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.plugin-resource-entry {
+	display: grid;
+	min-width: 0;
+	gap: 1px;
+}
+
+.plugin-resource-entry code,
+.plugin-resource-entry small {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.plugin-resource-entry code {
+	color: var(--text);
+	font: 11px/1.45 var(--font-mono);
+}
+
+.plugin-resource-entry small {
+	color: var(--muted);
+	font: 10px/1.4 var(--font-mono);
+}
+
+.plugin-resource-browser .modal-empty {
+	margin: 0;
+	padding: 0;
+}
+
+.plugin-filter-disclosure {
+	border-top: 1px solid var(--border-subtle);
+}
+
+.plugin-filter-disclosure > summary {
+	width: fit-content;
+	padding: 12px 0 0;
+	color: var(--muted);
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.plugin-filter-disclosure .plugin-filter-editor {
+	margin-top: 10px;
+}
+
+.plugin-action-message {
+	margin: 0;
+	font-size: 12px;
+	white-space: pre-wrap;
+}
+
+.plugin-action-message.is-success {
+	color: var(--success);
+}
+
+.plugin-action-message.is-error {
+	color: var(--danger);
+}
+
+.plugin-footer {
+	min-height: 52px;
+	align-items: center;
+	padding: 10px 18px;
+}
+
+.plugin-footer > div {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--muted);
+	font-size: 11px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.plugin-footer > button {
+	min-height: 32px;
+}
+
+@media (width <= 640px) {
+	.plugin-config-modal {
+		height: calc(100dvh - 16px);
+	}
+
+	.plugin-config-modal .resource-config-layout {
+		flex-direction: column;
+	}
+
+	.plugin-config-modal .resource-config-sidebar {
+		width: 100%;
+		max-height: 40vh;
+		border-right: 0;
+		border-bottom: 1px solid var(--border-subtle);
+	}
+
+	.plugin-trust-banner {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.plugin-filter-grid {
+		grid-template-columns: 1fr;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.plugin-toggle-switch,
+	.plugin-toggle-switch > span {
+		transition: none;
 	}
 }

@@ -4,6 +4,7 @@ import type {
 	DesktopApi,
 	DesktopAuthenticationPromptResponseInput,
 	DesktopBashOutputInput,
+	DesktopConfirmedPluginActionResult,
 	DesktopAddWorktreeInput,
 	DesktopDiscoverModelsInput,
 	DesktopGitChange,
@@ -29,7 +30,7 @@ import type {
 	DesktopWorkspaceChange,
 	DesktopWorkspaceDirectoryListing,
 	DesktopPluginSourceInput,
-	DesktopPluginPackage,
+	DesktopPluginPackagesResult,
 	DesktopPluginPackageFilterInput,
 	DesktopPromptInput,
 	DesktopRestoreImageAttachmentsInput,
@@ -192,7 +193,9 @@ const desktopApi: DesktopApi = {
 	toggleSkill: (input: DesktopToggleSkillInput) =>
 		ipcRenderer.invoke("pi-desktop:toggle-skill", input) as Promise<DesktopSnapshot>,
 	installPlugin: (input: DesktopPluginSourceInput) =>
-		ipcRenderer.invoke("pi-desktop:install-plugin", input) as Promise<DesktopSnapshot>,
+		ipcRenderer.invoke("pi-desktop:install-plugin", input) as Promise<DesktopConfirmedPluginActionResult>,
+	updatePlugin: (input: DesktopPluginSourceInput) =>
+		ipcRenderer.invoke("pi-desktop:update-plugin", input) as Promise<DesktopConfirmedPluginActionResult>,
 	removePlugin: (input: DesktopPluginSourceInput) =>
 		ipcRenderer.invoke("pi-desktop:remove-plugin", input) as Promise<DesktopSnapshot>,
 	togglePlugin: (input: DesktopTogglePluginInput) =>
@@ -201,7 +204,7 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:save-plugin-filters", input) as Promise<DesktopSnapshot>,
 	reloadSession: () => ipcRenderer.invoke("pi-desktop:reload-session") as Promise<DesktopSnapshot>,
 	getPluginPackages: () =>
-		ipcRenderer.invoke("pi-desktop:get-plugin-packages") as Promise<DesktopPluginPackage[]>,
+		ipcRenderer.invoke("pi-desktop:get-plugin-packages") as Promise<DesktopPluginPackagesResult>,
 	listSkillsDetailed: () => ipcRenderer.invoke("pi-desktop:list-skills-detailed") as Promise<DesktopSkillInfo[]>,
 	searchSkills: (query: string) => ipcRenderer.invoke("pi-desktop:search-skills", query) as Promise<DesktopSkillSearchResult[]>,
 	installSkill: (pkg: string, scope: "global" | "project") =>

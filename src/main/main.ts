@@ -17,7 +17,7 @@ import {
 	nativeImage,
 	Tray,
 } from "electron";
-import { autoUpdater } from "electron-updater";
+import electronUpdater from "electron-updater";
 import type { Response as FetchResponse } from "undici-types";
 import {
 	type DesktopDirectoryEntry,
@@ -58,6 +58,7 @@ import { importDroppedFiles } from "./dropped-file-import.ts";
 import { getImageMimeType, imageExtensionFor } from "./image-mime.ts";
 import { loadWindowState, trackWindowState, type WindowStateTracker } from "./window-state.ts";
 
+const { autoUpdater } = electronUpdater;
 const currentDirectory = fileURLToPath(new URL(".", import.meta.url));
 let mainWindow: BrowserWindow | undefined;
 let host: DesktopAgentHost | undefined;

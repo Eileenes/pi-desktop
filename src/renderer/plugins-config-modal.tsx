@@ -1,18 +1,13 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import type {
-	DesktopPlugin,
-	DesktopPluginPackage,
-	DesktopPluginPackageFilterInput,
-	DesktopPluginPackageResourceFilters,
-} from "../shared/contracts.ts";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DesktopPlugin, DesktopPluginDiagnostic, DesktopPluginPackage } from "../shared/contracts.ts";
 import {
 	getPluginPackages,
 	installPlugin,
 	reloadSession,
 	removePlugin,
-	savePluginPackageFilters,
 	selectDirectory,
 	togglePlugin,
+	updatePlugin,
 } from "./desktop-store.ts";
 import { type I18n, type TranslationKey, useI18n } from "./i18n.ts";
 import { Modal } from "./modal.tsx";
@@ -25,6 +20,20 @@ interface PluginsConfigModalProps {
 }
 
 const SCOPE_LABEL = { user: "GLOBAL", project: "PROJECT" } as const;
+
+function detailScopeLabel(scope: DesktopPluginPackage["scope"]): string {
+	return scope === "user" ? "global" : "project";
+}
+
+function shortenPath(path: string): string {
+	return path.replace(/^\/(?:Users|home)\/[^/]+/u, "~");
+}
+
+function installLocation(scope: "user" | "project", workspacePath?: string): string {
+	if (scope === "project" && workspacePath) return `${shortenPath(workspacePath)}/.pi/agent/{npm,git}`;
+	return "~/.pi/agent/{npm,git}";
+}
+
 function statusLabel(status: DesktopPluginPackage["status"], t: I18n["t"]): string {
 	switch (status) {
 		case "disabled":
@@ -51,6 +60,7 @@ function normalizeInstallSource(input: string): string {
 }
 
 function resourceSummary(pkg: DesktopPluginPackage, t: I18n["t"]): string {
+	if (!pkg.enabled) return t("statusDisabled");
 	const parts = [
 		[pkg.resources.extensions.length, "ext"],
 		[pkg.resources.skills.length, "sk"],
@@ -60,6 +70,16 @@ function resourceSummary(pkg: DesktopPluginPackage, t: I18n["t"]): string {
 		.filter(([count]) => Number(count) > 0)
 		.map(([count, label]) => `${count} ${label}`);
 	return parts.length ? parts.join(" · ") : t("noResourcesFound");
+}
+
+function versionSummary(pkg: DesktopPluginPackage, t: I18n["t"]): string {
+	const versions = [
+		pkg.version ? t("installedVersion", { version: pkg.version }) : undefined,
+		pkg.configuredVersion
+			? t("configuredVersion", { version: pkg.configuredVersion }).replace(/^·\s*/u, "")
+			: undefined,
+	].filter((version): version is string => Boolean(version));
+	return versions.length ? versions.join(" · ") : "—";
 }
 
 function displayResourcePath(path: string, workspacePath?: string): string {
@@ -72,135 +92,87 @@ function displayResourcePath(path: string, workspacePath?: string): string {
 	return path.replace(/^\/Users\/[^/]+/u, "~");
 }
 
-const FILTER_KINDS = [
+function findInstalledPackage(
+	packages: DesktopPluginPackage[],
+	source: string,
+	scope: DesktopPluginPackage["scope"],
+): DesktopPluginPackage | undefined {
+	const withoutNpmPrefix = source.startsWith("npm:") ? source.slice(4) : source;
+	return (
+		packages.find((pkg) => pkg.scope === scope && pkg.source === source) ??
+		packages.find((pkg) => pkg.scope === scope && pkg.source === `npm:${withoutNpmPrefix}`) ??
+		packages.find((pkg) => pkg.scope === scope && pkg.source.endsWith(source))
+	);
+}
+
+const RESOURCE_GROUPS = [
 	["extensions", "filterExtensions"],
 	["skills", "filterSkills"],
 	["prompts", "filterPrompts"],
 	["themes", "filterThemes"],
-] as const satisfies ReadonlyArray<readonly [keyof DesktopPluginPackageResourceFilters, TranslationKey]>;
-
-function parseFilterPatterns(text: string, t: I18n["t"]): string[] | string {
-	const seen = new Set<string>();
-	const patterns: string[] = [];
-	for (const line of text.split("\n")) {
-		const pattern = line.trim();
-		if (!pattern) continue;
-		if (pattern.length > 200) return t("patternTooLong", { pattern: pattern.slice(0, 40) });
-		if (seen.has(pattern)) continue;
-		seen.add(pattern);
-		patterns.push(pattern);
-	}
-	if (patterns.length > 100) return t("tooManyPatterns");
-	return patterns;
-}
-
-function PluginFilterEditor({
-	pkg,
-	busy,
-	onSave,
-}: {
-	pkg: DesktopPluginPackage;
-	busy: boolean;
-	onSave: (input: DesktopPluginPackageFilterInput) => Promise<void>;
-}) {
-	const { t } = useI18n();
-	const [autoload, setAutoload] = useState(pkg.autoload ?? true);
-	const [texts, setTexts] = useState<Record<keyof DesktopPluginPackageResourceFilters, string>>(() => ({
-		extensions: (pkg.filters?.extensions ?? []).join("\n"),
-		skills: (pkg.filters?.skills ?? []).join("\n"),
-		prompts: (pkg.filters?.prompts ?? []).join("\n"),
-		themes: (pkg.filters?.themes ?? []).join("\n"),
-	}));
-	const [saving, setSaving] = useState(false);
-	const [error, setError] = useState<string>();
-
-	async function handleSave(): Promise<void> {
-		setError(undefined);
-		const filters = {} as DesktopPluginPackageResourceFilters;
-		for (const [kind] of FILTER_KINDS) {
-			const parsed = parseFilterPatterns(texts[kind], t);
-			if (typeof parsed === "string") {
-				setError(parsed);
-				return;
-			}
-			filters[kind] = parsed;
-		}
-		setSaving(true);
-		try {
-			await onSave({ source: pkg.source, local: pkg.scope === "project", autoload, filters });
-		} finally {
-			setSaving(false);
-		}
-	}
-
-	return (
-		<div className="plugin-filter-editor">
-			<div className="plugin-filter-header">
-				<strong>{t("filterRules")}</strong>
-				<label className="plugin-filter-autoload">
-					<input
-						type="checkbox"
-						checked={autoload}
-						disabled={busy || saving}
-						onChange={(event) => setAutoload(event.target.checked)}
-					/>
-					{t("autoLoad")}
-				</label>
-			</div>
-			<p className="plugin-filter-hint">
-				{t("filterRulesHint1")} <code>*</code> {t("filterRulesHint2")}
-			</p>
-			<div className="plugin-filter-grid">
-				{FILTER_KINDS.map(([kind, labelKey]) => (
-					<label key={kind}>
-						<span>{t(labelKey)}</span>
-						<textarea
-							spellCheck={false}
-							value={texts[kind]}
-							disabled={busy || saving}
-							onChange={(event) => setTexts((current) => ({ ...current, [kind]: event.target.value }))}
-						/>
-					</label>
-				))}
-			</div>
-			{error ? <p className="is-error">{error}</p> : null}
-			<div className="plugin-filter-actions">
-				<button className="accent-button" type="button" disabled={busy || saving} onClick={() => void handleSave()}>
-					{saving ? t("saving") : t("saveFilters")}
-				</button>
-			</div>
-		</div>
-	);
-}
+] as const satisfies ReadonlyArray<readonly [keyof DesktopPluginPackage["resources"], TranslationKey]>;
 
 export const PluginsConfigModal = memo(function PluginsConfigModal({
-	plugins,
 	workspacePath,
 	projectTrusted,
 	onClose,
 }: PluginsConfigModalProps) {
 	const { t } = useI18n();
 	const [packages, setPackages] = useState<DesktopPluginPackage[]>([]);
+	const [diagnostics, setDiagnostics] = useState<DesktopPluginDiagnostic[]>([]);
+	const [hasActiveSession, setHasActiveSession] = useState(false);
+	const [projectResourcesLoaded, setProjectResourcesLoaded] = useState(projectTrusted);
 	const [loading, setLoading] = useState(true);
 	const [selectedKey, setSelectedKey] = useState<string>();
 	const [installSource, setInstallSource] = useState("");
 	const [installScope, setInstallScope] = useState<"user" | "project">("user");
-	const [busy, setBusy] = useState(false);
+	const [busyAction, setBusyAction] = useState<"install" | "toggle" | "update" | "reload" | "remove">();
 	const [error, setError] = useState<string>();
 	const [success, setSuccess] = useState<string>();
 	const [removeArmed, setRemoveArmed] = useState(false);
+	const installInputRef = useRef<HTMLInputElement>(null);
+	const busy = busyAction !== undefined;
+	const cwdLabel = workspacePath ? shortenPath(workspacePath) : "~/.pi/agent";
 	const selected = useMemo(() => packages.find((pkg) => packageKey(pkg) === selectedKey), [packages, selectedKey]);
-	const projectPackages = packages.filter((pkg) => pkg.scope === "project");
-	const userPackages = packages.filter((pkg) => pkg.scope === "user");
-	const diagnosticCount = packages.reduce((total, pkg) => total + pkg.diagnostics.length, 0);
-	const loadedResourceCount = packages.reduce(
-		(total, pkg) =>
-			total +
-			pkg.resources.extensions.length +
-			pkg.resources.skills.length +
-			pkg.resources.prompts.length +
-			pkg.resources.themes.length,
-		0,
+	const groupedPackages = useMemo(
+		() =>
+			(["project", "user"] as const)
+				.map((scope) => ({ scope, packages: packages.filter((pkg) => pkg.scope === scope) }))
+				.filter((group) => group.packages.length > 0),
+		[packages],
+	);
+	const diagnosticCount = useMemo(
+		() => diagnostics.length + packages.reduce((total, pkg) => total + pkg.diagnostics.length, 0),
+		[diagnostics.length, packages],
+	);
+	const diagnosticSummary = useMemo(() => {
+		const entries = [
+			...diagnostics,
+			...packages.flatMap((pkg) =>
+				pkg.diagnostics.map((diagnostic) => ({ ...diagnostic, source: diagnostic.source ?? pkg.source })),
+			),
+		];
+		return {
+			hasError: entries.some((diagnostic) => diagnostic.type === "error"),
+			title: entries
+				.map((diagnostic) =>
+					diagnostic.source ? `${diagnostic.source}: ${diagnostic.message}` : diagnostic.message,
+				)
+				.join("\n"),
+		};
+	}, [diagnostics, packages]);
+	const resourceTotals = useMemo(
+		() =>
+			packages.reduce(
+				(totals, pkg) => ({
+					extensions: totals.extensions + pkg.resources.extensions.length,
+					skills: totals.skills + pkg.resources.skills.length,
+					prompts: totals.prompts + pkg.resources.prompts.length,
+					themes: totals.themes + pkg.resources.themes.length,
+				}),
+				{ extensions: 0, skills: 0, prompts: 0, themes: 0 },
+			),
+		[packages],
 	);
 
 	const load = useCallback(async () => {
@@ -208,19 +180,21 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 		setError(undefined);
 		try {
 			const next = await getPluginPackages();
-			setPackages(next);
+			setPackages(next.packages);
+			setDiagnostics(next.diagnostics);
+			setHasActiveSession(next.hasActiveSession);
+			setProjectResourcesLoaded(next.projectResourcesLoaded);
 			setSelectedKey((current) => {
 				if (current === "add") return current;
-				if (current === undefined) return next[0] ? packageKey(next[0]) : "add";
-				if (next.some((pkg) => packageKey(pkg) === current)) return current;
+				if (current === undefined) return next.packages[0] ? packageKey(next.packages[0]) : "add";
+				if (next.packages.some((pkg) => packageKey(pkg) === current)) return current;
 				const [scope, ...sourceParts] = current.split("\0");
 				const source = sourceParts.join("\0");
-				const normalized = next.find(
-					(pkg) =>
-						pkg.scope === scope &&
-						(pkg.source === source || pkg.source.endsWith(source) || source.endsWith(pkg.source)),
-				);
-				return normalized ? packageKey(normalized) : next[0] ? packageKey(next[0]) : "add";
+				if (scope !== "user" && scope !== "project") {
+					return next.packages[0] ? packageKey(next.packages[0]) : "add";
+				}
+				const normalized = findInstalledPackage(next.packages, source, scope);
+				return normalized ? packageKey(normalized) : next.packages[0] ? packageKey(next.packages[0]) : "add";
 			});
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
@@ -230,6 +204,11 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 	}, []);
 
 	useEffect(() => void load(), [load]);
+	useEffect(() => {
+		if (selectedKey !== "add") return;
+		const frame = window.requestAnimationFrame(() => installInputRef.current?.focus());
+		return () => window.cancelAnimationFrame(frame);
+	}, [selectedKey]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: 选中包变化时需要重新解除危险删除按钮。
 	useEffect(() => setRemoveArmed(false), [selectedKey]);
 	useEffect(() => {
@@ -238,18 +217,23 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 		return () => window.clearTimeout(timeout);
 	}, [removeArmed]);
 
-	async function run(action: () => Promise<void>, successMessage: string): Promise<void> {
-		setBusy(true);
+	async function run(
+		actionName: NonNullable<typeof busyAction>,
+		action: () => Promise<boolean | undefined>,
+		successMessage: string,
+	): Promise<void> {
+		setBusyAction(actionName);
 		setError(undefined);
 		setSuccess(undefined);
 		try {
-			await action();
+			const performed = await action();
+			if (performed === false) return;
 			await load();
 			setSuccess(successMessage);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : String(reason));
 		} finally {
-			setBusy(false);
+			setBusyAction(undefined);
 		}
 	}
 
@@ -257,19 +241,16 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 		const source = normalizeInstallSource(installSource);
 		if (!source) return;
 		await run(
+			"install",
 			async () => {
-				await installPlugin(source, installScope === "project");
+				const performed = await installPlugin(source, installScope === "project");
+				if (!performed) return false;
 				setInstallSource("");
 				setSelectedKey(`${installScope}\0${source}`);
+				return true;
 			},
 			t("installedPlugin", { source }),
 		);
-	}
-
-	async function handleSaveFilters(input: DesktopPluginPackageFilterInput): Promise<void> {
-		await run(async () => {
-			await savePluginPackageFilters(input);
-		}, t("filtersSaved"));
 	}
 
 	function renderPackageRow(pkg: DesktopPluginPackage) {
@@ -283,14 +264,9 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 			>
 				<span className={`plugin-status-dot is-${pkg.status}`} />
 				<span className="plugin-package-copy">
-					<strong>{pkg.packageName ?? pkg.source.split("/").at(-1) ?? pkg.source}</strong>
-					<small>{pkg.source}</small>
+					<strong>{pkg.source}</strong>
 					<small>{resourceSummary(pkg, t)}</small>
-					<small>
-						{[pkg.version ? `v${pkg.version}` : undefined, statusLabel(pkg.status, t)]
-							.filter(Boolean)
-							.join(" · ")}
-					</small>
+					{pkg.version || pkg.configuredVersion ? <small>{versionSummary(pkg, t)}</small> : null}
 					{pkg.filtered ? <small className="plugin-filtered-label">{t("filteredLabel")}</small> : null}
 				</span>
 			</button>
@@ -300,67 +276,86 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 	return (
 		<Modal
 			title={t("plugins")}
-			subtitle={workspacePath ?? "~/.pi/agent/plugins"}
+			subtitle={cwdLabel}
 			className="resource-config-modal plugin-config-modal"
 			onClose={onClose}
 		>
+			{workspacePath && !projectResourcesLoaded ? (
+				<output className="plugin-trust-banner">
+					<strong>{t("projectNotTrustedTitle")}</strong>
+					<span>{t("projectNotTrustedHint")}</span>
+				</output>
+			) : null}
 			<div className="resource-config-layout">
 				<aside className="resource-config-sidebar">
 					<div className="resource-config-scroll">
 						{loading ? <p className="modal-empty">{t("loadingPlugins")}</p> : null}
-						{projectPackages.length ? (
-							<>
-								<div className="settings-group-label">PROJECT</div>
-								{projectPackages.map(renderPackageRow)}
-							</>
-						) : null}
-						{userPackages.length ? (
-							<>
-								<div className="settings-group-label">GLOBAL</div>
-								{userPackages.map(renderPackageRow)}
-							</>
-						) : null}
+						{groupedPackages.map((group) => (
+							<div className="plugin-package-group" key={group.scope}>
+								<div className="settings-group-label">{SCOPE_LABEL[group.scope]}</div>
+								{group.packages.map(renderPackageRow)}
+							</div>
+						))}
 						{!loading && packages.length === 0 ? <p className="modal-empty">{t("noPlugins")}</p> : null}
 					</div>
-					<button
-						className={`resource-config-add ${selectedKey === "add" ? "is-active" : ""}`}
-						type="button"
-						onClick={() => setSelectedKey("add")}
-					>
-						{t("addPlugin")}
-					</button>
+					<div className="resource-config-sidebar-footer">
+						<button
+							className={`resource-config-add ${selectedKey === "add" ? "is-active" : ""}`}
+							type="button"
+							onClick={() => {
+								setSelectedKey("add");
+								setError(undefined);
+								setSuccess(undefined);
+							}}
+						>
+							<svg aria-hidden="true" viewBox="0 0 24 24">
+								<path d="M12 5v14M5 12h14" />
+							</svg>
+							{t("addPlugin").replace(/^＋\s*/u, "")}
+						</button>
+					</div>
 				</aside>
 				<section className="resource-config-detail">
-					{workspacePath && !projectTrusted ? (
-						<div className="resource-trust-banner" aria-live="polite">
-							<strong>{t("projectNotTrustedTitle")}</strong>
-							<span>{t("projectNotTrustedHint")}</span>
-						</div>
-					) : null}
 					{selectedKey === "add" ? (
 						<div className="resource-add-panel plugin-add-panel">
-							<strong>{t("addPlugin")}</strong>
-							<p>{t("addPluginHint")}</p>
-							<a
-								href="https://pi.dev/packages"
-								onClick={(event) => {
-									event.preventDefault();
-									void window.piDesktop.openExternalUrl("https://pi.dev/packages");
-								}}
-							>
-								{t("browsePackages")}
-							</a>
+							<div className="plugin-add-heading">
+								<div>
+									<strong>{t("addPlugin").replace(/^＋\s*/u, "")}</strong>
+									<code>{installLocation(installScope, workspacePath)}</code>
+								</div>
+								<a
+									href="https://pi.dev/packages"
+									onClick={(event) => {
+										event.preventDefault();
+										void window.piDesktop.openExternalUrl("https://pi.dev/packages");
+									}}
+								>
+									<svg width="28" height="28" viewBox="0 0 800 800" aria-hidden="true">
+										<path d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29V165.29ZM282.65 282.65V400H400V282.65Z" />
+										<path d="M517.36 400H634.72V634.72H517.36Z" />
+									</svg>
+									pi.dev/packages
+								</a>
+							</div>
 							<label>
 								{t("sourceLabel")}
 								<div className="plugin-source-picker">
 									<input
+										ref={installInputRef}
 										className="mono"
 										value={installSource}
 										placeholder={t("sourcePlaceholder")}
 										onChange={(event) => setInstallSource(event.target.value)}
+										onPaste={(event) => {
+											const pasted = event.clipboardData.getData("text");
+											const normalized = normalizeInstallSource(pasted);
+											if (normalized === pasted) return;
+											event.preventDefault();
+											setInstallSource(normalized);
+										}}
 										onBlur={(event) => setInstallSource(normalizeInstallSource(event.currentTarget.value))}
 										onKeyDown={(event) => {
-											if (event.key === "Enter") {
+											if (event.key === "Enter" && normalizeInstallSource(installSource) && !busy) {
 												event.preventDefault();
 												void handleInstall();
 											}
@@ -384,113 +379,188 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 									</button>
 								</div>
 							</label>
-							<div className="plugin-example-chips">
-								{[
-									"@mariozechner/pi-powerline",
-									"git:https://github.com/user/pi-extension",
-									"./extensions/local.ts",
-								].map((example) => (
-									<button type="button" key={example} onClick={() => setInstallSource(example)}>
-										{example}
+							<div className="plugin-install-actions">
+								<fieldset className="plugin-scope-picker" aria-label={t("installScopeLabel")}>
+									<button
+										type="button"
+										className={installScope === "user" ? "is-active" : ""}
+										aria-pressed={installScope === "user"}
+										onClick={() => setInstallScope("user")}
+									>
+										{t("global")}
 									</button>
-								))}
-							</div>
-							<div className="plugin-scope-picker">
+									<button
+										type="button"
+										className={installScope === "project" ? "is-active" : ""}
+										aria-pressed={installScope === "project"}
+										disabled={!workspacePath || !projectResourcesLoaded}
+										title={!workspacePath || !projectResourcesLoaded ? t("projectNotTrustedHint") : undefined}
+										onClick={() => setInstallScope("project")}
+									>
+										{t("project")}
+									</button>
+								</fieldset>
 								<button
+									className="accent-button"
 									type="button"
-									className={installScope === "user" ? "is-active" : ""}
-									onClick={() => setInstallScope("user")}
+									disabled={!normalizeInstallSource(installSource) || busy}
+									onClick={() => void handleInstall()}
 								>
-									{t("global")}
-								</button>
-								<button
-									type="button"
-									className={installScope === "project" ? "is-active" : ""}
-									disabled={!workspacePath || !projectTrusted}
-									onClick={() => setInstallScope("project")}
-								>
-									{t("project")}
+									{busyAction === "install" ? t("installing") : t("installPluginAction")}
 								</button>
 							</div>
-							<button
-								className="accent-button"
-								type="button"
-								disabled={!normalizeInstallSource(installSource) || busy}
-								onClick={() => void handleInstall()}
-							>
-								{busy ? t("installing") : t("installPluginAction")}
-							</button>
+							<div className="plugin-example-list">
+								<span>{t("examplesLabel")}</span>
+								{["npm:@scope/pi-plugin", "git:https://github.com/user/repo", "/absolute/path/to/plugin"].map(
+									(example) => (
+										<button type="button" key={example} onClick={() => setInstallSource(example)}>
+											{example}
+										</button>
+									),
+								)}
+							</div>
+							{error ? <p className="plugin-action-message is-error">{error}</p> : null}
 						</div>
 					) : selected ? (
 						<div className="plugin-detail">
-							<div className="resource-detail-heading">
-								<div>
-									<span className={`resource-scope-tag ${selected.scope === "project" ? "is-project" : ""}`}>
-										{SCOPE_LABEL[selected.scope]}
-									</span>
-									<h3 className="resource-detail-name">{selected.packageName ?? selected.source}</h3>
-								</div>
-								<label className="plugin-toggle">
-									<input
-										type="checkbox"
-										checked={selected.enabled}
-										disabled={busy}
-										onChange={(event) =>
+							<div className="plugin-detail-heading">
+								<div className="plugin-detail-identity">
+									<button
+										className={`plugin-toggle-switch ${selected.enabled ? "is-on" : ""}`}
+										type="button"
+										role="switch"
+										aria-checked={selected.enabled}
+										aria-label={selected.enabled ? t("disable") : t("enable")}
+										disabled={busy || (selected.scope === "project" && !projectResourcesLoaded)}
+										onClick={() =>
 											void run(
+												"toggle",
 												() =>
 													togglePlugin(
 														selected.source,
 														selected.scope === "project",
-														event.target.checked,
+														!selected.enabled,
 													).then(() => undefined),
-												event.target.checked ? t("pluginEnabled") : t("pluginDisabled"),
+												selected.enabled ? t("pluginDisabled") : t("pluginEnabled"),
 											)
 										}
-									/>
-									<span>{selected.enabled ? t("enable") : t("disable")}</span>
-								</label>
+									>
+										<span />
+									</button>
+									<span className={`resource-scope-tag ${selected.scope === "project" ? "is-project" : ""}`}>
+										{detailScopeLabel(selected.scope)}
+									</span>
+									{!selected.enabled ? <span className="plugin-state-tag">{t("statusDisabled")}</span> : null}
+									{selected.enabled && selected.filtered ? (
+										<span className="plugin-state-tag is-warning">{t("filteredLabel")}</span>
+									) : null}
+									<code title={selected.source}>{selected.source}</code>
+								</div>
+								<div className="resource-detail-actions">
+									<button
+										className="outline-button"
+										type="button"
+										disabled={busy || (selected.scope === "project" && !projectResourcesLoaded)}
+										onClick={() =>
+											void run(
+												"update",
+												() => updatePlugin(selected.source, selected.scope === "project"),
+												t("pluginUpdated"),
+											)
+										}
+									>
+										{busyAction === "update" ? t("updatingPlugin") : t("update")}
+									</button>
+									<button
+										className="outline-button"
+										type="button"
+										disabled={busy || !hasActiveSession}
+										title={!hasActiveSession ? t("openSessionToReload") : undefined}
+										onClick={() =>
+											void run(
+												"reload",
+												async () => {
+													await reloadSession();
+													return undefined;
+												},
+												t("sessionReloaded"),
+											)
+										}
+									>
+										{busyAction === "reload" ? t("reloadingSession") : t("reloadSessionButton")}
+									</button>
+									<button
+										className="danger-button"
+										type="button"
+										disabled={busy || (selected.scope === "project" && !projectResourcesLoaded)}
+										onClick={() => {
+											if (!removeArmed) {
+												setRemoveArmed(true);
+												return;
+											}
+											void run(
+												"remove",
+												async () => {
+													await removePlugin(selected.source, selected.scope === "project");
+													return undefined;
+												},
+												t("pluginRemoved"),
+											);
+										}}
+									>
+										{busyAction === "remove"
+											? t("removingPlugin")
+											: removeArmed
+												? t("clickAgainToRemove")
+												: t("remove")}
+									</button>
+								</div>
 							</div>
-							<div className="resource-meta-grid">
+							<div className="resource-meta-grid plugin-meta-grid">
 								<span>{t("statusLabel")}</span>
 								<strong className={`is-${selected.status}`}>{statusLabel(selected.status, t)}</strong>
 								<span>{t("versionLabel")}</span>
-								<strong>
-									{selected.version ? t("installedVersion", { version: selected.version }) : "—"}
-									{selected.configuredVersion
-										? t("configuredVersion", { version: selected.configuredVersion })
-										: ""}
-								</strong>
+								<strong>{versionSummary(selected, t)}</strong>
 								<span>{t("packageNameLabel")}</span>
-								<strong className="is-mono">{selected.packageName ?? selected.source}</strong>
+								<strong className="is-mono">{selected.packageName ?? t("unknown")}</strong>
+								<span>{t("resourcesLabel")}</span>
+								<strong>{resourceSummary(selected, t)}</strong>
 								<span>{t("installedPathLabel")}</span>
 								<strong className={`is-mono ${selected.installedPath ? "" : "is-error"}`}>
-									{selected.installedPath ?? t("missingInstallPath")}
+									{selected.installedPath ? shortenPath(selected.installedPath) : t("missingInstallPath")}
 								</strong>
 								<span>CWD</span>
-								<strong className="is-mono">{workspacePath ?? "—"}</strong>
+								<strong className="is-mono">{cwdLabel}</strong>
 							</div>
-							<div className="plugin-resource-browser">
-								{Object.entries(selected.resources).map(([kind, paths]) =>
-									paths.length ? (
-										<details key={kind} open>
-											<summary>
-												{kind.toUpperCase()} <span>{paths.length}</span>
-											</summary>
-											{paths.map((path) => (
-												<code key={path} title={path}>
-													{displayResourcePath(path, workspacePath)}
-												</code>
-											))}
-										</details>
-									) : null,
-								)}
+							<div className="plugin-resources-section">
+								<strong>{t("resolvedResources")}</strong>
+								<div className="plugin-resource-browser">
+									{RESOURCE_GROUPS.map(([kind, labelKey]) => {
+										const paths = selected.resources[kind];
+										if (!paths.length) return null;
+										return (
+											<div className="plugin-resource-group" key={kind}>
+												<span className="plugin-resource-kind">{t(labelKey)}</span>
+												{paths.map((resource) => (
+													<span
+														className="plugin-resource-entry"
+														key={resource.path}
+														title={resource.path}
+													>
+														<code>{resource.name}</code>
+														<small>{displayResourcePath(resource.relativePath, workspacePath)}</small>
+													</span>
+												))}
+											</div>
+										);
+									})}
+									{Object.values(selected.resources).every((paths) => paths.length === 0) ? (
+										<p className="modal-empty">
+											{selected.enabled ? t("noResourcesFound") : t("statusDisabled")}
+										</p>
+									) : null}
+								</div>
 							</div>
-							<PluginFilterEditor
-								key={packageKey(selected)}
-								busy={busy}
-								pkg={selected}
-								onSave={handleSaveFilters}
-							/>
 							{selected.diagnostics.length ? (
 								<div className="plugin-diagnostics">
 									{selected.diagnostics.map((diagnostic, index) => (
@@ -501,51 +571,8 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 									))}
 								</div>
 							) : null}
-							<div className="resource-detail-actions">
-								<button
-									className="outline-button"
-									type="button"
-									disabled={busy}
-									onClick={() =>
-										void run(
-											() =>
-												installPlugin(selected.source, selected.scope === "project").then(() => undefined),
-											t("pluginUpdated"),
-										)
-									}
-								>
-									{t("update")}
-								</button>
-								<button
-									className="outline-button"
-									type="button"
-									disabled={busy}
-									onClick={() =>
-										void run(async () => {
-											await reloadSession();
-										}, t("sessionReloaded"))
-									}
-								>
-									{t("reloadSessionButton")}
-								</button>
-								<button
-									className="danger-button"
-									type="button"
-									disabled={busy}
-									onClick={() => {
-										if (!removeArmed) {
-											setRemoveArmed(true);
-											return;
-										}
-										void run(async () => {
-											await removePlugin(selected.source, selected.scope === "project");
-											setSelectedKey("add");
-										}, t("pluginRemoved"));
-									}}
-								>
-									{removeArmed ? t("clickAgainToRemove") : t("remove")}
-								</button>
-							</div>
+							{success ? <p className="plugin-action-message is-success">{success}</p> : null}
+							{error ? <p className="plugin-action-message is-error">{error}</p> : null}
 						</div>
 					) : (
 						<div className="settings-empty-state">{t("selectPluginHint")}</div>
@@ -558,20 +585,18 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 						<span className="is-error">{error}</span>
 					) : success ? (
 						<span className="is-success">{success}</span>
-					) : (
-						<span>
-							{t("footerSummary", {
-								packages: packages.length,
-								resources: loadedResourceCount,
-								extensions: plugins.length,
-							})}
+					) : diagnosticCount ? (
+						<span
+							className={`plugin-diagnostic-count ${diagnosticSummary.hasError ? "is-error" : "is-warning"}`}
+							title={diagnosticSummary.title}
+						>
+							{t("diagnosticCount", { count: diagnosticCount })}
 						</span>
+					) : (
+						<span>{`${resourceTotals.extensions} ext · ${resourceTotals.skills} skills · ${resourceTotals.prompts} prompts · ${resourceTotals.themes} themes`}</span>
 					)}
 				</div>
-				{diagnosticCount ? (
-					<span className="plugin-diagnostic-count">{t("diagnosticCount", { count: diagnosticCount })}</span>
-				) : null}
-				<button className="outline-button" type="button" disabled={loading} onClick={() => void load()}>
+				<button className="outline-button" type="button" disabled={loading || busy} onClick={() => void load()}>
 					{t("refresh")}
 				</button>
 				<button className="outline-button" type="button" onClick={onClose}>

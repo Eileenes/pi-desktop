@@ -168,6 +168,19 @@ export interface DesktopPluginPackageResourceFilters {
 	themes: string[];
 }
 
+export interface DesktopPluginResourceInfo {
+	name: string;
+	path: string;
+	relativePath: string;
+}
+
+export interface DesktopPluginDiagnostic {
+	type: "error" | "warning";
+	message: string;
+	source?: string;
+	path?: string;
+}
+
 export interface DesktopPluginPackage {
 	source: string;
 	scope: "user" | "project";
@@ -185,12 +198,19 @@ export interface DesktopPluginPackage {
 	packageName?: string;
 	version?: string;
 	resources: {
-		extensions: string[];
-		skills: string[];
-		prompts: string[];
-		themes: string[];
+		extensions: DesktopPluginResourceInfo[];
+		skills: DesktopPluginResourceInfo[];
+		prompts: DesktopPluginResourceInfo[];
+		themes: DesktopPluginResourceInfo[];
 	};
-	diagnostics: Array<{ type: "error" | "warning"; message: string; path?: string }>;
+	diagnostics: DesktopPluginDiagnostic[];
+}
+
+export interface DesktopPluginPackagesResult {
+	packages: DesktopPluginPackage[];
+	diagnostics: DesktopPluginDiagnostic[];
+	hasActiveSession: boolean;
+	projectResourcesLoaded: boolean;
 }
 
 export interface DesktopPluginPackageFilterInput {
@@ -424,6 +444,11 @@ export interface DesktopToggleSkillInput {
 export interface DesktopPluginSourceInput {
 	source: string;
 	local: boolean;
+}
+
+export interface DesktopConfirmedPluginActionResult {
+	snapshot: DesktopSnapshot;
+	performed: boolean;
 }
 
 export interface DesktopTogglePluginInput extends DesktopPluginSourceInput {
@@ -689,12 +714,13 @@ export interface DesktopApi {
 	installUpdate(): Promise<void>;
 	onUpdateDownloadProgress(listener: (state: DesktopUpdateDownloadState) => void): Unsubscribe;
 	toggleSkill(input: DesktopToggleSkillInput): Promise<DesktopSnapshot>;
-	installPlugin(input: DesktopPluginSourceInput): Promise<DesktopSnapshot>;
+	installPlugin(input: DesktopPluginSourceInput): Promise<DesktopConfirmedPluginActionResult>;
+	updatePlugin(input: DesktopPluginSourceInput): Promise<DesktopConfirmedPluginActionResult>;
 	removePlugin(input: DesktopPluginSourceInput): Promise<DesktopSnapshot>;
 	togglePlugin(input: DesktopTogglePluginInput): Promise<DesktopSnapshot>;
 	savePluginPackageFilters(input: DesktopPluginPackageFilterInput): Promise<DesktopSnapshot>;
 	reloadSession(): Promise<DesktopSnapshot>;
-	getPluginPackages(): Promise<DesktopPluginPackage[]>;
+	getPluginPackages(): Promise<DesktopPluginPackagesResult>;
 	listSkillsDetailed(): Promise<DesktopSkillInfo[]>;
 	searchSkills(query: string): Promise<DesktopSkillSearchResult[]>;
 	installSkill(pkg: string, scope: "global" | "project"): Promise<DesktopSnapshot>;

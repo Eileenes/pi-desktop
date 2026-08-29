@@ -4,6 +4,7 @@ import {
 	isDesktopDiscoverModelsInput,
 	isDesktopModelSelectionInput,
 	isDesktopModelTestInput,
+	isDesktopPluginSourceInput,
 	isDesktopProjectTrustInput,
 	isDesktopPromptInput,
 	isDesktopProviderSetupInput,
@@ -12,6 +13,20 @@ import {
 	isDesktopToolApprovalDecisionInput,
 	isDesktopWorkspaceFileInput,
 } from "../src/shared/contracts.ts";
+
+describe("isDesktopPluginSourceInput", () => {
+	it("accepts an exact bounded plugin source and scope", () => {
+		expect(isDesktopPluginSourceInput({ source: "npm:@scope/pi-plugin", local: false })).toBe(true);
+		expect(isDesktopPluginSourceInput({ source: "git:https://example.com/plugin.git", local: true })).toBe(true);
+	});
+
+	it("rejects malformed, oversized, and expanded plugin actions", () => {
+		expect(isDesktopPluginSourceInput({ source: "", local: false })).toBe(false);
+		expect(isDesktopPluginSourceInput({ source: "x".repeat(2001), local: false })).toBe(false);
+		expect(isDesktopPluginSourceInput({ source: "npm:plugin", local: "project" })).toBe(false);
+		expect(isDesktopPluginSourceInput({ source: "npm:plugin", local: false, shell: true })).toBe(false);
+	});
+});
 
 describe("isDesktopPromptInput", () => {
 	it("accepts text with optional selected image ids", () => {

@@ -6,6 +6,7 @@ export type SecurityAuditEvent =
 	| "credential.logout"
 	| "models.scope"
 	| "plugin.install"
+	| "plugin.update"
 	| "plugin.remove"
 	| "plugin.toggle"
 	| "plugin.filters"

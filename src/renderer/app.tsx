@@ -1,5 +1,6 @@
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import piIconUrl from "../../build/icon.png";
 import type {
 	DesktopAuthenticationPrompt,
 	DesktopExtensionDialog,
@@ -17,7 +18,7 @@ import type {
 } from "../shared/contracts.ts";
 import { formatSessionReference } from "../shared/session-reference.ts";
 import { flattenSessionTree } from "../shared/session-tree.ts";
-import { AppSettingsModal } from "./app-settings-modal.tsx";
+import { type AppAccent, AppSettingsModal, isAppAccent } from "./app-settings-modal.tsx";
 import { BranchNavigator } from "./branch-navigator.tsx";
 import { ConversationNavigator } from "./conversation-navigator.tsx";
 import {
@@ -2142,6 +2143,10 @@ export function App() {
 				? "dark"
 				: "light";
 	});
+	const [accent, setAccent] = useState<AppAccent>(() => {
+		const stored = localStorage.getItem("pi-desktop-accent");
+		return isAppAccent(stored) ? stored : "blue";
+	});
 	const [sidebarWidth, setSidebarWidth] = useState(
 		() => Number(localStorage.getItem("pi-desktop-sidebar-width")) || 260,
 	);
@@ -2640,6 +2645,10 @@ export function App() {
 		}
 		localStorage.setItem("pi-desktop-theme", theme);
 	}, [theme, themeFollowsSystem]);
+	useEffect(() => {
+		document.documentElement.dataset.accent = accent;
+		localStorage.setItem("pi-desktop-accent", accent);
+	}, [accent]);
 	useEffect(() => {
 		if (!themeFollowsSystem) return;
 		const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -4058,12 +4067,18 @@ export function App() {
 																		: void handleOpenSession(item.path)
 																}
 															>
-																<span
-																	className={`session-row-icon ${item.phase === "running" ? "is-running" : ""}`}
-																>
+																<span className="session-row-icon">
 																	<Icon name="chat" size={14} />
 																</span>
 																<span className="session-row-title">{sessionTitle(item, t)}</span>
+																{item.phase === "running" || item.phase === "error" ? (
+																	<span className={`session-status-badge is-${item.phase}`}>
+																		<span className="session-status-dot" aria-hidden="true" />
+																		{item.phase === "running"
+																			? t("sessionRunning")
+																			: t("sessionError")}
+																	</span>
+																) : null}
 																{unreadSessionIds.has(item.id) ? (
 																	<span className="session-unread-dot" />
 																) : null}
@@ -4855,14 +4870,16 @@ export function App() {
 						</output>
 					) : null}
 					{!session?.messages.length ? (
-						<div
-							className="start-task-copy"
-							role="img"
-							aria-label={snapshot.workspacePath ? t("newSession") : t("startHint")}
-						>
-							<span className="start-task-icon">
-								<Icon name={snapshot.workspacePath ? "chat" : "sparkles"} size={24} />
+						<div className="start-task-copy">
+							<span className={`start-task-icon ${snapshot.workspacePath ? "is-brand" : ""}`}>
+								{snapshot.workspacePath ? (
+									<img src={piIconUrl} alt="" width={44} height={44} />
+								) : (
+									<Icon name="sparkles" size={24} />
+								)}
 							</span>
+							<strong>{snapshot.workspacePath ? t("startTaskTitle") : t("startProjectTitle")}</strong>
+							<span>{snapshot.workspacePath ? t("startTaskHint") : t("startProjectHint")}</span>
 						</div>
 					) : null}
 					<ExtensionWidgetStack
@@ -5762,12 +5779,14 @@ export function App() {
 			) : null}
 			{configModal === "settings" ? (
 				<AppSettingsModal
+					accent={accent}
 					theme={theme}
 					notifyOnComplete={notifyOnComplete}
 					onChangeTheme={(nextTheme) => {
 						setThemeFollowsSystem(false);
 						setTheme(nextTheme);
 					}}
+					onChangeAccent={setAccent}
 					onToggleNotify={() => setNotifyOnComplete((current) => !current)}
 					onClose={() => setConfigModal(undefined)}
 				/>

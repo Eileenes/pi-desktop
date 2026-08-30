@@ -74,7 +74,9 @@
 				"dmg",
 				"zip"
 			],
-			"category": "public.app-category.developer-tools"
+			"category": "public.app-category.developer-tools",
+			"hardenedRuntime": true,
+			"gatekeeperAssess": false
 		},
 		"win": {
 			"target": [

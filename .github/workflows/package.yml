@@ -91,7 +91,26 @@ jobs:
             --key "$RUNNER_TEMP/AuthKey.p8" \
             --key-id "$APPLE_API_KEY_ID" \
             --issuer "$APPLE_API_ISSUER" \
-            --wait --output-format json
+            --no-wait --output-format json | tee "$RUNNER_TEMP/notarization.json"
+          SUBMISSION_ID="$(node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(r.id)' "$RUNNER_TEMP/notarization.json")"
+          for attempt in {1..30}; do
+            STATUS_JSON="$(xcrun notarytool info "$SUBMISSION_ID" \
+              --key "$RUNNER_TEMP/AuthKey.p8" \
+              --key-id "$APPLE_API_KEY_ID" \
+              --issuer "$APPLE_API_ISSUER" \
+              --output-format json)"
+            echo "$STATUS_JSON"
+            STATUS="$(node -e 'const r=JSON.parse(process.argv[1]); process.stdout.write(r.status)' "$STATUS_JSON")"
+            case "$STATUS" in
+              Accepted) break ;;
+              Invalid) xcrun notarytool log "$SUBMISSION_ID" \
+                --key "$RUNNER_TEMP/AuthKey.p8" \
+                --key-id "$APPLE_API_KEY_ID" \
+                --issuer "$APPLE_API_ISSUER"; exit 1 ;;
+            esac
+            sleep 20
+          done
+          test "$STATUS" = Accepted
           xcrun stapler staple "release/mac-arm64/Pi Agent.app"
           xcrun stapler validate "release/mac-arm64/Pi Agent.app"
 

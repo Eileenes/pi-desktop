@@ -90,6 +90,7 @@ import {
 } from "./skills-service.ts";
 import { ToolApprovalQueue } from "./tool-approval-queue.ts";
 import { TrustedWorkspaceBrowser } from "./trusted-workspace-browser.ts";
+import { getUsageActivity as readUsageActivity } from "./usage-activity-service.ts";
 import { getWorkspaceKey, WorkspaceTrustStore } from "./workspace-trust-store.ts";
 import { WorkspaceWatcher } from "./workspace-watcher.ts";
 
@@ -495,6 +496,11 @@ export class DesktopAgentHost {
 			this.error = error instanceof Error ? error.message : String(error);
 		}
 		return this.publish();
+	}
+
+	/** Reads aggregate-only usage from this app's persisted Pi session files. */
+	getUsageActivity() {
+		return readUsageActivity(this.agentDir);
 	}
 
 	getSnapshot(): DesktopSnapshot {
@@ -2449,6 +2455,7 @@ export class DesktopAgentHost {
 				id: model.id,
 				name: model.name,
 				supportsImages: model.input.includes("image"),
+				...(model.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: model.thinkingLevelMap }),
 			}))
 			.sort((left, right) => {
 				const providerOrder = left.provider.localeCompare(right.provider);

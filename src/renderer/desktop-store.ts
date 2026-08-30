@@ -24,6 +24,7 @@ import type {
 	DesktopToolApprovalDecisionInput,
 	DesktopUpdateDownloadInput,
 	DesktopUpdateDownloadState,
+	DesktopUsageActivity,
 	DesktopWorkspaceChange,
 	DesktopWorkspaceDirectoryListing,
 	DesktopWorkspaceEntry,
@@ -226,6 +227,10 @@ export function saveFullBashOutput(messageId: string): Promise<string> {
 
 export function copyLastAnswer(): Promise<string> {
 	return window.piDesktop.copyLastAnswer();
+}
+
+export function getUsageActivity(): Promise<DesktopUsageActivity> {
+	return window.piDesktop.getUsageActivity();
 }
 
 export function respondToExtensionDialog(id: string, value: string): Promise<void> {

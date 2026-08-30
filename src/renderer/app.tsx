@@ -1,5 +1,6 @@
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import piIconUrl from "../../build/icon.png";
 import type {
 	DesktopAuthenticationPrompt,
 	DesktopExtensionDialog,
@@ -7,8 +8,10 @@ import type {
 	DesktopGitWorktree,
 	DesktopImageAttachment,
 	DesktopImportedFileResult,
+	DesktopModel,
 	DesktopSessionInfo,
 	DesktopSessionPhase,
+	DesktopThinkingLevel,
 	DesktopToolApproval,
 	DesktopTranscriptBlock,
 	DesktopTranscriptMessage,
@@ -17,8 +20,16 @@ import type {
 } from "../shared/contracts.ts";
 import { formatSessionReference } from "../shared/session-reference.ts";
 import { flattenSessionTree } from "../shared/session-tree.ts";
-import { AppSettingsModal } from "./app-settings-modal.tsx";
+import { parseAnsiLine } from "./ansi.ts";
+import { type AppAccent, AppSettingsModal, isAppAccent } from "./app-settings-modal.tsx";
 import { BranchNavigator } from "./branch-navigator.tsx";
+import {
+	formatExtensionStatusLine,
+	getComposerThinkingLevels,
+	getModelDisplayName,
+	getPlainExtensionStatusLine,
+	getThinkingDisplayLabel,
+} from "./composer-controls.ts";
 import { ConversationNavigator } from "./conversation-navigator.tsx";
 import {
 	abortSession,
@@ -79,7 +90,7 @@ import {
 } from "./desktop-store.ts";
 import { ExtensionCustomPanel, ExtensionWidgetStack } from "./extension-custom-panel.tsx";
 import { ExtensionDialog } from "./extension-dialog.tsx";
-import { type I18n, useI18n } from "./i18n.ts";
+import { type I18n, type TranslationKey, useI18n } from "./i18n.ts";
 import { MarkdownBody } from "./markdown.tsx";
 import { ModelsConfigModal } from "./models-config-modal.tsx";
 import { PluginsConfigModal } from "./plugins-config-modal.tsx";
@@ -88,6 +99,7 @@ import { forgetScrollPosition, readScrollPosition, writeScrollPosition } from ".
 import { ContextUsageRing, SessionStatsPanel } from "./session-stats.tsx";
 import { SkillsConfigModal } from "./skills-config-modal.tsx";
 import { getLanguageForPath, HighlightedCode } from "./syntax-highlight.tsx";
+import { TokenActivityModal } from "./token-activity-modal.tsx";
 import { buildConversationTurns, partitionTranscript } from "./transcript-group.ts";
 import { UpdateReminder } from "./update-reminder.tsx";
 import { WorktreeSection } from "./worktree-selector.tsx";
@@ -120,16 +132,39 @@ type IconName =
 	| "skill"
 	| "sparkles"
 	| "speaker"
+	| "speakerOff"
 	| "sun"
 	| "terminal"
 	| "wrap"
 	| "wrench";
-type ConfigModal = "models" | "plugins" | "settings" | "skills";
+type ConfigModal = "models" | "plugins" | "settings" | "skills" | "usage";
 
 const DRAFT_STORAGE_PREFIX = "pi-desktop-draft:";
 const DRAFT_INDEX_STORAGE_KEY = "pi-desktop-draft-index";
 const MAX_STORED_DRAFTS = 40;
 const MAX_IMAGE_ATTACHMENTS = 10;
+const THINKING_LEVEL_DESCRIPTION_KEYS: Record<DesktopThinkingLevel, TranslationKey> = {
+	auto: "thinkingUseDefaultDescription",
+	off: "thinkingOffDescription",
+	minimal: "thinkingMinimalDescription",
+	low: "thinkingLowDescription",
+	medium: "thinkingMediumDescription",
+	high: "thinkingHighDescription",
+	xhigh: "thinkingXhighDescription",
+	max: "thinkingMaxDescription",
+};
+
+const COMPACT_COMPOSER_MEDIA_QUERY = "(max-width: 640px)";
+
+function subscribeCompactComposer(onStoreChange: () => void): () => void {
+	const media = window.matchMedia(COMPACT_COMPOSER_MEDIA_QUERY);
+	media.addEventListener("change", onStoreChange);
+	return () => media.removeEventListener("change", onStoreChange);
+}
+
+function getCompactComposerSnapshot(): boolean {
+	return typeof window !== "undefined" && window.matchMedia(COMPACT_COMPOSER_MEDIA_QUERY).matches;
+}
 
 function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 	const shared = {
@@ -216,6 +251,14 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 			<svg {...shared} aria-hidden="true">
 				<path d="M11 5 6 9H3v6h3l5 4V5Z" />
 				<path d="M15.5 8.5a5 5 0 0 1 0 7" />
+			</svg>
+		);
+	}
+	if (name === "speakerOff") {
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M11 5 6 9H3v6h3l5 4V5Z" />
+				<path d="m17 9 4 4m0-4-4 4" />
 			</svg>
 		);
 	}
@@ -547,29 +590,63 @@ function fuzzyMatchScore(value: string, query: string): number | undefined {
 	return 100 + gapScore;
 }
 
-function playCompletionTone(): void {
-	try {
-		const context = new AudioContext();
-		const now = context.currentTime;
-		for (const [frequency, startAt] of [
-			[880, now],
-			[1320, now + 0.12],
-		] as const) {
-			const oscillator = context.createOscillator();
-			const gain = context.createGain();
-			oscillator.type = "sine";
-			oscillator.frequency.value = frequency;
-			gain.gain.setValueAtTime(0.12, startAt);
-			gain.gain.exponentialRampToValueAtTime(0.001, startAt + 0.35);
-			oscillator.connect(gain);
-			gain.connect(context.destination);
-			oscillator.start(startAt);
-			oscillator.stop(startAt + 0.35);
+function useCompletionAudio(): { play: () => void; unlock: () => void } {
+	const contextRef = useRef<AudioContext | undefined>(undefined);
+
+	const getContext = useCallback((): AudioContext | undefined => {
+		const existing = contextRef.current;
+		if (existing && existing.state !== "closed") return existing;
+		try {
+			contextRef.current = new AudioContext();
+			return contextRef.current;
+		} catch {
+			return undefined;
 		}
-		window.setTimeout(() => void context.close(), 700);
-	} catch {
-		// Audio unavailable; ignore.
-	}
+	}, []);
+
+	const unlock = useCallback(() => {
+		const context = getContext();
+		if (context?.state === "suspended") void context.resume().catch(() => undefined);
+	}, [getContext]);
+
+	const play = useCallback(() => {
+		const context = getContext();
+		if (!context) return;
+		const start = () => {
+			const now = context.currentTime;
+			for (const [frequency, startAt] of [
+				[880, now],
+				[1320, now + 0.12],
+			] as const) {
+				const oscillator = context.createOscillator();
+				const gain = context.createGain();
+				oscillator.type = "sine";
+				oscillator.frequency.value = frequency;
+				gain.gain.setValueAtTime(0.12, startAt);
+				gain.gain.exponentialRampToValueAtTime(0.001, startAt + 0.35);
+				oscillator.connect(gain);
+				gain.connect(context.destination);
+				oscillator.start(startAt);
+				oscillator.stop(startAt + 0.35);
+			}
+		};
+		if (context.state === "suspended")
+			void context
+				.resume()
+				.then(start)
+				.catch(() => undefined);
+		else start();
+	}, [getContext]);
+
+	useEffect(
+		() => () => {
+			const context = contextRef.current;
+			if (context && context.state !== "closed") void context.close();
+		},
+		[],
+	);
+
+	return { play, unlock };
 }
 
 interface ToolApprovalCardProps {
@@ -2131,6 +2208,12 @@ export function App() {
 	const snapshot = useSyncExternalStore(subscribeDesktopSnapshot, getDesktopSnapshot, getDesktopSnapshot);
 	const startupError = getDesktopStartupError();
 	const { t } = useI18n();
+	const compactComposerControls = useSyncExternalStore(
+		subscribeCompactComposer,
+		getCompactComposerSnapshot,
+		() => false,
+	);
+	const { play: playCompletionTone, unlock: unlockCompletionAudio } = useCompletionAudio();
 	const [themeFollowsSystem, setThemeFollowsSystem] = useState(
 		() => localStorage.getItem("pi-desktop-theme") !== "light" && localStorage.getItem("pi-desktop-theme") !== "dark",
 	);
@@ -2141,6 +2224,10 @@ export function App() {
 			: window.matchMedia("(prefers-color-scheme: dark)").matches
 				? "dark"
 				: "light";
+	});
+	const [accent, setAccent] = useState<AppAccent>(() => {
+		const stored = localStorage.getItem("pi-desktop-accent");
+		return isAppAccent(stored) ? stored : "blue";
 	});
 	const [sidebarWidth, setSidebarWidth] = useState(
 		() => Number(localStorage.getItem("pi-desktop-sidebar-width")) || 260,
@@ -2250,11 +2337,13 @@ export function App() {
 		}
 	});
 	const [composerMenu, setComposerMenu] = useState<"project" | "model" | "thinking" | "tools" | undefined>();
+	const [composerControlsOpen, setComposerControlsOpen] = useState(false);
 	const [historyMenuOpen, setHistoryMenuOpen] = useState(false);
 	const [historyActiveIndex, setHistoryActiveIndex] = useState(-1);
 	const [projectFilter, setProjectFilter] = useState("");
 	const [compacting, setCompacting] = useState(false);
 	const [compactError, setCompactError] = useState<string>();
+	const [automaticThinkingModelKey, setAutomaticThinkingModelKey] = useState<string>();
 	const [suggestionIndex, setSuggestionIndex] = useState(0);
 	const fileRequestId = useRef(0);
 	const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -2266,6 +2355,8 @@ export function App() {
 	const previousSessionIdRef = useRef<string | undefined>(undefined);
 	const lastScrollPersistAtRef = useRef(0);
 	const promptRef = useRef<HTMLTextAreaElement>(null);
+	const composerEditorRef = useRef<HTMLDivElement>(null);
+	const composerControlsRef = useRef<HTMLDivElement>(null);
 	const composingRef = useRef(false);
 	const promptHistoryRef = useRef<string[]>([]);
 	const promptHistoryIndexRef = useRef(-1);
@@ -2275,10 +2366,40 @@ export function App() {
 	const extensionEditorRequestRef = useRef<number | undefined>(undefined);
 	const previousPhaseRef = useRef<DesktopSessionPhase | undefined>(undefined);
 	const previousSessionPhasesRef = useRef<Map<string, DesktopSessionPhase | undefined>>(new Map());
+	const soundedExtensionDialogIdRef = useRef<string | undefined>(undefined);
 	const restorationAttemptedRef = useRef(false);
 	const apiKeyProviderIds = snapshot.apiKeyProviders.map((provider) => provider.id).join("\u0000");
 	const authenticationPrompt = snapshot.pendingAuthenticationPrompts[0];
 	const session = snapshot.session;
+	const currentThinkingModelKey =
+		session?.id && session.model
+			? `${session.id}\u0000${getModelKey(session.model.provider, session.model.id)}`
+			: undefined;
+	const usingAutomaticThinkingLevel =
+		automaticThinkingModelKey !== undefined && automaticThinkingModelKey === currentThinkingModelKey;
+	const activeModel = useMemo<DesktopModel | undefined>(
+		() =>
+			snapshot.availableModels.find(
+				(model) => model.provider === session?.model?.provider && model.id === session?.model?.id,
+			),
+		[snapshot.availableModels, session?.model?.id, session?.model?.provider],
+	);
+	const selectedThinkingLevel: DesktopThinkingLevel = usingAutomaticThinkingLevel
+		? "auto"
+		: (session?.thinkingLevel ?? "auto");
+	const thinkingLevels = useMemo(
+		() => getComposerThinkingLevels(session?.availableThinkingLevels),
+		[session?.availableThinkingLevels],
+	);
+	const thinkingLabel = getThinkingDisplayLabel(selectedThinkingLevel, activeModel?.thinkingLevelMap);
+	const extensionStatusLine = useMemo(
+		() => formatExtensionStatusLine(snapshot.extensionStatuses ?? []),
+		[snapshot.extensionStatuses],
+	);
+	const plainExtensionStatusLine = useMemo(
+		() => getPlainExtensionStatusLine(extensionStatusLine),
+		[extensionStatusLine],
+	);
 	const activeFileTab = useMemo(() => fileTabs.find((tab) => tab.path === activeTabPath), [activeTabPath, fileTabs]);
 	const toolPreset = useMemo<"none" | "default" | "full">(() => {
 		const toolNames = session?.activeToolNames ?? ["read", "bash", "edit", "write"];
@@ -2405,6 +2526,7 @@ export function App() {
 		!snapshot.providerSetupInProgress &&
 		!!session &&
 		session.phase !== "running";
+	const canChangeToolPreset = !!session && session.phase !== "running" && snapshot.projectTrusted;
 	const slashMatch = draft.match(/^\s*\/([^\s]*)$/u);
 	const slashActive = slashMatch !== null;
 	const slashQuery = slashMatch?.[1]?.toLocaleLowerCase() ?? "";
@@ -2585,6 +2707,7 @@ export function App() {
 				trustDialogOpen ||
 				topPanel ||
 				composerMenu ||
+				composerControlsOpen ||
 				historyMenuOpen ||
 				projectMenuOpen ||
 				sessionMenuOpen ||
@@ -2614,6 +2737,7 @@ export function App() {
 			const shortcutState = shortcutStateRef.current;
 			setMenusDismissed(true);
 			setComposerMenu(undefined);
+			setComposerControlsOpen(false);
 			setHistoryMenuOpen(false);
 			setTopPanel(undefined);
 			setProjectMenuOpen(false);
@@ -2630,8 +2754,26 @@ export function App() {
 		};
 	}, []);
 	useEffect(() => {
-		if (!projectMenuOpen && composerMenu !== "project") setProjectFilter("");
-	}, [composerMenu, projectMenuOpen]);
+		if (composerMenu !== "project") setProjectFilter("");
+		if (composerMenu !== "model") setModelFilter("");
+	}, [composerMenu]);
+	useEffect(() => {
+		if (!compactComposerControls) setComposerControlsOpen(false);
+	}, [compactComposerControls]);
+	useEffect(() => {
+		if (!composerMenu && !historyMenuOpen && !composerControlsOpen) return;
+		const closeComposerControls = (event: MouseEvent) => {
+			const target = event.target;
+			if (!(target instanceof Node)) return;
+			if (!composerControlsRef.current?.contains(target)) {
+				setComposerMenu(undefined);
+				setComposerControlsOpen(false);
+			}
+			if (!composerEditorRef.current?.contains(target)) setHistoryMenuOpen(false);
+		};
+		document.addEventListener("mousedown", closeComposerControls);
+		return () => document.removeEventListener("mousedown", closeComposerControls);
+	}, [composerControlsOpen, composerMenu, historyMenuOpen]);
 	useEffect(() => {
 		document.documentElement.dataset.theme = theme;
 		if (themeFollowsSystem) {
@@ -2640,6 +2782,10 @@ export function App() {
 		}
 		localStorage.setItem("pi-desktop-theme", theme);
 	}, [theme, themeFollowsSystem]);
+	useEffect(() => {
+		document.documentElement.dataset.accent = accent;
+		localStorage.setItem("pi-desktop-accent", accent);
+	}, [accent]);
 	useEffect(() => {
 		if (!themeFollowsSystem) return;
 		const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -2730,7 +2876,13 @@ export function App() {
 			if (notifyOnComplete && !document.hasFocus()) void notifyComplete(session?.name);
 		}
 		previousPhaseRef.current = phase;
-	}, [session?.name, session?.phase, notifyOnComplete, soundOnComplete]);
+	}, [notifyOnComplete, playCompletionTone, session?.name, session?.phase, soundOnComplete]);
+	useEffect(() => {
+		if (!extensionDialog || extensionDialogSessionId !== session?.id) return;
+		if (soundedExtensionDialogIdRef.current === extensionDialog.id) return;
+		soundedExtensionDialogIdRef.current = extensionDialog.id;
+		if (soundOnComplete) playCompletionTone();
+	}, [extensionDialog, extensionDialogSessionId, playCompletionTone, session?.id, soundOnComplete]);
 	useEffect(() => {
 		const scroll = chatScrollRef.current;
 		if (!scroll) return;
@@ -3114,6 +3266,7 @@ export function App() {
 	async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
 		event.preventDefault();
 		if (!canSubmit) return;
+		unlockCompletionAudio();
 		const submissionSessionId = session?.id;
 		const submissionDraftKey = draftKey;
 		rememberPrompt(draft);
@@ -3178,6 +3331,7 @@ export function App() {
 
 	async function handleSteer(): Promise<void> {
 		if (!canSubmit || session?.phase !== "running") return;
+		unlockCompletionAudio();
 		if (attachments.length > 0) {
 			setActionError(t("noImagesWhileRunning"));
 			return;
@@ -3279,6 +3433,7 @@ export function App() {
 		setActionError(undefined);
 		try {
 			await setModel({ provider, modelId });
+			setAutomaticThinkingModelKey(undefined);
 			pushNotice("success", t("modelSwitched", { id: modelId }));
 		} catch (error) {
 			setActionError(error instanceof Error ? error.message : String(error));
@@ -3290,8 +3445,15 @@ export function App() {
 	async function handleChangeThinking(
 		level: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
 	): Promise<void> {
-		if (!session || session.phase === "running" || session.thinkingLevel === level) return;
+		if (!session || session.phase === "running") return;
 		setComposerMenu(undefined);
+		if (level === "auto") {
+			setAutomaticThinkingModelKey(currentThinkingModelKey);
+			return;
+		}
+		const wasAutomatic = usingAutomaticThinkingLevel;
+		setAutomaticThinkingModelKey(undefined);
+		if (session.thinkingLevel === level && !wasAutomatic) return;
 		try {
 			await setThinkingLevel(level);
 		} catch (error) {
@@ -3385,6 +3547,7 @@ export function App() {
 	}
 
 	async function handleToolPresetChange(next: "none" | "default" | "full"): Promise<void> {
+		if (!canChangeToolPreset) return;
 		try {
 			await updateToolPreset(next);
 			setComposerMenu(undefined);
@@ -3613,7 +3776,7 @@ export function App() {
 			setFileTreeOpen(true);
 			return true;
 		}
-		if (command === "settings" || command === "skills" || command === "plugins") {
+		if (command === "settings" || command === "skills" || command === "plugins" || command === "usage") {
 			setConfigModal(command);
 			return true;
 		}
@@ -4058,12 +4221,18 @@ export function App() {
 																		: void handleOpenSession(item.path)
 																}
 															>
-																<span
-																	className={`session-row-icon ${item.phase === "running" ? "is-running" : ""}`}
-																>
+																<span className="session-row-icon">
 																	<Icon name="chat" size={14} />
 																</span>
 																<span className="session-row-title">{sessionTitle(item, t)}</span>
+																{item.phase === "running" || item.phase === "error" ? (
+																	<span className={`session-status-badge is-${item.phase}`}>
+																		<span className="session-status-dot" aria-hidden="true" />
+																		{item.phase === "running"
+																			? t("sessionRunning")
+																			: t("sessionError")}
+																	</span>
+																) : null}
 																{unreadSessionIds.has(item.id) ? (
 																	<span className="session-unread-dot" />
 																) : null}
@@ -4408,6 +4577,14 @@ export function App() {
 						<span>{t("plugins")}</span>
 					</button>
 					<button
+						aria-label={t("tokenActivity")}
+						className="footer-button is-icon"
+						type="button"
+						onClick={() => setConfigModal("usage")}
+					>
+						<Icon name="chart" size={15} />
+					</button>
+					<button
 						aria-label={t("settings")}
 						className="footer-button is-icon is-settings"
 						type="button"
@@ -4592,6 +4769,10 @@ export function App() {
 								sessionPath={snapshot.sessions.find((item) => item.id === session?.id)?.path}
 								sessionId={session?.id}
 								sessionName={session?.name}
+								onOpenActivity={() => {
+									setTopPanel(undefined);
+									setConfigModal("usage");
+								}}
 								onClose={() => setTopPanel(undefined)}
 							/>
 						) : null}
@@ -4855,14 +5036,16 @@ export function App() {
 						</output>
 					) : null}
 					{!session?.messages.length ? (
-						<div
-							className="start-task-copy"
-							role="img"
-							aria-label={snapshot.workspacePath ? t("newSession") : t("startHint")}
-						>
-							<span className="start-task-icon">
-								<Icon name={snapshot.workspacePath ? "chat" : "sparkles"} size={24} />
+						<div className="start-task-copy">
+							<span className={`start-task-icon ${snapshot.workspacePath ? "is-brand" : ""}`}>
+								{snapshot.workspacePath ? (
+									<img src={piIconUrl} alt="" width={44} height={44} />
+								) : (
+									<Icon name="sparkles" size={24} />
+								)}
 							</span>
+							<strong>{snapshot.workspacePath ? t("startTaskTitle") : t("startProjectTitle")}</strong>
+							<span>{snapshot.workspacePath ? t("startTaskHint") : t("startProjectHint")}</span>
 						</div>
 					) : null}
 					<ExtensionWidgetStack
@@ -5010,7 +5193,7 @@ export function App() {
 								<span>{draft.startsWith("!!") ? t("shellExcludeFromContext") : t("shellSendToModel")}</span>
 							</div>
 						) : null}
-						<div className="composer-editor">
+						<div className="composer-editor" ref={composerEditorRef}>
 							{historyMenuOpen && promptHistoryRef.current.length > 0 ? (
 								<div className="prompt-history-menu" role="listbox" aria-label={t("promptHistory")}>
 									<div className="prompt-history-header">
@@ -5184,20 +5367,11 @@ export function App() {
 								{modelScopeNotice}
 							</output>
 						) : null}
-						<div className="composer-footer">
+						<div
+							className={`composer-footer${compactComposerControls ? " is-compact" : ""}`}
+							ref={composerControlsRef}
+						>
 							<div className="composer-footer-left">
-								{snapshot.extensionStatuses?.length ? (
-									<div
-										className="extension-status-bar"
-										title={snapshot.extensionStatuses
-											.map((status) => `${status.key}: ${status.text}`)
-											.join("\n")}
-									>
-										{snapshot.extensionStatuses.slice(0, 3).map((status) => (
-											<span key={status.key}>{status.text}</span>
-										))}
-									</div>
-								) : null}
 								<div className="composer-control-group">
 									<button
 										className="composer-control-button"
@@ -5216,6 +5390,7 @@ export function App() {
 											disabled={!canChooseWorkspace}
 											title={snapshot.workspacePath ?? t("pickProjectFolder")}
 											aria-expanded={composerMenu === "project"}
+											aria-haspopup="menu"
 											onClick={() => {
 												setProjectFilter("");
 												setComposerMenu((current) => (current === "project" ? undefined : "project"));
@@ -5300,12 +5475,19 @@ export function App() {
 											className="composer-control-button"
 											type="button"
 											disabled={!canSetModel || settingModel}
+											aria-label={t("changeModelAria")}
+											aria-expanded={composerMenu === "model"}
+											aria-haspopup="menu"
+											title={t("changeModelAria")}
 											onClick={() =>
 												setComposerMenu((current) => (current === "model" ? undefined : "model"))
 											}
 										>
 											<Icon name="model" size={15} />
-											<span>{session?.model?.id ?? t("modelButtonLabel")}</span>
+											<span>
+												{getModelDisplayName(snapshot.availableModels, session?.model) ??
+													t("modelButtonLabel")}
+											</span>
 										</button>
 										{composerMenu === "model" ? (
 											<div className="composer-popover" role="menu">
@@ -5337,7 +5519,7 @@ export function App() {
 															{models.map((model) => {
 																const current =
 																	session?.model?.id === model.id &&
-																	session.model.provider === model.provider;
+																	session?.model?.provider === model.provider;
 																return (
 																	<button
 																		key={getModelKey(model.provider, model.id)}
@@ -5363,126 +5545,156 @@ export function App() {
 										stats={snapshot.sessionStats}
 										onToggle={() => setTopPanel((current) => (current === "session" ? undefined : "session"))}
 									/>
+									{extensionStatusLine ? (
+										<output className="extension-status-bar" title={plainExtensionStatusLine}>
+											{parseAnsiLine(extensionStatusLine).map((segment, index) => (
+												<span key={`${index}:${segment.text}`} style={segment.style}>
+													{segment.text}
+												</span>
+											))}
+										</output>
+									) : null}
 								</div>
-								<div className="composer-control-group composer-control-group-right">
-									<div className="composer-control-anchor">
-										<button
-											className="composer-control-button"
-											type="button"
-											disabled={!session || session.phase === "running"}
-											title={
-												scopedThinkingFixed
-													? t("scopeThinkingFixed", { level: scopedThinkingFixed })
-													: undefined
-											}
-											onClick={() =>
-												setComposerMenu((current) => (current === "thinking" ? undefined : "thinking"))
-											}
-										>
-											<Icon name="bulb" size={14} />
-											<span>
-												{session?.thinkingLevel ?? "auto"}
-												{scopedThinkingFixed && session?.thinkingLevel === scopedThinkingFixed
-													? t("scopeSuffix")
-													: ""}
-											</span>
-										</button>
-										{composerMenu === "thinking" ? (
-											<div className="composer-popover" role="menu">
-												{(
-													session?.availableThinkingLevels ?? [
-														"auto",
-														"off",
-														"minimal",
-														"low",
-														"medium",
-														"high",
-														"xhigh",
-														"max",
-													]
-												).map((level) => (
-													<button
-														key={level}
-														type="button"
-														onClick={() => void handleChangeThinking(level)}
-													>
-														{level}
-													</button>
-												))}
-											</div>
-										) : null}
-									</div>
-									<div className="composer-control-anchor">
-										<button
-											className="composer-control-button"
-											type="button"
-											onClick={() =>
-												setComposerMenu((current) => (current === "tools" ? undefined : "tools"))
-											}
-										>
-											<Icon name="wrench" size={14} />
-											<span>
-												{t(
-													`toolPreset${toolPreset[0].toUpperCase()}${toolPreset.slice(1)}` as
-														| "toolPresetNone"
-														| "toolPresetDefault"
-														| "toolPresetFull",
-												)}
-											</span>
-										</button>
-										{composerMenu === "tools" ? (
-											<div className="composer-popover" role="menu">
-												{(["none", "default", "full"] as const).map((preset) => (
-													<button
-														key={preset}
-														type="button"
-														className={`tool-preset-option${preset === toolPreset ? " is-current" : ""}`}
-														onClick={() => void handleToolPresetChange(preset)}
-													>
-														<span>{preset === toolPreset ? "✓" : ""}</span>
-														<span>
-															{t(
-																`toolPreset${preset[0].toUpperCase()}${preset.slice(1)}` as
-																	| "toolPresetNone"
-																	| "toolPresetDefault"
-																	| "toolPresetFull",
-															)}
-														</span>
-														<small>
-															{t(
-																`toolPreset${preset[0].toUpperCase()}${preset.slice(1)}Description` as
-																	| "toolPresetNoneDescription"
-																	| "toolPresetDefaultDescription"
-																	| "toolPresetFullDescription",
-															)}
-														</small>
-													</button>
-												))}
-											</div>
-										) : null}
-									</div>
+							</div>
+							<div className="composer-footer-right composer-controls-slot">
+								{compactComposerControls && !composerControlsOpen ? (
 									<button
-										className="composer-control-button"
+										className="composer-control-button composer-more-controls"
 										type="button"
-										disabled={!session || session.phase === "running" || aborting}
-										onClick={() => void (compacting ? handleAbort() : handleCompact())}
+										aria-expanded={composerControlsOpen}
+										onClick={() => setComposerControlsOpen(true)}
 									>
-										<Icon name="compact" size={14} />
-										<span>{compacting ? t("stopCompact") : t("compact")}</span>
+										<Icon name="more" size={14} />
+										<span>{t("moreComposerControls")}</span>
 									</button>
-									<button
-										className="composer-control-button"
-										type="button"
-										aria-label={t("toggleSoundAria")}
-										aria-pressed={soundOnComplete}
-										title={soundOnComplete ? t("soundOn") : t("soundOff")}
-										onClick={() => setSoundOnComplete((current) => !current)}
-									>
-										<Icon name={soundOnComplete ? "speaker" : "close"} size={14} />
-									</button>
-								</div>
-								<div className="composer-footer-right">
-									{session?.phase === "running" ? (
+								) : null}
+								<div
+									className={`composer-secondary-controls${
+										compactComposerControls && !composerControlsOpen ? " is-collapsed" : ""
+									}`}
+								>
+									{session?.phase !== "running" ? (
+										<>
+											<div className="composer-control-anchor is-right">
+												<button
+													className="composer-control-button"
+													type="button"
+													disabled={!session}
+													aria-label={t("changeThinkingAria")}
+													aria-expanded={composerMenu === "thinking"}
+													aria-haspopup="menu"
+													title={
+														scopedThinkingFixed
+															? t("scopeThinkingFixed", { level: scopedThinkingFixed })
+															: t("changeThinkingAria")
+													}
+													onClick={() =>
+														setComposerMenu((current) =>
+															current === "thinking" ? undefined : "thinking",
+														)
+													}
+												>
+													<Icon name="bulb" size={14} />
+													<span>
+														{thinkingLabel}
+														{scopedThinkingFixed && selectedThinkingLevel === scopedThinkingFixed
+															? t("scopeSuffix")
+															: ""}
+													</span>
+												</button>
+												{composerMenu === "thinking" ? (
+													<div className="composer-popover thinking-composer-popover" role="menu">
+														{thinkingLevels.map((level) => {
+															const current = level === selectedThinkingLevel;
+															return (
+																<button
+																	key={level}
+																	type="button"
+																	className={current ? "is-current" : ""}
+																	onClick={() => void handleChangeThinking(level)}
+																>
+																	<span>{current ? "✓" : ""}</span>
+																	<span>
+																		{getThinkingDisplayLabel(level, activeModel?.thinkingLevelMap)}
+																	</span>
+																	<small>{t(THINKING_LEVEL_DESCRIPTION_KEYS[level])}</small>
+																</button>
+															);
+														})}
+													</div>
+												) : null}
+											</div>
+											<div className="composer-control-anchor is-right">
+												<button
+													className="composer-control-button"
+													type="button"
+													disabled={!canChangeToolPreset}
+													aria-label={t("changeToolPresetAria")}
+													aria-expanded={composerMenu === "tools"}
+													aria-haspopup="menu"
+													title={
+														snapshot.projectTrusted
+															? t("changeToolPresetAria")
+															: t("toolPresetRequiresTrust")
+													}
+													onClick={() =>
+														setComposerMenu((current) => (current === "tools" ? undefined : "tools"))
+													}
+												>
+													<Icon name="wrench" size={14} />
+													<span>
+														{t(
+															`toolPreset${toolPreset[0].toUpperCase()}${toolPreset.slice(1)}` as
+																| "toolPresetNone"
+																| "toolPresetDefault"
+																| "toolPresetFull",
+														)}
+													</span>
+												</button>
+												{composerMenu === "tools" ? (
+													<div className="composer-popover" role="menu">
+														{(["none", "default", "full"] as const).map((preset) => (
+															<button
+																key={preset}
+																type="button"
+																className={`tool-preset-option${preset === toolPreset ? " is-current" : ""}`}
+																onClick={() => void handleToolPresetChange(preset)}
+															>
+																<span>{preset === toolPreset ? "✓" : ""}</span>
+																<span>
+																	{t(
+																		`toolPreset${preset[0].toUpperCase()}${preset.slice(1)}` as
+																			| "toolPresetNone"
+																			| "toolPresetDefault"
+																			| "toolPresetFull",
+																	)}
+																</span>
+																<small>
+																	{t(
+																		`toolPreset${preset[0].toUpperCase()}${preset.slice(1)}Description` as
+																			| "toolPresetNoneDescription"
+																			| "toolPresetDefaultDescription"
+																			| "toolPresetFullDescription",
+																	)}
+																</small>
+															</button>
+														))}
+													</div>
+												) : null}
+											</div>
+											<button
+												className="composer-control-button"
+												type="button"
+												disabled={!session || aborting}
+												aria-label={t("compactContextAria")}
+												title={t("compactContextAria")}
+												onClick={() => void (compacting ? handleAbort() : handleCompact())}
+											>
+												<Icon name="compact" size={14} />
+												<span>{compacting ? t("stopCompact") : t("compact")}</span>
+											</button>
+										</>
+									) : (
 										<button
 											className="stop-button"
 											type="button"
@@ -5490,6 +5702,30 @@ export function App() {
 											onClick={() => void handleAbort()}
 										>
 											{aborting ? t("stopping") : t("stop")}
+										</button>
+									)}
+									<button
+										className="composer-control-button"
+										type="button"
+										aria-label={t("toggleSoundAria")}
+										aria-pressed={soundOnComplete}
+										title={soundOnComplete ? t("soundOn") : t("soundOff")}
+										onClick={() => {
+											if (!soundOnComplete) unlockCompletionAudio();
+											setSoundOnComplete((current) => !current);
+										}}
+									>
+										<Icon name={soundOnComplete ? "speaker" : "speakerOff"} size={14} />
+									</button>
+									{compactComposerControls ? (
+										<button
+											className="composer-control-button composer-close-controls"
+											type="button"
+											aria-label={t("collapseComposerControls")}
+											title={t("collapseComposerControls")}
+											onClick={() => setComposerControlsOpen(false)}
+										>
+											<Icon name="close" size={14} />
 										</button>
 									) : null}
 								</div>
@@ -5762,16 +5998,19 @@ export function App() {
 			) : null}
 			{configModal === "settings" ? (
 				<AppSettingsModal
+					accent={accent}
 					theme={theme}
 					notifyOnComplete={notifyOnComplete}
 					onChangeTheme={(nextTheme) => {
 						setThemeFollowsSystem(false);
 						setTheme(nextTheme);
 					}}
+					onChangeAccent={setAccent}
 					onToggleNotify={() => setNotifyOnComplete((current) => !current)}
 					onClose={() => setConfigModal(undefined)}
 				/>
 			) : null}
+			{configModal === "usage" ? <TokenActivityModal onClose={() => setConfigModal(undefined)} /> : null}
 			{trustDialogOpen && snapshot.workspacePath ? (
 				<ProjectTrustDialog
 					workspacePath={snapshot.workspacePath}

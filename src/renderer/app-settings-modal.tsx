@@ -17,8 +17,10 @@ import { Modal } from "./modal.tsx";
 
 interface AppSettingsModalProps {
 	theme: "dark" | "light";
+	accent: AppAccent;
 	notifyOnComplete: boolean;
 	onChangeTheme: (theme: "dark" | "light") => void;
+	onChangeAccent: (accent: AppAccent) => void;
 	onToggleNotify: () => void;
 	onClose: () => void;
 }
@@ -26,6 +28,23 @@ interface AppSettingsModalProps {
 const PRODUCT_NAME = "Pi Agent";
 const REPOSITORY = "Eileenes/pi-desktop";
 const RELEASES_URL = "https://github.com/Eileenes/pi-desktop/releases";
+
+export const APP_ACCENTS = ["blue", "indigo", "cyan", "green", "amber", "rose", "mono"] as const;
+export type AppAccent = (typeof APP_ACCENTS)[number];
+
+export function isAppAccent(value: string | null): value is AppAccent {
+	return value !== null && (APP_ACCENTS as readonly string[]).includes(value);
+}
+
+const ACCENT_OPTIONS = [
+	{ value: "blue", label: "accentBlue" },
+	{ value: "indigo", label: "accentIndigo" },
+	{ value: "cyan", label: "accentCyan" },
+	{ value: "green", label: "accentGreen" },
+	{ value: "amber", label: "accentAmber" },
+	{ value: "rose", label: "accentRose" },
+	{ value: "mono", label: "accentMono" },
+] as const;
 
 function formatAssetSize(sizeBytes: number): string {
 	if (sizeBytes <= 0) return "";
@@ -48,8 +67,10 @@ function ChoiceButton({ active, onClick, children }: { active: boolean; onClick:
 
 export const AppSettingsModal = memo(function AppSettingsModal({
 	theme,
+	accent,
 	notifyOnComplete,
 	onChangeTheme,
+	onChangeAccent,
 	onToggleNotify,
 	onClose,
 }: AppSettingsModalProps) {
@@ -265,6 +286,24 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 						<ChoiceButton active={theme === "dark"} onClick={() => onChangeTheme("dark")}>
 							{t("dark")}
 						</ChoiceButton>
+					</div>
+					<div className="accent-setting">
+						<span>{t("accentColor")}</span>
+						<div className="accent-swatch-row">
+							{ACCENT_OPTIONS.map((option) => (
+								<button
+									className={`accent-swatch is-${option.value} ${accent === option.value ? "is-active" : ""}`}
+									type="button"
+									key={option.value}
+									aria-label={t(option.label)}
+									aria-pressed={accent === option.value}
+									onClick={() => onChangeAccent(option.value)}
+								>
+									<span className="accent-swatch-color" aria-hidden="true" />
+									{t(option.label)}
+								</button>
+							))}
+						</div>
 					</div>
 					<div className="custom-css-row">
 						<span>

@@ -52,6 +52,7 @@ import type {
 	DesktopUpdateDownloadInput,
 	DesktopUpdateDownloadState,
 	DesktopUpdateInfo,
+	DesktopUsageActivity,
 	DesktopWorkspaceFileInput,
 	Unsubscribe,
 } from "../shared/contracts.ts" with { "resolution-mode": "import" };
@@ -98,6 +99,7 @@ const desktopApi: DesktopApi = {
 	saveFullBashOutput: (input: DesktopBashOutputInput) =>
 		ipcRenderer.invoke("pi-desktop:save-full-bash-output", input) as Promise<string>,
 	copyLastAnswer: () => ipcRenderer.invoke("pi-desktop:copy-last-answer") as Promise<string>,
+	getUsageActivity: () => ipcRenderer.invoke("pi-desktop:get-usage-activity") as Promise<DesktopUsageActivity>,
 	setModel: (input: DesktopModelSelectionInput) =>
 		ipcRenderer.invoke("pi-desktop:set-model", input) as Promise<DesktopSnapshot>,
 	setThinkingLevel: (level) => ipcRenderer.invoke("pi-desktop:set-thinking-level", level) as Promise<DesktopSnapshot>,

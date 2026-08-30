@@ -66,9 +66,12 @@ export const ContextUsageRing = memo(function ContextUsageRing({ stats, onToggle
 		<button
 			className={`context-ring ${!hasUsage ? "is-inert" : ""}`}
 			type="button"
+			disabled={!hasUsage}
 			aria-label={tooltipParts.join(" · ") || t("contextUsage")}
-			title={tooltipParts.join(" · ")}
-			onClick={onToggle}
+			title={tooltipParts.join(" · ") || undefined}
+			onClick={() => {
+				if (hasUsage) onToggle();
+			}}
 		>
 			<svg width={RING_SIZE} height={RING_SIZE} viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`} aria-hidden="true">
 				<circle
@@ -125,6 +128,7 @@ interface SessionStatsPanelProps {
 	sessionId: string | undefined;
 	sessionName: string | undefined;
 	sessionPath: string | undefined;
+	onOpenActivity: () => void;
 	onClose: () => void;
 }
 
@@ -133,6 +137,7 @@ export const SessionStatsPanel = memo(function SessionStatsPanel({
 	sessionId,
 	sessionName,
 	sessionPath,
+	onOpenActivity,
 	onClose,
 }: SessionStatsPanelProps) {
 	const { t } = useI18n();
@@ -221,6 +226,9 @@ export const SessionStatsPanel = memo(function SessionStatsPanel({
 					</section>
 				</div>
 			)}
+			<button className="stats-activity-link" type="button" onClick={onOpenActivity}>
+				{t("viewTokenActivity")}
+			</button>
 		</div>
 	);
 });

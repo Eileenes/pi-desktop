@@ -63,6 +63,15 @@ jobs:
             echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
           fi
 
+      - name: Test Apple notarization credentials
+        if: matrix.os == 'macos-14'
+        run: |
+          xcrun notarytool history \
+            --key "$APPLE_API_KEY" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER" \
+            --output-format json
+
       - name: Package application
         env:
           DEBUG: electron-notarize*

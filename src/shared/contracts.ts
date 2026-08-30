@@ -37,6 +37,7 @@ export interface DesktopTranscriptMessage {
 
 export type DesktopThinkingLevel = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type DesktopToolPreset = "none" | "default" | "full";
+export type DesktopThinkingLevelMap = Partial<Record<Exclude<DesktopThinkingLevel, "auto">, string | null>>;
 
 export interface DesktopSessionSnapshot {
 	id: string;
@@ -107,6 +108,7 @@ export interface DesktopModel {
 	id: string;
 	name: string;
 	supportsImages: boolean;
+	thinkingLevelMap?: DesktopThinkingLevelMap;
 }
 
 export interface DesktopSkill {

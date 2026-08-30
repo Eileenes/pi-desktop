@@ -2449,6 +2449,7 @@ export class DesktopAgentHost {
 				id: model.id,
 				name: model.name,
 				supportsImages: model.input.includes("image"),
+				...(model.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: model.thinkingLevelMap }),
 			}))
 			.sort((left, right) => {
 				const providerOrder = left.provider.localeCompare(right.provider);

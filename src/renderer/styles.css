@@ -2251,6 +2251,10 @@ textarea:focus-visible {
 	opacity: 0.5;
 }
 
+.context-ring:disabled {
+	cursor: default;
+}
+
 .stats-popover {
 	position: absolute;
 	top: calc(100% + 6px);
@@ -4260,6 +4264,7 @@ textarea:focus-visible {
 .composer-control-group { display: flex; align-items: center; gap: 2px; position: relative; }
 .composer-control-group-right { margin-left: auto; }
 .composer-control-anchor { position: relative; display: inline-flex; }
+.composer-control-anchor.is-right .composer-popover { right: 0; left: auto; }
 .composer-control-button { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 4px 7px; border: 0; border-radius: 6px; color: var(--text-dim); background: transparent; font-size: 12px; white-space: nowrap; }
 .composer-control-button:hover:not(:disabled) { color: var(--text); background: var(--hover); }
 .composer-control-button:disabled { opacity: .45; }
@@ -4270,6 +4275,9 @@ textarea:focus-visible {
 .composer-popover .tool-preset-option { display: grid; grid-template-columns: 12px auto 1fr; align-items: center; gap: 7px; min-width: 210px; }
 .composer-popover .tool-preset-option > span:first-child { color: var(--accent); text-align: center; }
 .composer-popover .tool-preset-option small { color: var(--muted); font-size: 11px; text-align: right; font-weight: 400; }
+.composer-popover.thinking-composer-popover button { display: grid; grid-template-columns: 12px auto 1fr; align-items: center; gap: 7px; min-width: 230px; }
+.composer-popover.thinking-composer-popover button > span:first-child { color: var(--accent); text-align: center; }
+.composer-popover.thinking-composer-popover small { color: var(--muted); font-size: 11px; text-align: right; font-weight: 400; }
 .composer-popover-filter {
 	margin: 2px 2px 6px;
 	padding: 6px 9px;
@@ -4529,11 +4537,38 @@ textarea:focus-visible {
 
 .composer-footer-left,
 .composer-footer-right,
+.composer-secondary-controls,
 .composer-stream-actions {
 	display: flex;
 	min-width: 0;
 	align-items: center;
 	gap: 6px;
+}
+
+.composer-controls-slot {
+	position: relative;
+	margin-left: auto;
+}
+
+.composer-more-controls,
+.composer-close-controls {
+	flex: 0 0 auto;
+}
+
+.composer-secondary-controls.is-collapsed {
+	display: none;
+}
+
+.composer-footer.is-compact .composer-secondary-controls {
+	position: absolute;
+	right: 0;
+	bottom: calc(100% + 8px);
+	z-index: 41;
+	padding: 5px;
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-m);
+	background: var(--surface-1);
+	box-shadow: var(--shadow-float);
 }
 
 .composer-stream-actions {
@@ -4633,7 +4668,6 @@ textarea:focus-visible {
 .extension-status-bar {
 	display: inline-flex;
 	align-items: center;
-	gap: 8px;
 	max-width: min(34vw, 340px);
 	overflow: hidden;
 	padding: 0 4px;

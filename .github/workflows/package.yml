@@ -87,20 +87,27 @@ jobs:
           APPLE_API_ISSUER="$(printf '%s' "$APPLE_API_ISSUER" | tr -d '\r\n' | xargs)"
           ditto -c -k --sequesterRsrc --keepParent \
             "release/mac-arm64/Pi Agent.app" "$RUNNER_TEMP/Pi-Agent.zip"
+          set +e
           xcrun notarytool submit "$RUNNER_TEMP/Pi-Agent.zip" \
             --key "$RUNNER_TEMP/AuthKey.p8" \
             --key-id "$APPLE_API_KEY_ID" \
             --issuer "$APPLE_API_ISSUER" \
-            --no-wait --output-format json | tee "$RUNNER_TEMP/notarization.json"
-          SUBMISSION_ID="$(node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(r.id)' "$RUNNER_TEMP/notarization.json")"
+            --no-wait --output-format normal > "$RUNNER_TEMP/notarization.txt" 2>&1
+          SUBMIT_EXIT=$?
+          set -e
+          cat "$RUNNER_TEMP/notarization.txt"
+          test "$SUBMIT_EXIT" -eq 0
+          SUBMISSION_ID="$(awk -F': ' '/id:/ {print $2; exit}' "$RUNNER_TEMP/notarization.txt")"
+          test -n "$SUBMISSION_ID"
           for attempt in {1..30}; do
-            STATUS_JSON="$(xcrun notarytool info "$SUBMISSION_ID" \
+            STATUS_JSON_FILE="$RUNNER_TEMP/notarization-status.json"
+            xcrun notarytool info "$SUBMISSION_ID" \
               --key "$RUNNER_TEMP/AuthKey.p8" \
               --key-id "$APPLE_API_KEY_ID" \
               --issuer "$APPLE_API_ISSUER" \
-              --output-format json)"
-            echo "$STATUS_JSON"
-            STATUS="$(node -e 'const r=JSON.parse(process.argv[1]); process.stdout.write(r.status)' "$STATUS_JSON")"
+              --output-format json > "$STATUS_JSON_FILE"
+            cat "$STATUS_JSON_FILE"
+            STATUS="$(node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(r.status)' "$STATUS_JSON_FILE")"
             case "$STATUS" in
               Accepted) break ;;
               Invalid) xcrun notarytool log "$SUBMISSION_ID" \

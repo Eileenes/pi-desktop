@@ -54,10 +54,6 @@ jobs:
               printf '%s' "$APPLE_API_KEY" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
               test -s "$RUNNER_TEMP/AuthKey.p8"
               grep -q 'BEGIN PRIVATE KEY' "$RUNNER_TEMP/AuthKey.p8"
-              echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8"
-              echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID"
-              echo "APPLE_API_ISSUER=$APPLE_API_ISSUER"
-              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
             } >> "$GITHUB_ENV"
           else
             echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
@@ -65,18 +61,35 @@ jobs:
 
       - name: Validate Apple notarization credentials
         if: matrix.os == 'macos-14'
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           xcrun notarytool --version
-          test -r "$APPLE_API_KEY"
-          openssl pkey -in "$APPLE_API_KEY" -noout
+          test -r "$RUNNER_TEMP/AuthKey.p8"
+          openssl pkey -in "$RUNNER_TEMP/AuthKey.p8" -noout
           test -n "$APPLE_API_KEY_ID"
           test -n "$APPLE_API_ISSUER"
           echo "Apple notarization credentials file and metadata are valid"
 
       - name: Package application
-        env:
-          DEBUG: electron-notarize*
         run: npm run ${{ matrix.script }}
+
+      - name: Submit macOS app for notarization
+        if: matrix.os == 'macos-14'
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            "release/mac-arm64/Pi Agent.app" "$RUNNER_TEMP/Pi-Agent.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/Pi-Agent.zip" \
+            --key "$RUNNER_TEMP/AuthKey.p8" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait --output-format json
+          xcrun stapler staple "release/mac-arm64/Pi Agent.app"
+          xcrun stapler validate "release/mac-arm64/Pi Agent.app"
 
       - name: Upload package artifacts
         uses: actions/upload-artifact@v6

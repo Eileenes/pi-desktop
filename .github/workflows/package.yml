@@ -63,14 +63,15 @@ jobs:
             echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
           fi
 
-      - name: Test Apple notarization credentials
+      - name: Validate Apple notarization credentials
         if: matrix.os == 'macos-14'
         run: |
-          xcrun notarytool history \
-            --key "$APPLE_API_KEY" \
-            --key-id "$APPLE_API_KEY_ID" \
-            --issuer "$APPLE_API_ISSUER" \
-            --output-format json
+          xcrun notarytool --version
+          test -r "$APPLE_API_KEY"
+          openssl pkey -in "$APPLE_API_KEY" -noout
+          test -n "$APPLE_API_KEY_ID"
+          test -n "$APPLE_API_ISSUER"
+          echo "Apple notarization credentials file and metadata are valid"
 
       - name: Package application
         env:

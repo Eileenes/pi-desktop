@@ -99,6 +99,7 @@ import { forgetScrollPosition, readScrollPosition, writeScrollPosition } from ".
 import { ContextUsageRing, SessionStatsPanel } from "./session-stats.tsx";
 import { SkillsConfigModal } from "./skills-config-modal.tsx";
 import { getLanguageForPath, HighlightedCode } from "./syntax-highlight.tsx";
+import { TokenActivityModal } from "./token-activity-modal.tsx";
 import { buildConversationTurns, partitionTranscript } from "./transcript-group.ts";
 import { UpdateReminder } from "./update-reminder.tsx";
 import { WorktreeSection } from "./worktree-selector.tsx";
@@ -136,7 +137,7 @@ type IconName =
 	| "terminal"
 	| "wrap"
 	| "wrench";
-type ConfigModal = "models" | "plugins" | "settings" | "skills";
+type ConfigModal = "models" | "plugins" | "settings" | "skills" | "usage";
 
 const DRAFT_STORAGE_PREFIX = "pi-desktop-draft:";
 const DRAFT_INDEX_STORAGE_KEY = "pi-desktop-draft-index";
@@ -3775,7 +3776,7 @@ export function App() {
 			setFileTreeOpen(true);
 			return true;
 		}
-		if (command === "settings" || command === "skills" || command === "plugins") {
+		if (command === "settings" || command === "skills" || command === "plugins" || command === "usage") {
 			setConfigModal(command);
 			return true;
 		}
@@ -4576,6 +4577,14 @@ export function App() {
 						<span>{t("plugins")}</span>
 					</button>
 					<button
+						aria-label={t("tokenActivity")}
+						className="footer-button is-icon"
+						type="button"
+						onClick={() => setConfigModal("usage")}
+					>
+						<Icon name="chart" size={15} />
+					</button>
+					<button
 						aria-label={t("settings")}
 						className="footer-button is-icon is-settings"
 						type="button"
@@ -4760,6 +4769,10 @@ export function App() {
 								sessionPath={snapshot.sessions.find((item) => item.id === session?.id)?.path}
 								sessionId={session?.id}
 								sessionName={session?.name}
+								onOpenActivity={() => {
+									setTopPanel(undefined);
+									setConfigModal("usage");
+								}}
 								onClose={() => setTopPanel(undefined)}
 							/>
 						) : null}
@@ -5997,6 +6010,7 @@ export function App() {
 					onClose={() => setConfigModal(undefined)}
 				/>
 			) : null}
+			{configModal === "usage" ? <TokenActivityModal onClose={() => setConfigModal(undefined)} /> : null}
 			{trustDialogOpen && snapshot.workspacePath ? (
 				<ProjectTrustDialog
 					workspacePath={snapshot.workspacePath}

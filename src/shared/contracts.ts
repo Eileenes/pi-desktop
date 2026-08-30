@@ -317,6 +317,47 @@ export interface DesktopSessionStats {
 	};
 }
 
+/** A token total reported by Pi for one or more model calls. */
+export interface DesktopTokenUsage {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	total: number;
+}
+
+/** A local-calendar-day bucket of model usage across persisted sessions. */
+export interface DesktopUsageActivityBucket {
+	/** Local calendar date in YYYY-MM-DD form. */
+	date: string;
+	tokens: DesktopTokenUsage;
+	cost: number;
+	/** Number of model calls whose provider reported a monetary cost. */
+	costKnownEvents: number;
+	usageEvents: number;
+	sessionCount: number;
+}
+
+/**
+ * Historical usage assembled locally from Pi session files. It intentionally
+ * contains aggregate metadata only—no prompts, tool inputs, or file contents.
+ */
+export interface DesktopUsageActivity {
+	/** Inclusive local calendar range represented by buckets. */
+	from: string;
+	to: string;
+	generatedAt: number;
+	buckets: DesktopUsageActivityBucket[];
+	tokens: DesktopTokenUsage;
+	cost: number;
+	costKnownEvents: number;
+	usageEvents: number;
+	sessionsScanned: number;
+	sessionsWithUsage: number;
+	projectsWithUsage: number;
+	unreadableSessions: number;
+}
+
 export interface DesktopModelScopeStatus {
 	/** Non-empty enabledModels patterns configured by the user. */
 	patterns: string[];
@@ -664,6 +705,7 @@ export interface DesktopApi {
 	readFullBashOutput(input: DesktopBashOutputInput): Promise<string>;
 	saveFullBashOutput(input: DesktopBashOutputInput): Promise<string>;
 	copyLastAnswer(): Promise<string>;
+	getUsageActivity(): Promise<DesktopUsageActivity>;
 	setModel(input: DesktopModelSelectionInput): Promise<DesktopSnapshot>;
 	setThinkingLevel(level: DesktopThinkingLevel): Promise<DesktopSnapshot>;
 	setToolPreset(preset: DesktopToolPreset): Promise<DesktopSnapshot>;

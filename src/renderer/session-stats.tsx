@@ -128,6 +128,7 @@ interface SessionStatsPanelProps {
 	sessionId: string | undefined;
 	sessionName: string | undefined;
 	sessionPath: string | undefined;
+	onOpenActivity: () => void;
 	onClose: () => void;
 }
 
@@ -136,6 +137,7 @@ export const SessionStatsPanel = memo(function SessionStatsPanel({
 	sessionId,
 	sessionName,
 	sessionPath,
+	onOpenActivity,
 	onClose,
 }: SessionStatsPanelProps) {
 	const { t } = useI18n();
@@ -224,6 +226,9 @@ export const SessionStatsPanel = memo(function SessionStatsPanel({
 					</section>
 				</div>
 			)}
+			<button className="stats-activity-link" type="button" onClick={onOpenActivity}>
+				{t("viewTokenActivity")}
+			</button>
 		</div>
 	);
 });

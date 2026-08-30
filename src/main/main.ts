@@ -401,6 +401,10 @@ function registerIpc(): void {
 		assertMainWindowSender(event);
 		return getHost().initialize();
 	});
+	ipcMain.handle("pi-desktop:get-usage-activity", async (event) => {
+		assertMainWindowSender(event);
+		return getHost().getUsageActivity();
+	});
 	ipcMain.handle("pi-desktop:choose-workspace", async (event): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
 		const result = await dialog.showOpenDialog({

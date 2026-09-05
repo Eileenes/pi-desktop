@@ -20,8 +20,9 @@
 		"test": "vitest --run"
 	},
 	"dependencies": {
-		"@earendil-works/pi-coding-agent": "0.84.4",
-		"@earendil-works/pi-tui": "0.84.4",
+		"@earendil-works/pi-coding-agent": "0.85.0",
+		"@earendil-works/pi-server": "0.85.0",
+		"@earendil-works/pi-tui": "0.85.0",
 		"@lobehub/icons": "5.16.0",
 		"electron-updater": "6.6.2",
 		"highlight.js": "10.7.3",

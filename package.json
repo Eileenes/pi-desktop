@@ -71,6 +71,7 @@
 			"releaseType": "release"
 		},
 		"mac": {
+			"artifactName": "Pi-Agent-${version}-${arch}.${ext}",
 			"target": [
 				"dmg",
 				"zip"
@@ -80,12 +81,14 @@
 			"gatekeeperAssess": false
 		},
 		"win": {
+			"artifactName": "Pi-Agent-Setup-${version}.${ext}",
 			"target": [
 				"nsis",
 				"zip"
 			]
 		},
 		"linux": {
+			"artifactName": "Pi-Agent-${version}-${arch}.${ext}",
 			"target": [
 				"AppImage",
 				"deb"

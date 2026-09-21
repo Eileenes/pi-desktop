@@ -1,11 +1,19 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const MAX_CHUNK_SIZE = 450 * 1024;
 
+// The shell's own version, inlined so the sidebar footer can print it without
+// an IPC round trip.
+const shellVersion = (
+	JSON.parse(readFileSync(fileURLToPath(new URL("./package.json", import.meta.url)), "utf8")) as { version: string }
+).version;
+
 export default defineConfig({
 	base: "./",
+	define: { __APP_VERSION__: JSON.stringify(shellVersion) },
 	root: fileURLToPath(new URL("./src/renderer", import.meta.url)),
 	plugins: [react()],
 	build: {

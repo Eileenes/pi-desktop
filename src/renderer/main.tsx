@@ -16,7 +16,7 @@ const initialTheme =
 document.documentElement.dataset.theme = initialTheme;
 document.documentElement.dataset.accent = isAppAccent(localStorage.getItem("pi-desktop-accent"))
 	? (localStorage.getItem("pi-desktop-accent") as string)
-	: "blue";
+	: "mono";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Pi Agent root element is missing.");

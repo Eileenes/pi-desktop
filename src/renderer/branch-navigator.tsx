@@ -127,6 +127,8 @@ export const BranchNavigator = memo(function BranchNavigator({
 			<button
 				className={`native-toolbar-button ${open ? "is-active" : ""}`}
 				type="button"
+				aria-label={t("branches")}
+				title={t("branches")}
 				disabled={!hasContent || !hasSession}
 				aria-expanded={open}
 				aria-haspopup="menu"

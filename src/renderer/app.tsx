@@ -1,6 +1,6 @@
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import piIconUrl from "../../build/icon.png";
+
 import type {
 	DesktopAuthenticationPrompt,
 	DesktopExtensionDialog,
@@ -23,6 +23,7 @@ import { flattenSessionTree } from "../shared/session-tree.ts";
 import { parseAnsiLine } from "./ansi.ts";
 import { type AppAccent, AppSettingsModal, isAppAccent } from "./app-settings-modal.tsx";
 import { BranchNavigator } from "./branch-navigator.tsx";
+import { BrandMark } from "./brand-mark.tsx";
 import {
 	formatExtensionStatusLine,
 	getComposerThinkingLevels,
@@ -96,6 +97,7 @@ import { ModelsConfigModal } from "./models-config-modal.tsx";
 import { PluginsConfigModal } from "./plugins-config-modal.tsx";
 import { ProjectTrustDialog } from "./project-trust-dialog.tsx";
 import { forgetScrollPosition, readScrollPosition, writeScrollPosition } from "./scroll-memory.ts";
+import { SearchDialog } from "./search-dialog.tsx";
 import { ContextUsageRing, SessionStatsPanel } from "./session-stats.tsx";
 import { SkillsConfigModal } from "./skills-config-modal.tsx";
 import { getLanguageForPath, HighlightedCode } from "./syntax-highlight.tsx";
@@ -2227,10 +2229,10 @@ export function App() {
 	});
 	const [accent, setAccent] = useState<AppAccent>(() => {
 		const stored = localStorage.getItem("pi-desktop-accent");
-		return isAppAccent(stored) ? stored : "blue";
+		return isAppAccent(stored) ? stored : "mono";
 	});
 	const [sidebarWidth, setSidebarWidth] = useState(
-		() => Number(localStorage.getItem("pi-desktop-sidebar-width")) || 260,
+		() => Number(localStorage.getItem("pi-desktop-sidebar-width")) || 275,
 	);
 	const [inspectorWidth, setInspectorWidth] = useState(
 		() => Number(localStorage.getItem("pi-desktop-inspector-width")) || 760,
@@ -2317,7 +2319,7 @@ export function App() {
 	const [configModal, setConfigModal] = useState<ConfigModal | undefined>();
 	const [topPanel, setTopPanel] = useState<"branches" | "session" | "system" | undefined>();
 	const [namingState, setNamingState] = useState<"idle" | "loading" | "success" | "error">("idle");
-	const [sessionSearch, setSessionSearch] = useState("");
+	const [searchOpen, setSearchOpen] = useState(false);
 	const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
 	const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
 	const [archivedProjectRoots, setArchivedProjectRoots] = useState<Set<string>>(() => {
@@ -2786,6 +2788,16 @@ export function App() {
 		document.documentElement.dataset.accent = accent;
 		localStorage.setItem("pi-desktop-accent", accent);
 	}, [accent]);
+	// Search is a dialog, so it needs a shortcut rather than a field on screen.
+	useEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "k" || !(event.metaKey || event.ctrlKey)) return;
+			event.preventDefault();
+			setSearchOpen((open) => !open);
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, []);
 	useEffect(() => {
 		if (!themeFollowsSystem) return;
 		const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -4009,7 +4021,7 @@ export function App() {
 	}
 
 	function resetResize(side: "fileTree" | "inspector" | "sidebar"): void {
-		const width = side === "sidebar" ? 260 : side === "inspector" ? 500 : 280;
+		const width = side === "sidebar" ? 275 : side === "inspector" ? 500 : 280;
 		const variable =
 			side === "sidebar" ? "--sidebar-width" : side === "inspector" ? "--inspector-width" : "--file-tree-width";
 		document.querySelector<HTMLElement>(".app-workbench")?.style.setProperty(variable, `${width}px`);
@@ -4062,23 +4074,15 @@ export function App() {
 				</div>
 				{activeProjects.length
 					? activeProjects.map(([root, items]) => {
-							const filteredItems = sessionSearch.trim()
-								? items.filter((item) =>
-										`${item.name ?? ""} ${item.firstMessage}`
-											.toLocaleLowerCase()
-											.includes(sessionSearch.trim().toLocaleLowerCase()),
-									)
-								: items;
-							if (sessionSearch.trim() && filteredItems.length === 0) return null;
-							const flattenedItems = flattenSessionTree(filteredItems);
+							const flattenedItems = flattenSessionTree(items);
 							const active = items.some((item) => item.id === session?.id);
 							const branch =
 								items.find((item) => item.worktreeBranch)?.worktreeBranch ??
 								gitWorktrees.find((tree) => tree.path.replace(/[\\/]+$/u, "") === root)?.branch;
-							const collapsed = collapsedProjects.has(root) && !sessionSearch.trim();
+							const collapsed = collapsedProjects.has(root);
 							const expanded = expandedProjects.has(root);
 							const visibleItems = (() => {
-								if (expanded || sessionSearch.trim()) return flattenedItems;
+								if (expanded) return flattenedItems;
 								const first = flattenedItems.slice(0, 5);
 								const current = flattenedItems.find((item) => item.info.id === session?.id);
 								if (!current || first.some((item) => item.info.id === current.info.id)) return first;
@@ -4327,16 +4331,16 @@ export function App() {
 													</div>
 												);
 											})}
-											{!expanded && filteredItems.length > 5 ? (
+											{!expanded && flattenedItems.length > 5 ? (
 												<button
 													className="sidebar-more-button"
 													type="button"
 													onClick={() => setExpandedProjects((current) => new Set(current).add(root))}
 												>
-													{t("showMore", { count: filteredItems.length - 5 })}
+													{t("showMore", { count: flattenedItems.length - 5 })}
 												</button>
 											) : null}
-											{expanded && filteredItems.length > 5 ? (
+											{expanded && flattenedItems.length > 5 ? (
 												<button
 													className="sidebar-more-button"
 													type="button"
@@ -4499,44 +4503,59 @@ export function App() {
 		>
 			<aside className="sidebar" aria-label={t("projectNavAria")} aria-hidden={!sidebarOpen}>
 				<header className="session-sidebar-header">
-					<div className="sidebar-controls-row">
-						<button
-							className="sidebar-chrome-button"
-							type="button"
-							aria-label={theme === "dark" ? t("switchToLight") : t("switchToDark")}
-							onClick={() => {
-								const next = theme === "dark" ? "light" : "dark";
-								const apply = () => {
-									document.documentElement.dataset.theme = next;
-									setThemeFollowsSystem(false);
-									setTheme(next);
-								};
-								if (
-									window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
-									typeof document.startViewTransition !== "function"
-								) {
-									apply();
-									return;
-								}
-								try {
-									const transition = document.startViewTransition(apply);
-									void transition.ready.catch(() => undefined);
-									void transition.finished.catch(() => undefined);
-								} catch {
-									apply();
-								}
-							}}
-						>
-							<Icon name={theme === "dark" ? "sun" : "moon"} size={15} />
-						</button>
-						<button
-							className="sidebar-chrome-button"
-							type="button"
-							aria-label={t("hideSidebar")}
-							onClick={() => setSidebarOpen(false)}
-						>
-							<Icon name="panel" size={15} />
-						</button>
+					<div className="sidebar-brand-row">
+						<span className="sidebar-brand">
+							<BrandMark className="sidebar-brand-logo" size={18} />
+							<span className="sidebar-brand-name">Pi Agent</span>
+						</span>
+						<div className="sidebar-controls-row">
+							<button
+								className="sidebar-chrome-button"
+								type="button"
+								aria-label={t("searchSessionsAria")}
+								title={t("searchSessionsAria")}
+								onClick={() => setSearchOpen(true)}
+							>
+								<Icon name="search" size={15} />
+							</button>
+							<button
+								className="sidebar-chrome-button"
+								type="button"
+								aria-label={theme === "dark" ? t("switchToLight") : t("switchToDark")}
+								onClick={() => {
+									const next = theme === "dark" ? "light" : "dark";
+									const apply = () => {
+										document.documentElement.dataset.theme = next;
+										setThemeFollowsSystem(false);
+										setTheme(next);
+									};
+									if (
+										window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+										typeof document.startViewTransition !== "function"
+									) {
+										apply();
+										return;
+									}
+									try {
+										const transition = document.startViewTransition(apply);
+										void transition.ready.catch(() => undefined);
+										void transition.finished.catch(() => undefined);
+									} catch {
+										apply();
+									}
+								}}
+							>
+								<Icon name={theme === "dark" ? "sun" : "moon"} size={15} />
+							</button>
+							<button
+								className="sidebar-chrome-button"
+								type="button"
+								aria-label={t("hideSidebar")}
+								onClick={() => setSidebarOpen(false)}
+							>
+								<Icon name="panel" size={15} />
+							</button>
+						</div>
 					</div>
 					<button
 						className="new-chat-button"
@@ -4547,51 +4566,57 @@ export function App() {
 						<Icon name="plus" size={16} />
 						<span>{t("newChat")}</span>
 					</button>
-					<div className="sidebar-search-wrap">
-						<Icon name="search" size={13} />
-						<input
-							aria-label={t("searchSessionsAria")}
-							placeholder={t("searchSessions")}
-							value={sessionSearch}
-							onChange={(event) => setSessionSearch(event.target.value)}
-						/>
-						{sessionSearch ? (
-							<button type="button" aria-label={t("clearSearchAria")} onClick={() => setSessionSearch("")}>
-								×
-							</button>
-						) : null}
-					</div>
 				</header>
 				<div className="sidebar-content">{renderSidebar()}</div>
 				<footer className="sidebar-footer">
-					<button className="footer-button" type="button" onClick={() => setConfigModal("models")}>
-						<Icon name="model" size={15} />
-						<span>{t("models")}</span>
+					<button
+						aria-label={t("models")}
+						className="footer-button"
+						title={t("models")}
+						type="button"
+						onClick={() => setConfigModal("models")}
+					>
+						<Icon name="model" size={16} />
 					</button>
-					<button className="footer-button" type="button" onClick={() => setConfigModal("skills")}>
-						<Icon name="skill" size={15} />
-						<span>{t("skills")}</span>
+					<button
+						aria-label={t("skills")}
+						className="footer-button"
+						title={t("skills")}
+						type="button"
+						onClick={() => setConfigModal("skills")}
+					>
+						<Icon name="skill" size={16} />
 					</button>
-					<button className="footer-button" type="button" onClick={() => setConfigModal("plugins")}>
-						<Icon name="plugin" size={15} />
-						<span>{t("plugins")}</span>
+					<button
+						aria-label={t("plugins")}
+						className="footer-button"
+						title={t("plugins")}
+						type="button"
+						onClick={() => setConfigModal("plugins")}
+					>
+						<Icon name="plugin" size={16} />
 					</button>
 					<button
 						aria-label={t("tokenActivity")}
 						className="footer-button is-icon"
+						title={t("tokenActivity")}
 						type="button"
 						onClick={() => setConfigModal("usage")}
 					>
-						<Icon name="chart" size={15} />
+						<Icon name="chart" size={16} />
 					</button>
 					<button
 						aria-label={t("settings")}
 						className="footer-button is-icon is-settings"
+						title={t("settings")}
 						type="button"
 						onClick={() => setConfigModal("settings")}
 					>
-						<Icon name="gear" size={15} />
+						<Icon name="gear" size={16} />
 					</button>
+					<span className="footer-build" title={t("desktopApp")}>
+						v{__APP_VERSION__}
+					</span>
 				</footer>
 			</aside>
 			{sidebarOpen ? (
@@ -4639,14 +4664,17 @@ export function App() {
 							<Icon name="panel" size={16} />
 						</button>
 					) : null}
-					<div className="chat-title" title={topBarTitle}>
+					{/* One line, like the reference's .ct-title; the second line of detail
+					    stays reachable through the tooltip. */}
+					<div className="chat-title" title={topBarSubtitle ? `${topBarTitle} — ${topBarSubtitle}` : topBarTitle}>
 						<span>{topBarTitle}</span>
-						<small>{topBarSubtitle}</small>
 					</div>
 					<div className="top-bar-actions">
 						<button
 							className="native-toolbar-button"
 							type="button"
+							aria-label={t("fullHistory")}
+							title={t("fullHistory")}
 							disabled={!session?.messages.length}
 							onClick={() => void handleExportSession()}
 						>
@@ -4666,6 +4694,8 @@ export function App() {
 							<button
 								className={`native-toolbar-button app-topbar-more-trigger ${moreMenuOpen ? "is-active" : ""}`}
 								type="button"
+								aria-label={t("more")}
+								title={t("more")}
 								aria-expanded={moreMenuOpen}
 								onClick={() => setMoreMenuOpen((open) => !open)}
 							>
@@ -5036,16 +5066,14 @@ export function App() {
 						</output>
 					) : null}
 					{!session?.messages.length ? (
-						<div className="start-task-copy">
-							<span className={`start-task-icon ${snapshot.workspacePath ? "is-brand" : ""}`}>
-								{snapshot.workspacePath ? (
-									<img src={piIconUrl} alt="" width={44} height={44} />
-								) : (
-									<Icon name="sparkles" size={24} />
-								)}
+						<div className="empty-hero">
+							<span className="empty-hero-icon" aria-hidden="true">
+								<BrandMark size={100} />
 							</span>
-							<strong>{snapshot.workspacePath ? t("startTaskTitle") : t("startProjectTitle")}</strong>
-							<span>{snapshot.workspacePath ? t("startTaskHint") : t("startProjectHint")}</span>
+							<h1>{snapshot.workspacePath ? t("startTaskTitle") : t("startProjectTitle")}</h1>
+							<p className="empty-hero-hint">
+								{snapshot.workspacePath ? t("startTaskHint") : t("startProjectHint")}
+							</p>
 						</div>
 					) : null}
 					<ExtensionWidgetStack
@@ -5336,30 +5364,6 @@ export function App() {
 									snapshot.providerSetupInProgress
 								}
 							/>
-							{session?.phase === "running" ? (
-								<div className="composer-stream-actions">
-									<button
-										className="composer-steer-button"
-										type="button"
-										disabled={!draft.trim() || submitting || attachments.length > 0}
-										onClick={() => void handleSteer()}
-									>
-										{t("steer")}
-									</button>
-									<button
-										className="composer-followup-button"
-										type="submit"
-										disabled={!canSubmit || attachments.length > 0}
-									>
-										{submitting ? t("queuedButton") : t("followUp")}
-									</button>
-								</div>
-							) : (
-								<button className="send-button composer-send-button" type="submit" disabled={!canSubmit}>
-									<Icon name="send" size={14} />
-									{submitting ? t("sending") : t("send")}
-								</button>
-							)}
 						</div>
 						{modelScopeNotice ? (
 							<output className="composer-scope-warning" title={modelScopeNotice}>
@@ -5729,6 +5733,35 @@ export function App() {
 										</button>
 									) : null}
 								</div>
+								{session?.phase === "running" ? (
+									<div className="composer-stream-actions">
+										<button
+											className="composer-steer-button"
+											type="button"
+											disabled={!draft.trim() || submitting || attachments.length > 0}
+											onClick={() => void handleSteer()}
+										>
+											{t("steer")}
+										</button>
+										<button
+											className="composer-followup-button"
+											type="submit"
+											disabled={!canSubmit || attachments.length > 0}
+										>
+											{submitting ? t("queuedButton") : t("followUp")}
+										</button>
+									</div>
+								) : (
+									<button
+										className="send-button composer-send-button"
+										type="submit"
+										disabled={!canSubmit}
+										aria-label={submitting ? t("sending") : t("send")}
+										title={submitting ? t("sending") : t("send")}
+									>
+										<Icon name="send" size={15} />
+									</button>
+								)}
 							</div>
 						</div>
 					</div>
@@ -5994,6 +6027,13 @@ export function App() {
 					workspacePath={snapshot.workspacePath}
 					projectTrusted={snapshot.projectTrusted}
 					onClose={() => setConfigModal(undefined)}
+				/>
+			) : null}
+			{searchOpen ? (
+				<SearchDialog
+					sessions={snapshot.sessions}
+					onOpenSession={(target) => void handleOpenSession(target.path)}
+					onClose={() => setSearchOpen(false)}
 				/>
 			) : null}
 			{configModal === "settings" ? (

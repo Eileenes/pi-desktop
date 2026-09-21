@@ -29,7 +29,7 @@ const PRODUCT_NAME = "Pi Agent";
 const REPOSITORY = "Eileenes/pi-desktop";
 const RELEASES_URL = "https://github.com/Eileenes/pi-desktop/releases";
 
-export const APP_ACCENTS = ["blue", "indigo", "cyan", "green", "amber", "rose", "mono"] as const;
+export const APP_ACCENTS = ["mono", "blue", "indigo", "cyan", "green", "amber", "rose"] as const;
 export type AppAccent = (typeof APP_ACCENTS)[number];
 
 export function isAppAccent(value: string | null): value is AppAccent {
@@ -37,13 +37,13 @@ export function isAppAccent(value: string | null): value is AppAccent {
 }
 
 const ACCENT_OPTIONS = [
+	{ value: "mono", label: "accentMono" },
 	{ value: "blue", label: "accentBlue" },
 	{ value: "indigo", label: "accentIndigo" },
 	{ value: "cyan", label: "accentCyan" },
 	{ value: "green", label: "accentGreen" },
 	{ value: "amber", label: "accentAmber" },
 	{ value: "rose", label: "accentRose" },
-	{ value: "mono", label: "accentMono" },
 ] as const;
 
 function formatAssetSize(sizeBytes: number): string {

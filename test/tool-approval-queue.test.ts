@@ -50,6 +50,19 @@ describe("ToolApprovalQueue", () => {
 		await expect(second).resolves.toBe(true);
 	});
 
+	it("releases every waiting call when the policy stops asking", async () => {
+		let sequence = 0;
+		const queue = new ToolApprovalQueue({ createId: () => `approval-${++sequence}` });
+		const first = queue.request({ toolCallId: "call-1", toolName: "bash", input: { command: "pi install a" } });
+		const second = queue.request({ toolCallId: "call-2", toolName: "read", input: { path: "README.md" } });
+
+		expect(queue.resolveAll(true)).toBe(2);
+
+		await expect(first).resolves.toBe(true);
+		await expect(second).resolves.toBe(true);
+		expect(queue.getPendingApprovals()).toEqual([]);
+	});
+
 	it("denies approvals that outlive the approval window", async () => {
 		vi.useFakeTimers();
 		try {

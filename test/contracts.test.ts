@@ -9,6 +9,7 @@ import {
 	isDesktopPromptInput,
 	isDesktopProviderSetupInput,
 	isDesktopRemoveWorktreeInput,
+	isDesktopRevealProjectPathInput,
 	isDesktopSaveModelsConfigInput,
 	isDesktopToolApprovalDecisionInput,
 	isDesktopWorkspaceFileInput,
@@ -170,6 +171,20 @@ describe("isDesktopRemoveWorktreeInput", () => {
 		expect(isDesktopRemoveWorktreeInput({ path: "" })).toBe(false);
 		expect(isDesktopRemoveWorktreeInput({ path: "/tmp/tree", force: "yes" })).toBe(false);
 		expect(isDesktopRemoveWorktreeInput({ path: "x".repeat(2001) })).toBe(false);
+	});
+});
+
+describe("isDesktopRevealProjectPathInput", () => {
+	it("accepts an absolute project directory on either platform", () => {
+		expect(isDesktopRevealProjectPathInput({ path: "/Users/dev/project" })).toBe(true);
+		expect(isDesktopRevealProjectPathInput({ path: "C:\\work\\project" })).toBe(true);
+	});
+
+	it("rejects traversal, empty, oversized, and expanded requests", () => {
+		expect(isDesktopRevealProjectPathInput({ path: "/Users/dev/../secrets" })).toBe(false);
+		expect(isDesktopRevealProjectPathInput({ path: "" })).toBe(false);
+		expect(isDesktopRevealProjectPathInput({ path: "x".repeat(2001) })).toBe(false);
+		expect(isDesktopRevealProjectPathInput({ path: "/Users/dev/project", appId: "finder" })).toBe(false);
 	});
 });
 

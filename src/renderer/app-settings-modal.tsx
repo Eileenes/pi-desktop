@@ -26,7 +26,7 @@ interface AppSettingsModalProps {
 	onClose: () => void;
 }
 
-const PRODUCT_NAME = "Pi Agent";
+const PRODUCT_NAME = "Pi Desktop";
 const REPOSITORY = "Eileenes/pi-desktop";
 const RELEASES_URL = "https://github.com/Eileenes/pi-desktop/releases";
 
@@ -83,7 +83,6 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 	const [checkingUpdate, setCheckingUpdate] = useState(true);
 	const [updateError, setUpdateError] = useState<string>();
 	const [downloadState, setDownloadState] = useState<DesktopUpdateDownloadState>({ phase: "idle" });
-	const [selectedAsset, setSelectedAsset] = useState<string>();
 	const [installError, setInstallError] = useState<string>();
 	const [cssBusy, setCssBusy] = useState(false);
 	const [cssError, setCssError] = useState<string>();
@@ -94,7 +93,6 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 		try {
 			const info = await checkForUpdates();
 			setUpdate(info);
-			setSelectedAsset((current) => current ?? info.assets?.[0]?.name);
 		} catch (error: unknown) {
 			setUpdateError(error instanceof Error ? error.message : String(error));
 		} finally {
@@ -122,17 +120,17 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 	}
 
 	async function handleUpgrade(): Promise<void> {
-		if (!selectedAsset) return;
+		if (!installerAsset) return;
 		setInstallError(undefined);
-		setDownloadState({ phase: "downloading", assetName: selectedAsset, receivedBytes: 0 });
+		setDownloadState({ phase: "downloading", assetName: installerAsset.name, receivedBytes: 0 });
 		try {
-			const state = await downloadUpdate(selectedAsset);
+			const state = await downloadUpdate(installerAsset.name);
 			setDownloadState(state);
 			if (state.phase === "completed") await installUpdate();
 		} catch (error: unknown) {
 			setDownloadState({
 				phase: "failed",
-				assetName: selectedAsset,
+				assetName: installerAsset.name,
 				message: error instanceof Error ? error.message : String(error),
 			});
 		}
@@ -150,7 +148,13 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 	const versionText = checkingUpdate ? t("checkingUpdate") : (update?.currentVersion ?? "…");
 	const latestText = update?.latestVersion ? `latest ${update.latestVersion}` : undefined;
 	const updateAvailable = update?.updateAvailable === true;
+	/*
+	 * One installer is enough — the native package for this platform (dmg on
+	 * macOS, exe on Windows, AppImage on Linux) with the archive as a fallback —
+	 * so the version line offers a single update button instead of a picker.
+	 */
 	const assets = update?.assets ?? [];
+	const installerAsset = assets.find((asset) => /\.(dmg|exe|appimage)$/iu.test(asset.name)) ?? assets[0];
 	const downloading = downloadState.phase === "downloading";
 	const downloadProgress =
 		downloadState.phase === "downloading" && downloadState.totalBytes
@@ -187,37 +191,10 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 					</span>
 					{updateAvailable ? <span aria-hidden="true">↗</span> : null}
 				</button>
-				{!updateAvailable && !checkingUpdate ? <span className="settings-update-ok">{t("upToDate")}</span> : null}
-			</div>
-			{updateError ? (
-				<p className="settings-update-error" aria-live="polite">
-					{updateError}
-					<button className="settings-update-retry" type="button" onClick={() => void runUpdateCheck()}>
-						{t("retry")}
-					</button>
-				</p>
-			) : null}
-			{updateAvailable ? (
-				<div className="settings-update-panel" aria-live="polite">
-					{assets.length > 0 ? (
-						<div className="settings-update-asset-row">
-							<label>
-								<span>{t("installerPackage")}</span>
-								<select
-									value={selectedAsset ?? ""}
-									disabled={downloading}
-									onChange={(event) => setSelectedAsset(event.target.value)}
-								>
-									{!selectedAsset ? <option value="">{t("chooseInstaller")}</option> : null}
-									{assets.map((asset) => (
-										<option key={asset.name} value={asset.name}>
-											{asset.name}
-											{asset.sizeBytes ? ` (${formatAssetSize(asset.sizeBytes)})` : ""}
-										</option>
-									))}
-								</select>
-							</label>
-							{downloadState.phase === "completed" && downloadState.assetName === selectedAsset ? (
+				{updateAvailable ? (
+					<span className="settings-update-action">
+						{installerAsset ? (
+							downloadState.phase === "completed" && downloadState.assetName === installerAsset.name ? (
 								<button className="accent-button" type="button" onClick={() => void handleInstall()}>
 									{t("openInstaller")}
 								</button>
@@ -230,40 +207,44 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 									{t("cancelDownload")}
 								</button>
 							) : (
-								<button
-									className="accent-button"
-									type="button"
-									disabled={!selectedAsset}
-									onClick={() => void handleUpgrade()}
-								>
+								<button className="accent-button" type="button" onClick={() => void handleUpgrade()}>
 									{downloadState.phase === "failed" ? t("retryDownload") : t("update")}
 								</button>
-							)}
-						</div>
-					) : (
-						<p className="settings-update-hint">{t("noInstallerForPlatform")}</p>
-					)}
-					{downloading ? (
-						<div className="settings-update-progress">
-							<div className="settings-update-progress-track">
-								<div className="settings-update-progress-fill" style={{ width: `${downloadProgress ?? 0}%` }} />
-							</div>
-							<span>
-								{downloadProgress !== undefined
-									? `${downloadProgress}%`
-									: formatAssetSize(downloadState.receivedBytes)}
-							</span>
-						</div>
-					) : null}
-					{downloadState.phase === "completed" ? (
-						<p className="settings-update-hint">{t("downloadCompleteHint", { name: downloadState.assetName })}</p>
-					) : null}
-					{downloadState.phase === "failed" ? (
-						<p className="settings-update-error">{downloadState.message}</p>
-					) : null}
-					{installError ? <p className="settings-update-error">{installError}</p> : null}
+							)
+						) : (
+							<span className="settings-update-hint">{t("noInstallerForPlatform")}</span>
+						)}
+					</span>
+				) : null}
+				{!updateAvailable && !checkingUpdate ? <span className="settings-update-ok">{t("upToDate")}</span> : null}
+			</div>
+			{updateError ? (
+				<p className="settings-update-error" aria-live="polite">
+					{updateError}
+					<button className="settings-update-retry" type="button" onClick={() => void runUpdateCheck()}>
+						{t("retry")}
+					</button>
+				</p>
+			) : null}
+			{downloading ? (
+				<div className="settings-update-progress" aria-live="polite">
+					<div className="settings-update-progress-track">
+						<div className="settings-update-progress-fill" style={{ width: `${downloadProgress ?? 0}%` }} />
+					</div>
+					<span>
+						{downloadProgress !== undefined
+							? `${downloadProgress}%`
+							: formatAssetSize(downloadState.receivedBytes)}
+					</span>
 				</div>
 			) : null}
+			{downloadState.phase === "completed" ? (
+				<p className="settings-update-hint" aria-live="polite">
+					{t("downloadCompleteHint", { name: downloadState.assetName })}
+				</p>
+			) : null}
+			{downloadState.phase === "failed" ? <p className="settings-update-error">{downloadState.message}</p> : null}
+			{installError ? <p className="settings-update-error">{installError}</p> : null}
 			<div className="app-settings-cards">
 				<section className="app-settings-card">
 					<strong>{t("language")}</strong>
@@ -351,11 +332,11 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 						<div className="toggle-row">
 							<span>
 								<strong>{t("appUpdate")}</strong>
-								<small>
+								<small className="settings-version-line">
+									<UpdateButton variant="settings" />
 									{t("currentVersionLabel")} v{__APP_VERSION__}
 								</small>
 							</span>
-							<UpdateButton variant="settings" />
 						</div>
 						<button className="outline-button settings-quit" type="button" onClick={() => void quitApp()}>
 							{t("quitPi")}

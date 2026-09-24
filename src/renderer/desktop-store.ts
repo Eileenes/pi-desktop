@@ -336,6 +336,10 @@ export function revealWorkspaceFile(path: string): Promise<void> {
 	return window.piDesktop.revealWorkspaceFile({ path });
 }
 
+export function revealProjectPath(path: string): Promise<void> {
+	return window.piDesktop.revealProjectPath({ path });
+}
+
 export function saveWorkspaceFile(path: string): Promise<string> {
 	return window.piDesktop.saveWorkspaceFile({ path });
 }

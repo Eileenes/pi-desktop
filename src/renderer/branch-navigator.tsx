@@ -1,4 +1,5 @@
 import { memo, useCallback, useMemo } from "react";
+import { type BranchNode, buildBranchTree } from "../shared/branch-tree.ts";
 import type { DesktopSessionTreeNode } from "../shared/contracts.ts";
 import { useI18n } from "./i18n.ts";
 import { Icon } from "./icons.tsx";
@@ -13,9 +14,9 @@ interface BranchNavigatorProps {
 	onToggle: () => void;
 }
 
-function buildActivePath(nodes: DesktopSessionTreeNode[], targetId: string | null | undefined): Set<string> {
+function buildActivePath(nodes: BranchNode[], targetId: string | null | undefined): Set<string> {
 	if (!targetId) return new Set();
-	function search(items: DesktopSessionTreeNode[], path: string[]): string[] | undefined {
+	function search(items: BranchNode[], path: string[]): string[] | undefined {
 		for (const node of items) {
 			const next = [...path, node.entry.id];
 			if (node.entry.id === targetId) return next;
@@ -27,7 +28,7 @@ function buildActivePath(nodes: DesktopSessionTreeNode[], targetId: string | nul
 	return new Set(search(nodes, []) ?? []);
 }
 
-function compress(node: DesktopSessionTreeNode): { node: DesktopSessionTreeNode; skipped: number } {
+function compress(node: BranchNode): { node: BranchNode; skipped: number } {
 	let current = node;
 	let skipped = 0;
 	while (current.children.length === 1) {
@@ -37,11 +38,11 @@ function compress(node: DesktopSessionTreeNode): { node: DesktopSessionTreeNode;
 	return { node: current, skipped };
 }
 
-function hasBranch(nodes: DesktopSessionTreeNode[]): boolean {
+function hasBranch(nodes: BranchNode[]): boolean {
 	return nodes.some((node) => node.children.length > 1 || hasBranch(node.children));
 }
 
-function labelFor(node: DesktopSessionTreeNode): string {
+function labelFor(node: BranchNode): string {
 	if (node.entry.text) return node.entry.text;
 	if (node.entry.type === "message" && node.entry.role === "assistant") return "[assistant]";
 	return node.entry.type.replace(/_/gu, " ");
@@ -55,7 +56,7 @@ function TreeNodeView({
 	parentLines,
 	onSelect,
 }: {
-	node: DesktopSessionTreeNode;
+	node: BranchNode;
 	activePath: Set<string>;
 	depth: number;
 	isLast: boolean;
@@ -116,9 +117,10 @@ export const BranchNavigator = memo(function BranchNavigator({
 	onToggle,
 }: BranchNavigatorProps) {
 	const { t } = useI18n();
-	const activePath = useMemo(() => buildActivePath(tree, activeLeafId), [tree, activeLeafId]);
-	const first = tree[0] ? compress(tree[0]).node : undefined;
-	const hasContent = hasSession && first !== undefined && (first.children.length > 1 || hasBranch(tree));
+	const nodes = useMemo(() => buildBranchTree(tree), [tree]);
+	const activePath = useMemo(() => buildActivePath(nodes, activeLeafId), [nodes, activeLeafId]);
+	const first = nodes[0] ? compress(nodes[0]).node : undefined;
+	const hasContent = hasSession && first !== undefined && (first.children.length > 1 || hasBranch(nodes));
 	const reason = !hasSession ? t("noActiveSession") : t("noBranchesYet");
 	const select = useCallback((entryId: string) => onLeafChange(entryId), [onLeafChange]);
 

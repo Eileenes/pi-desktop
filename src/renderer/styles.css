@@ -98,6 +98,14 @@
 	--ds-on-accent: var(--gray-1000);
 	--ds-focus: var(--ds-accent);
 
+	/*
+	 * The product mark is a lit plate: white in dark chrome, brushed graphite in
+	 * light chrome. Flat black on white read as a different material from the
+	 * reference, so light keeps a two-stop graphite falloff.
+	 */
+	--ds-brand-mark-top: var(--gray-0);
+	--ds-brand-mark-bottom: color-mix(in oklab, var(--gray-0) 62%, transparent);
+
 	/* Status inks keep their hue; everything else is monochrome. */
 	--ds-success: #40c977;
 	--ds-warning: #ff8549;
@@ -399,6 +407,9 @@
 	--ds-accent-hover: var(--gray-700);
 	--ds-accent-soft: var(--gray-500);
 	--ds-on-accent: #fff;
+
+	--ds-brand-mark-top: #454a51;
+	--ds-brand-mark-bottom: #141619;
 
 	--ds-success: #00a240;
 	--ds-warning: #e25507;
@@ -800,7 +811,7 @@ html {
 	flex: 1 1 auto;
 	flex-direction: column;
 	min-height: 0;
-	overflow: hidden;
+	overflow: auto;
 	padding: 0 8px 6px;
 }
 
@@ -921,6 +932,62 @@ html {
 .sidebar-project-tree-row-main { display: flex; min-width: 0; flex: 1; align-items: center; gap: 7px; padding: 5px 7px; border: 0; border-radius: var(--radius-2xs); color: var(--text); background: transparent; font-size: var(--text-sm); font-weight: 500; text-align: left; }
 .sidebar-project-tree-row-main:hover, .sidebar-project-tree-group.is-active .sidebar-project-tree-row-main { background: var(--hover); }
 .sidebar-project-tree-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-hover-card {
+	position: fixed;
+	z-index: 80;
+	margin-left: -4px;
+	padding-left: 10px;
+	display: grid;
+	width: max-content;
+	min-width: 220px;
+	max-width: 320px;
+	padding: 6px;
+	border-radius: var(--radius-md);
+	background: var(--ds-bg-elevated-opaque);
+	box-shadow: var(--ds-elevation-stroke), var(--ds-shadow-dialog);
+	color: var(--text-primary);
+}
+.sidebar-hover-card-title,
+.sidebar-hover-card-row,
+.sidebar-hover-card button {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: var(--radius-xs);
+	background: transparent;
+	color: inherit;
+	font-size: var(--text-sm);
+	text-align: left;
+}
+.sidebar-hover-card-title {
+	font-weight: var(--font-weight-medium);
+}
+.sidebar-hover-card-title small {
+	margin-left: auto;
+	color: var(--text-tertiary);
+	font-size: var(--text-xs);
+	white-space: nowrap;
+}
+.sidebar-hover-card-title span,
+.sidebar-hover-card-row span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.sidebar-hover-card-row {
+	color: var(--text-secondary);
+}
+.sidebar-hover-card-divider {
+	height: 1px;
+	margin: 4px 8px;
+	background: var(--border-subtle);
+}
+.sidebar-hover-card button:hover {
+	background: var(--ds-bg-hover);
+}
 .sidebar-project-tree-copy { display: grid; flex: 1; min-width: 0; gap: 1px; }
 .sidebar-project-tree-copy small { overflow: hidden; color: var(--muted); font-size: var(--text-2xs); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-project-tree-meta { margin-left: auto; color: var(--muted); font-size: var(--text-2xs); }
@@ -1548,6 +1615,7 @@ html {
 	align-items: center;
 	gap: 8px;
 	height: 28px;
+	min-height: 28px;
 	padding: 0 4px 0 10px;
 	border: 0;
 	border-radius: var(--radius-xs);
@@ -2339,6 +2407,12 @@ html {
 	line-height: 1.45;
 }
 
+.settings-version-line {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
 .toggle-row input[type="checkbox"] {
 	width: 16px;
 	height: 16px;
@@ -2399,8 +2473,7 @@ html {
 	background: var(--accent-hover);
 }
 
-.composer-action-button,
-.stop-button {
+.composer-action-button {
 	padding: 7px 10px;
 	border: 1px solid var(--border-subtle);
 	color: var(--text-dim);
@@ -2410,15 +2483,6 @@ html {
 .composer-action-button:hover:not(:disabled) {
 	color: var(--text);
 	background: var(--hover);
-}
-
-.stop-button {
-	color: var(--danger);
-}
-
-.stop-button:hover:not(:disabled) {
-	border-color: var(--danger);
-	background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
 .resource-list {
@@ -4212,29 +4276,31 @@ html {
 }
 
 .code-block {
-	position: relative;
+	display: flex;
+	flex-direction: column;
 	margin: 0 0 14px;
+	overflow: hidden;
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-s);
+	background: var(--surface-recessed);
 }
 
-.code-block pre {
+.code-block pre,
+.markdown-body .code-block pre {
 	margin: 0;
-	padding-top: 38px;
+	border: 0;
+	border-radius: 0;
 }
 
 .code-block-toolbar {
-	position: absolute;
-	top: 1px;
-	right: 1px;
-	left: 1px;
-	z-index: 1;
 	display: flex;
+	flex: 0 0 auto;
 	align-items: center;
 	gap: 6px;
 	height: 30px;
 	padding: 0 7px 0 11px;
 	border-bottom: 1px solid var(--border-subtle);
-	border-radius: var(--radius-s) var(--radius-s) 0 0;
-	background: color-mix(in srgb, var(--surface-1) 94%, transparent);
+	background: var(--surface-1);
 }
 
 .code-block-toolbar span {
@@ -5355,6 +5421,42 @@ html {
 	background: var(--ds-warning);
 }
 
+.composer-permission-prompt {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 0 0 6px;
+	padding: 6px 8px 6px 10px;
+	border: 1px solid color-mix(in srgb, var(--ds-warning) 35%, transparent);
+	border-radius: var(--radius-xs);
+	background: color-mix(in srgb, var(--ds-warning) 10%, transparent);
+	color: var(--text);
+	font-size: var(--text-xs);
+}
+
+.composer-permission-prompt p {
+	min-width: 0;
+	margin: 0;
+	line-height: 1.4;
+}
+
+.composer-permission-allow {
+	flex: 0 0 auto;
+	margin-left: auto;
+	height: var(--ds-control-size);
+	padding: 0 12px;
+	border: 0;
+	border-radius: var(--radius-full);
+	background: var(--accent);
+	color: var(--accent-contrast);
+	font-size: var(--text-sm);
+	font-weight: var(--font-weight-medium);
+}
+
+.composer-permission-allow:disabled {
+	opacity: 0.55;
+}
+
 .composer-footer {
 	min-width: 0;
 	justify-content: space-between;
@@ -5367,8 +5469,7 @@ html {
 
 .composer-footer-left,
 .composer-footer-right,
-.composer-secondary-controls,
-.composer-stream-actions {
+.composer-secondary-controls {
 	display: flex;
 	min-width: 0;
 	align-items: center;
@@ -5399,11 +5500,6 @@ html {
 	border-radius: var(--radius-m);
 	background: var(--surface-1);
 	box-shadow: var(--shadow-float);
-}
-
-.composer-stream-actions {
-	flex: 0 0 auto;
-	align-self: flex-end;
 }
 
 .composer-model-select {
@@ -5464,45 +5560,6 @@ html {
 
 .send-button:active:not(:disabled) {
 	transform: scale(0.94);
-}
-
-.composer-steer-button,
-.composer-followup-button {
-	display: inline-flex;
-	height: var(--ds-control-size);
-	align-items: center;
-	justify-content: center;
-	gap: 6px;
-	padding: 0 12px;
-	border-radius: var(--radius-full);
-	font-size: var(--text-sm-plus);
-	font-weight: var(--font-weight-medium);
-}
-
-.composer-steer-button {
-	border: 1px solid var(--warning-border);
-	color: var(--warning);
-	background: var(--warning-overlay);
-}
-
-.composer-steer-button:hover:not(:disabled) {
-	border-color: color-mix(in srgb, var(--warning) 55%, transparent);
-	background: color-mix(in srgb, var(--warning) 18%, transparent);
-}
-
-.composer-followup-button {
-	border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
-	color: var(--accent-deep);
-	background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.composer-followup-button:hover:not(:disabled) {
-	background: color-mix(in srgb, var(--accent) 20%, transparent);
-}
-
-.composer-steer-button:disabled,
-.composer-followup-button:disabled {
-	opacity: 0.45;
 }
 
 .chat-project-context {
@@ -6710,33 +6767,11 @@ html {
 	opacity: 0.7;
 }
 
-.settings-update-panel {
-	margin-top: 10px;
-	padding: 10px 12px;
-	border: 1px solid var(--border-subtle);
-	border-radius: var(--radius-sm);
-	display: flex;
-	flex-direction: column;
+/* The update action sits on the version line, next to the version chip. */
+.settings-update-action {
+	display: inline-flex;
+	align-items: center;
 	gap: 8px;
-}
-
-.settings-update-asset-row {
-	display: flex;
-	align-items: flex-end;
-	gap: 10px;
-}
-
-.settings-update-asset-row label {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	flex: 1;
-	font-size: var(--text-xs);
-	color: var(--text-dim);
-}
-
-.settings-update-asset-row select {
-	width: 100%;
 }
 
 .settings-update-progress {
@@ -8065,6 +8100,14 @@ html {
 	font-size: var(--text-xs);
 }
 
+/* The banner offers the action it asks for, on its trailing edge. */
+.resource-trust-banner > button {
+	align-self: center;
+	flex: 0 0 auto;
+	margin-left: auto;
+	white-space: nowrap;
+}
+
 .settings-group-label {
 	padding: 10px 8px 4px;
 	color: var(--muted);
@@ -8798,6 +8841,16 @@ summary:focus-visible {
 	padding-block: 4px;
 }
 
+.sidebar-project-tree-row-main > svg:first-child {
+	flex: 0 0 auto;
+	color: var(--text-tertiary);
+	transition: transform var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.sidebar-project-tree-group.is-collapsed .sidebar-project-tree-row-main > svg:first-child {
+	transform: rotate(-90deg);
+}
+
 .sidebar-project-tree-name {
 	font-size: var(--text-base);
 	font-weight: var(--font-weight-medium);
@@ -9470,6 +9523,14 @@ summary:focus-visible {
 .plugin-trust-banner strong {
 	flex-shrink: 0;
 	color: var(--warning);
+}
+
+/* The banner offers the action it asks for, on its trailing edge. */
+.plugin-trust-banner > button {
+	align-self: center;
+	flex: 0 0 auto;
+	margin-left: auto;
+	white-space: nowrap;
 }
 
 .plugin-package-group + .plugin-package-group {
@@ -10327,7 +10388,7 @@ summary:focus-visible {
 /* Version chip closes the footer row (reference .footer-build). */
 .footer-build {
 	margin-left: auto;
-	padding: 0 2px;
+	padding: 0 2px 0 0;
 	color: var(--ds-text-faint);
 	font-family: var(--font-mono);
 	font-size: var(--text-2xs);
@@ -10780,31 +10841,38 @@ body.is-resizing-terminal {
 }
 
 /*
- * Update affordance. It reads as a quiet label beside the version, and only
- * becomes a button when there is something to do.
+ * A small download icon immediately left of the version. It only appears when
+ * there is a newer build, and the same icon shows that a download is running.
  */
 .footer-update-button,
 .settings-update-button {
-	padding: 2px 8px;
-	border: 1px solid color-mix(in oklab, var(--ds-success) 42%, transparent);
+	display: inline-grid;
+	width: 18px;
+	height: 18px;
+	flex: 0 0 18px;
+	place-items: center;
+	padding: 0;
+	border: 0;
 	border-radius: var(--radius-full);
-	color: var(--ds-success);
-	background: color-mix(in oklab, var(--ds-success) 12%, transparent);
-	font-size: var(--text-2xs);
-	font-weight: var(--font-weight-medium);
-	white-space: nowrap;
+	color: var(--ds-text-faint);
+	background: transparent;
 }
 
 .footer-update-button:hover:not(:disabled),
 .settings-update-button:hover:not(:disabled) {
-	background: color-mix(in oklab, var(--ds-success) 22%, transparent);
+	color: var(--ds-text-primary);
+	background: var(--ds-bg-hover);
 }
 
 .footer-update-button:disabled,
 .settings-update-button:disabled {
 	color: var(--ds-text-muted);
-	border-color: color-mix(in oklab, var(--ds-text-primary) 14%, transparent);
-	background: color-mix(in oklab, var(--ds-text-primary) 6%, transparent);
+	background: transparent;
+}
+
+.footer-update-button.is-busy,
+.settings-update-button.is-busy {
+	color: var(--ds-text-secondary);
 }
 
 .sidebar-footer {
@@ -10819,9 +10887,8 @@ body.is-resizing-terminal {
 
 /*
  * The stop control takes the send button's slot, so it takes its geometry: a
- * 28px circle with no frame. The danger tint is what distinguishes it, not a
- * border, which is why the old boxed version read as an empty frame with a
- * small glyph adrift inside it.
+ * solid 28px circle. A filled square on that circle reads as stop; a tinted
+ * disc with a stroked glyph read as an unfinished chip.
  */
 .stop-button {
 	display: inline-grid;
@@ -10832,19 +10899,25 @@ body.is-resizing-terminal {
 	place-items: center;
 	padding: 0;
 	border: 0;
-	border-radius: var(--radius-round);
-	color: var(--ds-error);
-	background: color-mix(in oklab, var(--ds-error) 16%, transparent);
-	transition: background var(--motion-duration-fast) var(--motion-ease-out);
+	border-radius: var(--radius-full);
+	color: #fff;
+	background: var(--ds-error);
+	transition:
+		background var(--motion-duration-fast) var(--motion-ease-out),
+		transform var(--motion-duration-fast) var(--motion-ease-out);
 }
 
 .stop-button:hover:not(:disabled) {
 	border: 0;
-	background: color-mix(in oklab, var(--ds-error) 28%, transparent);
+	background: color-mix(in oklab, var(--ds-error) 82%, #000);
+}
+
+.stop-button:active:not(:disabled) {
+	transform: scale(0.94);
 }
 
 .stop-button:disabled {
-	background: color-mix(in oklab, var(--ds-error) 8%, transparent);
+	background: color-mix(in oklab, var(--ds-error) 45%, transparent);
 }
 
 /* Message actions are glyphs, so they take a square hit target instead of text
@@ -10924,8 +10997,8 @@ body.is-resizing-terminal {
 }
 
 /*
- * Project line above the composer, matching the reference: one quiet row of
- * icon + label chips sitting on the box's left edge.
+ * The line above the composer carries the branch chip only, on the box's left
+ * edge. The project name lives in the sidebar, so it is not repeated here.
  */
 .composer-project-line {
 	display: flex;
@@ -10995,20 +11068,6 @@ body.is-resizing-terminal {
 
 
 
-.composer-project-menu-host {
-	position: fixed;
-	z-index: 80;
-}
-
-.composer-project-menu-host .project-menu {
-	position: static;
-	right: auto;
-	width: max-content;
-	min-width: 220px;
-	height: max-content;
-	max-height: min(360px, 46vh);
-}
-
 .permission-popover button {
 	display: flex;
 	align-items: flex-start;
@@ -11033,3 +11092,555 @@ body.is-resizing-terminal {
 	font-size: var(--text-xs);
 	line-height: 1.4;
 }
+/*
+ * ---------------------------------------------------------------------------
+ * Project chrome: row menu, project editor, partitions, and the trust and
+ * full-access dialogs. Everything here consumes the token ladder above rather
+ * than inventing colours or metrics.
+ * ---------------------------------------------------------------------------
+ */
+
+/* The row's icon buttons are square hit targets; the glyph is centred by the
+ * grid instead of sitting on the text baseline. */
+.sidebar-project-tree-row-actions button {
+	display: inline-grid;
+	place-items: center;
+	padding: 0;
+	line-height: 1;
+}
+
+.sidebar-project-tree-row-actions button > svg {
+	display: block;
+}
+
+/* The row toggle is a case, not a chevron: closed means folded away, so it
+ * never rotates. */
+.sidebar-project-tree-row-main > svg:first-child {
+	color: var(--ds-text-secondary);
+}
+
+.sidebar-project-tree-group.is-collapsed .sidebar-project-tree-row-main > svg:first-child {
+	transform: none;
+}
+
+/* Project names take the room they need; only a genuinely long name
+ * ellipsises, and the tooltip carries the rest. */
+.sidebar-project-tree-name {
+	white-space: nowrap;
+}
+
+/* Partitions group projects in the sidebar once the user creates them, with
+ * air between projects and a little more between partitions. */
+.sidebar-project-section {
+	display: grid;
+	gap: 6px;
+}
+
+.sidebar-project-section + .sidebar-project-section {
+	margin-top: 6px;
+}
+
+.sidebar-project-section-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 10px 2px 12px;
+	color: var(--ds-text-muted);
+	font-size: var(--text-2xs);
+	font-weight: var(--font-weight-medium);
+	letter-spacing: var(--tracking-wide);
+	text-transform: uppercase;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Menus
+ *
+ * Every dropdown renders through the shared menu primitives, so the plate, the
+ * row height, the ink, and the type come from one place instead of being
+ * inherited from the surface that opened the menu: the sidebar header used to
+ * make its menu bold while the footer's stayed regular, and a row that lost its
+ * padding collapsed to a single text line.
+ * ---------------------------------------------------------------------------
+ */
+
+.app-menu {
+	min-width: 180px;
+	padding: 5px;
+	border: 1px solid var(--ds-border-subtle);
+	border-radius: var(--radius-md-plus);
+	color: var(--text-primary);
+	background: var(--ds-bg-elevated-opaque);
+	box-shadow: var(--ds-shadow-dialog);
+	font-family: var(--font-sans);
+	font-size: var(--text-sm-plus);
+	font-weight: var(--font-weight-normal);
+	line-height: var(--leading-normal);
+}
+
+/* A nested list rather than a floating plate. */
+.app-menu.is-inline {
+	min-width: 0;
+	padding: 4px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: var(--ds-tile);
+	box-shadow: none;
+}
+
+.app-menu .app-menu-item {
+	display: flex;
+	width: 100%;
+	min-height: 34px;
+	align-items: center;
+	gap: 8px;
+	padding: 7px 10px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	color: var(--text-primary);
+	background: transparent;
+	font: inherit;
+	text-align: left;
+}
+
+.app-menu .app-menu-item:hover:not(:disabled) {
+	background: var(--ds-bg-hover);
+}
+
+.app-menu .app-menu-item:disabled {
+	color: var(--ds-text-muted);
+}
+
+.app-menu .app-menu-item.is-danger {
+	color: var(--ds-error);
+}
+
+.app-menu .app-menu-item.is-danger:hover:not(:disabled) {
+	background: color-mix(in oklab, var(--ds-error) 12%, transparent);
+}
+
+.app-menu .app-menu-icon {
+	display: inline-grid;
+	width: 18px;
+	flex: 0 0 18px;
+	place-items: center;
+	color: var(--ds-text-muted);
+}
+
+.app-menu .app-menu-icon img {
+	width: 16px;
+	height: 16px;
+	object-fit: contain;
+}
+
+.app-menu .app-menu-item.is-danger .app-menu-icon {
+	color: inherit;
+}
+
+.app-menu .app-menu-label {
+	display: grid;
+	flex: 1;
+	min-width: 0;
+	gap: 2px;
+}
+
+.app-menu .app-menu-copy {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.app-menu .app-menu-hint {
+	overflow: hidden;
+	color: var(--ds-text-muted);
+	font-size: var(--text-xs);
+	line-height: 1.35;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.app-menu .app-menu-trailing {
+	margin-left: auto;
+	color: var(--ds-text-faint);
+}
+
+.app-menu .app-menu-divider {
+	height: 1px;
+	margin: 5px 8px;
+	border: 0;
+	background: var(--ds-border-subtle);
+}
+
+.app-menu .app-menu-heading {
+	margin: 6px 10px 2px;
+	color: var(--ds-text-muted);
+	font-size: var(--text-2xs);
+	font-weight: var(--font-weight-medium);
+	letter-spacing: var(--tracking-wide);
+}
+
+.app-menu .app-menu-empty {
+	margin: 4px 10px 8px;
+	color: var(--ds-text-muted);
+	font-size: var(--text-xs);
+}
+
+.app-menu .app-menu-filter {
+	width: calc(100% - 16px);
+	margin: 4px 8px 6px;
+	padding: 6px 8px;
+	border: 1px solid var(--ds-border-subtle);
+	border-radius: var(--radius-2xs);
+	color: var(--text);
+	background: var(--ds-field-inset-bg);
+	font-size: var(--text-sm);
+}
+
+.app-menu .app-menu-filter:focus {
+	outline: none;
+	border-color: var(--ds-accent);
+}
+
+.project-row-menu {
+	min-width: 188px;
+}
+
+.app-menu.open-with-menu {
+	min-width: 200px;
+}
+
+/* The top-bar rows carry a description line, so they keep the wider plate. */
+.app-menu.top-bar-more-menu {
+	min-width: 260px;
+}
+
+.project-row-submenu-anchor > .app-menu-item[aria-expanded="true"] > .app-menu-trailing,
+.project-row-submenu-anchor > .app-menu-item > .app-menu-trailing {
+	transition: transform var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.project-row-submenu-anchor > .app-menu-item[aria-expanded="true"] > .app-menu-trailing {
+	transform: rotate(90deg);
+}
+
+/* The sidebar is a scroll container, so the section list opens in place
+ * instead of flying out where it would be clipped. */
+.project-row-submenu {
+	margin: 2px 4px 4px 6px;
+}
+
+.project-row-submenu-form {
+	padding: 3px;
+}
+
+.project-row-submenu-form input {
+	width: 100%;
+	padding: 6px 8px;
+	border: 1px solid var(--ds-border-subtle);
+	border-radius: var(--radius-2xs);
+	color: var(--text);
+	background: var(--ds-field-inset-bg);
+	font-size: var(--text-sm);
+}
+
+.project-row-submenu-form input:focus {
+	outline: none;
+	border-color: var(--ds-accent);
+}
+
+/* Project editor: name field, then the source-folder card from the reference. */
+.project-editor-dialog {
+	width: min(520px, 100%);
+}
+
+.project-editor-body {
+	display: grid;
+	gap: 12px;
+	overflow: visible;
+}
+
+.project-editor-field {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 6px 4px 4px;
+	border: 1px solid var(--ds-border-strong);
+	border-radius: var(--radius-md);
+	background: var(--ds-field-inset-bg);
+	transition: border-color var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.project-editor-field:focus-within {
+	border-color: var(--ds-accent);
+}
+
+.project-editor-field-icon {
+	display: inline-grid;
+	width: 32px;
+	height: 30px;
+	flex: 0 0 32px;
+	place-items: center;
+	border-right: 1px solid var(--ds-border-subtle);
+	color: var(--ds-text-secondary);
+}
+
+.project-editor-field input {
+	min-width: 0;
+	flex: 1;
+	padding: 5px 2px;
+	border: 0;
+	color: var(--ds-text-primary);
+	background: transparent;
+	font-size: var(--text-base);
+	font-weight: var(--font-weight-medium);
+}
+
+.project-editor-field input:focus {
+	outline: none;
+}
+
+.project-editor-label {
+	margin: 2px 0 -4px;
+	color: var(--ds-text-secondary);
+	font-size: var(--text-sm);
+	font-weight: var(--font-weight-medium);
+}
+
+.project-editor-folders {
+	display: grid;
+	overflow: hidden;
+	border: 1px solid var(--ds-border-subtle);
+	border-radius: var(--radius-md);
+}
+
+.project-editor-folder {
+	display: flex;
+	min-height: 42px;
+	align-items: center;
+	gap: 10px;
+	padding: 6px 12px;
+	border: 0;
+	border-top: 1px solid var(--ds-border-subtle);
+	color: var(--ds-text-primary);
+	background: transparent;
+	font-size: var(--text-sm-plus);
+	text-align: left;
+}
+
+.project-editor-folder:first-child {
+	border-top: 0;
+}
+
+.project-editor-folder > svg {
+	flex: 0 0 auto;
+	color: var(--ds-text-secondary);
+}
+
+.project-editor-folder-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.project-editor-badge {
+	margin-left: auto;
+	padding: 2px 9px;
+	border: 1px solid var(--ds-border-strong);
+	border-radius: var(--radius-2xs);
+	color: var(--ds-text-secondary);
+	font-size: var(--text-xs);
+}
+
+.project-editor-folder-remove {
+	display: inline-grid;
+	width: 22px;
+	height: 22px;
+	margin-left: auto;
+	place-items: center;
+	border: 0;
+	border-radius: var(--radius-2xs);
+	color: var(--ds-text-muted);
+	background: transparent;
+}
+
+.project-editor-folder-remove:hover {
+	color: var(--ds-text-primary);
+	background: var(--ds-bg-hover);
+}
+
+.project-editor-add {
+	color: var(--ds-text-secondary);
+	cursor: pointer;
+}
+
+.project-editor-add:hover:not(:disabled) {
+	color: var(--ds-text-primary);
+	background: var(--ds-bg-hover);
+}
+
+.project-editor-error {
+	margin: 0;
+	color: var(--ds-error);
+	font-size: var(--text-xs);
+}
+
+.project-editor-actions {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 8px;
+	padding: 12px 18px;
+	border-top: 1px solid var(--ds-border-subtle);
+}
+
+.project-editor-actions-spacer {
+	flex: 1;
+}
+
+/* Destructive action reads as a tinted pill on the dialog's left edge. */
+.project-editor-remove {
+	padding: 7px 12px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	color: var(--ds-error);
+	background: color-mix(in oklab, var(--ds-error) 14%, transparent);
+	font-size: var(--text-sm);
+	font-weight: var(--font-weight-medium);
+}
+
+.project-editor-remove:hover:not(:disabled) {
+	background: color-mix(in oklab, var(--ds-error) 22%, transparent);
+}
+
+/* Full-access acknowledgement. */
+.permission-risk-dialog {
+	width: min(460px, 100%);
+}
+
+.permission-risk-body {
+	display: grid;
+	gap: 14px;
+	overflow: visible;
+}
+
+.permission-risk-notice {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+}
+
+.permission-risk-notice p {
+	margin: 0;
+	color: var(--ds-text-secondary);
+	font-size: var(--text-sm-plus);
+	line-height: 1.6;
+}
+
+.permission-risk-icon {
+	flex: 0 0 auto;
+	margin-top: 1px;
+	color: var(--ds-error);
+}
+
+.permission-risk-ack {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	color: var(--ds-text-primary);
+	font-size: var(--text-sm-plus);
+	cursor: pointer;
+}
+
+.permission-risk-ack input {
+	width: 15px;
+	height: 15px;
+	flex: 0 0 15px;
+	accent-color: var(--ds-accent);
+}
+
+.permission-risk-actions {
+	display: flex;
+	flex: 0 0 auto;
+	justify-content: flex-end;
+	gap: 8px;
+	padding: 12px 18px;
+	border-top: 1px solid var(--ds-border-subtle);
+}
+
+/* The trust prompt predates the dialog grammar and had no plate at all. */
+.trust-dialog-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 300;
+	display: grid;
+	place-items: center;
+	padding: 24px;
+	background: var(--ds-scrim);
+}
+
+.trust-dialog {
+	display: grid;
+	width: min(460px, 100%);
+	gap: 16px;
+	padding: 18px;
+	border: 1px solid var(--ds-border-default);
+	border-radius: var(--radius-lg-plus);
+	background: var(--ds-bg-elevated-opaque);
+	box-shadow: var(--ds-shadow-dialog);
+}
+
+.trust-dialog-body {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+}
+
+.trust-dialog-body h2 {
+	margin: 0 0 6px;
+	color: var(--text-primary);
+	font-size: var(--text-lg-plus);
+	font-weight: var(--font-weight-semibold);
+}
+
+.trust-dialog-body p {
+	margin: 0 0 8px;
+	color: var(--ds-text-secondary);
+	font-size: var(--text-sm-plus);
+	line-height: 1.6;
+}
+
+.trust-dialog-body code {
+	display: block;
+	overflow-wrap: anywhere;
+	color: var(--ds-text-muted);
+	font-family: var(--font-mono);
+	font-size: var(--text-xs);
+}
+
+.trust-dialog-error {
+	color: var(--ds-error);
+}
+
+.trust-dialog-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+/*
+ * Icon-only chrome buttons. The 8px inline padding above was sized for buttons
+ * that carry a label; on a fixed 24px square it pushed the glyph 3px right of
+ * the hover plate's centre. An icon-only square centres its glyph instead.
+ */
+.icon-button.compact {
+	padding: 0;
+}
+/* The primary folder shows the same remove control for parity, but it is the
+ * project's own root, so the control stays inert and explains why. */
+.project-editor-folder-remove:disabled {
+	color: var(--ds-text-faint);
+	cursor: not-allowed;
+}
+
+

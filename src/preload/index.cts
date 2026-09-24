@@ -36,6 +36,7 @@ import type {
 	DesktopPluginPackagesResult,
 	DesktopPluginPackageFilterInput,
 	DesktopPromptInput,
+	DesktopRevealProjectPathInput,
 	DesktopRestoreImageAttachmentsInput,
 	DesktopRestoreMessageImagesInput,
 	DesktopProviderConfig,
@@ -136,6 +137,8 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:open-workspace-file", input) as Promise<void>,
 	revealWorkspaceFile: (input: DesktopWorkspaceFileInput) =>
 		ipcRenderer.invoke("pi-desktop:reveal-workspace-file", input) as Promise<void>,
+	revealProjectPath: (input: DesktopRevealProjectPathInput) =>
+		ipcRenderer.invoke("pi-desktop:reveal-project-path", input) as Promise<void>,
 	saveWorkspaceFile: (input: DesktopWorkspaceFileInput) =>
 		ipcRenderer.invoke("pi-desktop:save-workspace-file", input) as Promise<string>,
 	openExternalUrl: (url: string) =>

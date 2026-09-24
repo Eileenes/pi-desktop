@@ -104,6 +104,12 @@ type SnapshotListener = (snapshot: DesktopSnapshot) => void;
 
 type DesktopPluginResourceKind = keyof DesktopPluginPackage["resources"];
 
+/** Session files this app owns live under the agent directory's sessions root. */
+function isInsideSessionsRoot(agentDir: string, filePath: string): boolean {
+	const sessionsRoot = resolve(join(agentDir, "sessions"));
+	return resolve(filePath).startsWith(sessionsRoot + sep) && filePath.endsWith(".jsonl");
+}
+
 function pluginPackageKey(source: string, scope: "user" | "project"): string {
 	return `${scope}\0${source}`;
 }
@@ -225,17 +231,29 @@ function summarizeSessionEntry(entry: PiSessionTreeNode["entry"]): {
 	return text ? { text: text.slice(0, 200) } : {};
 }
 
-function toDesktopSessionTreeNode(node: PiSessionTreeNode): DesktopSessionTreeNode {
-	const details = summarizeSessionEntry(node.entry);
-	return {
-		entry: {
-			id: node.entry.id,
-			type: node.entry.type,
-			...(details.role ? { role: details.role } : {}),
-			...(details.text ? { text: details.text } : {}),
-		},
-		children: node.children.map(toDesktopSessionTreeNode),
+/**
+ * Flattens the branch tree into pre-order with an explicit depth. Sending the
+ * nested tree broke long sessions outright: a chain of a few hundred entries
+ * nests deeper than the Electron bridge allows and the whole snapshot stopped
+ * crossing it.
+ */
+function toDesktopSessionTreeNodes(nodes: PiSessionTreeNode[]): DesktopSessionTreeNode[] {
+	const flat: DesktopSessionTreeNode[] = [];
+	const visit = (node: PiSessionTreeNode, depth: number): void => {
+		const details = summarizeSessionEntry(node.entry);
+		flat.push({
+			entry: {
+				id: node.entry.id,
+				type: node.entry.type,
+				...(details.role ? { role: details.role } : {}),
+				...(details.text ? { text: details.text } : {}),
+			},
+			depth,
+		});
+		for (const child of node.children) visit(child, depth + 1);
 	};
+	for (const node of nodes) visit(node, 0);
+	return flat;
 }
 
 class PlainTextTheme extends Theme {
@@ -640,7 +658,7 @@ export class DesktopAgentHost {
 		};
 		snapshot.sessionStats = this.toDesktopSessionStats();
 		snapshot.branchPoints = this.toDesktopBranchPoints();
-		snapshot.branchTree = this.session.sessionManager.getTree().map(toDesktopSessionTreeNode);
+		snapshot.branchTree = toDesktopSessionTreeNodes(this.session.sessionManager.getTree());
 		snapshot.branchActiveLeafId = this.session.sessionManager.getLeafId();
 		return snapshot;
 	}
@@ -1269,16 +1287,19 @@ export class DesktopAgentHost {
 			}
 			const indexed = this.sessions.find((item) => resolve(item.path) === resolvedFile);
 			if (!indexed) throw new Error("只能打开已索引的项目会话。");
-			workspacePath = indexed.cwd;
-			sessionDirectory = dirname(resolvedFile);
-			const expectedDirectory = resolve(join(this.agentDir, "sessions", getWorkspaceKey(workspacePath)));
-			if (
-				resolve(sessionDirectory) !== expectedDirectory ||
-				!resolvedFile.startsWith(expectedDirectory + sep) ||
-				!resolvedFile.endsWith(".jsonl")
-			) {
+			/*
+			 * The index is the authority: it is built by scanning this app's own
+			 * sessions root, so an indexed file is already inside it. The folder is
+			 * not re-derived from the session's cwd, because a session can sit in a
+			 * folder keyed by another workspace (one created before the project
+			 * moved, for example) and requiring the two to agree made exactly those
+			 * sessions impossible to open.
+			 */
+			if (!isInsideSessionsRoot(this.agentDir, resolvedFile)) {
 				throw new Error("无效的会话文件。");
 			}
+			workspacePath = indexed.cwd;
+			sessionDirectory = join(this.agentDir, "sessions", getWorkspaceKey(workspacePath));
 			projectTrusted = await this.trustStore.isTrusted(workspacePath);
 			sessionFile = resolvedFile;
 		}
@@ -1403,10 +1424,10 @@ export class DesktopAgentHost {
 		const realPath = resolve(sessionPath);
 		const indexed = this.sessions.find((info) => resolve(info.path) === realPath);
 		if (!indexed) throw new Error("只能重命名已索引的项目会话。");
-		const directory = resolve(join(this.agentDir, "sessions", getWorkspaceKey(indexed.cwd)));
-		if (!realPath.startsWith(directory + sep) || !realPath.endsWith(".jsonl")) {
+		if (!isInsideSessionsRoot(this.agentDir, realPath)) {
 			throw new Error("无效的会话文件。");
 		}
+		const directory = join(this.agentDir, "sessions", getWorkspaceKey(indexed.cwd));
 		const trimmed = name.trim().slice(0, 120);
 		if (!trimmed) throw new Error("会话名称不能为空。");
 		const managed = this.findManagedSessionByPath(realPath);
@@ -1420,8 +1441,8 @@ export class DesktopAgentHost {
 		const realPath = resolve(sessionPath);
 		const indexed = this.sessions.find((info) => resolve(info.path) === realPath);
 		if (!indexed) throw new Error("只能删除已索引的项目会话。");
-		const directory = resolve(join(this.agentDir, "sessions", getWorkspaceKey(indexed.cwd)));
-		if (!realPath.startsWith(directory + sep) || !realPath.endsWith(".jsonl")) throw new Error("无效的会话文件。");
+		if (!isInsideSessionsRoot(this.agentDir, realPath)) throw new Error("无效的会话文件。");
+		const directory = join(this.agentDir, "sessions", getWorkspaceKey(indexed.cwd));
 		const managed = this.findManagedSessionByPath(realPath);
 		if (managed?.session.isStreaming) throw new Error("请等待该智能体任务完成后再删除会话。");
 		const wasActive = managed !== undefined && managed.id === this.activeSessionId;
@@ -1676,6 +1697,25 @@ export class DesktopAgentHost {
 
 	async revealWorkspaceFile(path: string): Promise<void> {
 		await this.getTrustedWorkspaceBrowser().reveal(path);
+	}
+
+	/**
+	 * Revealing a project root in the file manager. The path is not taken on
+	 * faith: it has to name the open workspace or a project the session index
+	 * already knows, so the shell is never aimed at an arbitrary location.
+	 */
+	async revealProjectPath(path: string): Promise<void> {
+		const known = [this.workspacePath, ...this.sessions.flatMap((item) => [item.cwd, item.projectRoot])];
+		const resolved = resolve(path);
+		if (!known.some((candidate) => candidate !== undefined && resolve(candidate) === resolved)) {
+			throw new Error("未知的项目路径。");
+		}
+		const stats = await lstat(path).catch(() => undefined);
+		if (!stats?.isDirectory()) {
+			throw new Error("该项目文件夹已不存在。");
+		}
+		shell.showItemInFolder(path);
+		this.auditLog.write("workspace.open", "succeeded", { action: "reveal" });
 	}
 
 	async getOpenWithApps(): Promise<DesktopOpenWithApp[]> {
@@ -2512,6 +2552,14 @@ export class DesktopAgentHost {
 	setPermissionMode(mode: DesktopPermissionMode): void {
 		this.permissionMode = mode;
 		this.auditLog.write("tool.approval", "allowed", { policy: mode });
+		// Leaving a call pending after the user grants the mode that covers it
+		// denies the next one and stops the task. Full access covers every call;
+		// auto-edit covers file changes only.
+		const covered = this.approvalQueue
+			.getPendingApprovals()
+			.filter((approval) => this.autoApproves(approval.toolName))
+			.map((approval) => approval.id);
+		for (const id of covered) this.approvalQueue.resolve(id, true);
 	}
 
 	/**

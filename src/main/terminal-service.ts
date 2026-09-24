@@ -9,6 +9,8 @@ import type { IPty } from "node-pty";
  * every test that constructs DesktopAgentHost fail on a runner without that
  * binary, so it is loaded only when a shell is actually created.
  */
+const require = createRequire(import.meta.url);
+
 function loadPty(): typeof import("node-pty") {
 	return require("node-pty") as typeof import("node-pty");
 }
@@ -119,7 +121,6 @@ function buildEnvironment(): Record<string, string> {
 function ensureSpawnHelper(): void {
 	if (process.platform === "win32") return;
 	try {
-		const require = createRequire(import.meta.url);
 		const unixTerminalPath = require.resolve("node-pty/lib/unixTerminal.js");
 		const helperPath = join(dirname(unixTerminalPath), "../build/Release/spawn-helper").replace(
 			/\.asar([/\\])/u,

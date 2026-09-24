@@ -16,6 +16,8 @@ interface PluginsConfigModalProps {
 	plugins: DesktopPlugin[];
 	workspacePath?: string;
 	projectTrusted: boolean;
+	/** Opens the project trust confirmation, so the banner is actionable. */
+	onTrustProject?: () => void;
 	onClose: () => void;
 }
 
@@ -115,6 +117,7 @@ const RESOURCE_GROUPS = [
 export const PluginsConfigModal = memo(function PluginsConfigModal({
 	workspacePath,
 	projectTrusted,
+	onTrustProject,
 	onClose,
 }: PluginsConfigModalProps) {
 	const { t } = useI18n();
@@ -339,6 +342,11 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 				<output className="plugin-trust-banner">
 					<strong>{t("projectNotTrustedTitle")}</strong>
 					<span>{t("projectNotTrustedHint")}</span>
+					{onTrustProject ? (
+						<button className="outline-button" type="button" onClick={onTrustProject}>
+							{t("trustProject")}
+						</button>
+					) : null}
 				</output>
 			) : null}
 			<div className="resource-config-layout">

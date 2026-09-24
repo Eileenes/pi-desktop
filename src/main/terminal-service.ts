@@ -2,7 +2,16 @@ import { accessSync, chmodSync, constants, existsSync, statSync } from "node:fs"
 import { createRequire } from "node:module";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { app } from "electron";
-import { type IPty, spawn } from "node-pty";
+import type { IPty } from "node-pty";
+
+/**
+ * node-pty loads a platform native binary. Importing it at module scope makes
+ * every test that constructs DesktopAgentHost fail on a runner without that
+ * binary, so it is loaded only when a shell is actually created.
+ */
+function loadPty(): typeof import("node-pty") {
+	return require("node-pty") as typeof import("node-pty");
+}
 
 /** Upper bound on live shells, so a runaway renderer cannot fork the machine. */
 const MAX_SESSIONS = 8;
@@ -152,7 +161,7 @@ export class TerminalService {
 		const shell = resolveShell();
 		ensureSpawnHelper();
 		const id = `terminal-${this.nextId++}`;
-		const pty = spawn(shell, [], {
+		const pty = loadPty().spawn(shell, [], {
 			name: "xterm-256color",
 			cols,
 			rows,

@@ -1,6 +1,6 @@
 {
 	"name": "pi-desktop",
-	"version": "0.1.14",
+	"version": "0.1.17",
 	"private": true,
 	"description": "An independent Electron desktop client for Pi.",
 	"author": "Earendil Works",
@@ -18,6 +18,7 @@
 		"package:win": "npm run build && electron-builder --win --publish never",
 		"package:linux": "npm run build && electron-builder --linux --publish never",
 		"postinstall": "node scripts/prepare-node-pty.mjs",
+		"prepare": "husky",
 		"test": "vitest --run"
 	},
 	"dependencies": {
@@ -48,6 +49,7 @@
 		"@vitejs/plugin-react": "6.1.0",
 		"electron": "44.0.0",
 		"electron-builder": "26.15.3",
+		"husky": "9.1.7",
 		"typescript": "5.9.3",
 		"undici-types": "8.10.0",
 		"vite": "8.2.2",

@@ -31,6 +31,8 @@ import type {
 	DesktopModelScope,
 	DesktopModelScopeStatus,
 	DesktopModelTestResult,
+	DesktopOpenWithApp,
+	DesktopPermissionMode,
 	DesktopPlugin,
 	DesktopPluginDiagnostic,
 	DesktopPluginPackage,
@@ -48,6 +50,7 @@ import type {
 	DesktopSkillSearchResult,
 	DesktopSkillUpdateResult,
 	DesktopSnapshot,
+	DesktopTerminalSession,
 	DesktopToolPreset,
 	DesktopTranscriptBlock,
 	DesktopTranscriptMessage,
@@ -58,6 +61,7 @@ import type {
 } from "../shared/contracts.ts";
 import { expandSessionReferences } from "../shared/session-reference.ts";
 import { AuthenticationPromptQueue } from "./authentication-prompt-queue.ts";
+import { AUTO_EDIT_TOOLS } from "./developer-tools-shared.ts";
 import { ExtensionCustomUiController, ExtensionDialogQueue } from "./extension-ui-controller.ts";
 import {
 	addGitWorktree as gitAddWorktree,
@@ -78,6 +82,7 @@ import {
 	readModelsConfig,
 	writeModelsConfig,
 } from "./models-config-store.ts";
+import { listOpenWithApps, openWith } from "./open-with-apps.ts";
 import { SecurityAuditLog } from "./security-audit-log.ts";
 import { listIndexedSessions } from "./session-index.ts";
 import {
@@ -88,6 +93,7 @@ import {
 	toggleSkillFile,
 	updateSkillViaNpx,
 } from "./skills-service.ts";
+import { TerminalService } from "./terminal-service.ts";
 import { ToolApprovalQueue } from "./tool-approval-queue.ts";
 import { TrustedWorkspaceBrowser } from "./trusted-workspace-browser.ts";
 import { getUsageActivity as readUsageActivity } from "./usage-activity-service.ts";
@@ -483,6 +489,11 @@ function toPhase(session: AgentSession, error: string | undefined): DesktopSessi
 
 export class DesktopAgentHost {
 	private readonly agentDir: string;
+	/**
+	 * Approval policy for tool calls. Defaults to asking every time; the
+	 * permissive modes are only ever set from an explicit user choice.
+	 */
+	private permissionMode: DesktopPermissionMode = "ask";
 	private readonly approvalQueue: ToolApprovalQueue;
 	private readonly authenticationPromptQueue: AuthenticationPromptQueue;
 	private readonly trustStore: WorkspaceTrustStore;
@@ -514,6 +525,9 @@ export class DesktopAgentHost {
 	});
 	private readonly workspaceChangeListeners = new Set<(changes: DesktopWorkspaceChange[]) => void>();
 	private readonly extensionUiListeners = new Set<DesktopExtensionUiListener>();
+	private readonly terminalDataListeners = new Set<(sessionId: string, data: string) => void>();
+	private readonly terminalExitListeners = new Set<(sessionId: string, exitCode: number) => void>();
+	private terminalService: TerminalService | undefined;
 	private extensionStatuses: DesktopExtensionStatus[] = [];
 	private extensionWidgets: DesktopExtensionWidget[] = [];
 	private extensionEditorRequest: DesktopExtensionEditorRequest | undefined;
@@ -705,6 +719,61 @@ export class DesktopAgentHost {
 		return () => this.workspaceChangeListeners.delete(listener);
 	}
 
+	onTerminalData(listener: (sessionId: string, data: string) => void): () => void {
+		this.terminalDataListeners.add(listener);
+		return () => this.terminalDataListeners.delete(listener);
+	}
+
+	onTerminalExit(listener: (sessionId: string, exitCode: number) => void): () => void {
+		this.terminalExitListeners.add(listener);
+		return () => this.terminalExitListeners.delete(listener);
+	}
+
+	/**
+	 * The integrated terminal is a shell with the project as its working directory,
+	 * so it is gated on the same workspace trust as file browsing and audited.
+	 */
+	createTerminalSession(cols: number, rows: number): DesktopTerminalSession {
+		const cwd = this.requireTrustedWorkspace("再打开终端");
+		const session = this.getTerminalService().create(cwd, cols, rows);
+		this.auditLog.write("terminal.session", "succeeded", { action: "create", shell: session.shell });
+		return session;
+	}
+
+	writeTerminalSession(sessionId: string, data: string): void {
+		this.getTerminalService().write(sessionId, data);
+	}
+
+	resizeTerminalSession(sessionId: string, cols: number, rows: number): void {
+		this.getTerminalService().resize(sessionId, cols, rows);
+	}
+
+	closeTerminalSession(sessionId: string): void {
+		this.getTerminalService().dispose(sessionId);
+		this.auditLog.write("terminal.session", "succeeded", { action: "close" });
+	}
+
+	private getTerminalService(): TerminalService {
+		if (!this.terminalService) {
+			this.terminalService = new TerminalService({
+				onData: (sessionId, data) => {
+					for (const listener of this.terminalDataListeners) listener(sessionId, data);
+				},
+				onExit: (sessionId, exitCode) => {
+					for (const listener of this.terminalExitListeners) listener(sessionId, exitCode);
+				},
+			});
+		}
+		return this.terminalService;
+	}
+
+	/** A project must be selected and trusted before anything runs inside it. */
+	private requireTrustedWorkspace(action: string): string {
+		if (!this.workspacePath) throw new Error(`请先选择项目，${action}。`);
+		if (!this.projectTrusted) throw new Error(`请先信任该项目，${action}。`);
+		return this.workspacePath;
+	}
+
 	async openWorkspace(cwd: string): Promise<DesktopSnapshot> {
 		if (this.providerSetupInProgress) {
 			throw new Error("请先完成当前模型服务商配置，再打开其他项目。");
@@ -780,6 +849,7 @@ export class DesktopAgentHost {
 					hidden: true,
 					factory: (pi) => {
 						pi.on("tool_call", async (event) => {
+							if (this.autoApproves(event.toolName)) return undefined;
 							const approved = await this.approvalQueue.request(
 								{
 									toolCallId: event.toolCallId,
@@ -1608,6 +1678,25 @@ export class DesktopAgentHost {
 		await this.getTrustedWorkspaceBrowser().reveal(path);
 	}
 
+	async getOpenWithApps(): Promise<DesktopOpenWithApp[]> {
+		return listOpenWithApps();
+	}
+
+	/**
+	 * Handing the project to another application is the same trust decision as
+	 * browsing it, and every handoff is audited.
+	 */
+	async openWorkspaceWith(appId: string): Promise<void> {
+		const workspacePath = this.requireTrustedWorkspace("再打开外部工具");
+		try {
+			await openWith(appId, workspacePath);
+			this.auditLog.write("workspace.open", "succeeded", { target: appId });
+		} catch (error) {
+			this.auditLog.write("workspace.open", "failed", { target: appId });
+			throw error;
+		}
+	}
+
 	async openExternalUrl(url: string): Promise<void> {
 		if (!/^(https?:|mailto:)/u.test(url)) {
 			throw new Error("只能打开 http、https 或 mailto 链接。");
@@ -2264,6 +2353,7 @@ export class DesktopAgentHost {
 
 	async dispose(): Promise<void> {
 		this.workspaceWatcher.stop();
+		this.terminalService?.disposeAll();
 		this.disposeAllSessions();
 	}
 
@@ -2417,6 +2507,22 @@ export class DesktopAgentHost {
 			() => undefined,
 		);
 		return queued;
+	}
+
+	setPermissionMode(mode: DesktopPermissionMode): void {
+		this.permissionMode = mode;
+		this.auditLog.write("tool.approval", "allowed", { policy: mode });
+	}
+
+	/**
+	 * Tools the current policy lets through without a prompt. "autoEdit" covers
+	 * file changes only: running commands still needs the user, which keeps a
+	 * silent install impossible unless "full" was chosen deliberately.
+	 */
+	private autoApproves(toolName: string): boolean {
+		if (this.permissionMode === "full") return true;
+		if (this.permissionMode === "autoEdit") return AUTO_EDIT_TOOLS.has(toolName);
+		return false;
 	}
 
 	private getTrustedWorkspaceBrowser(): TrustedWorkspaceBrowser {

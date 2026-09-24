@@ -295,6 +295,60 @@ export interface DesktopWorkspaceFilePreview {
 	binaryDataUrl?: string;
 }
 
+/**
+ * An installed application the workspace root can be handed off to. Resolved in
+ * the main process so the renderer can label and icon the menu without probing
+ * the machine itself.
+ */
+export interface DesktopOpenWithApp {
+	id: string;
+	name: string;
+	kind: "editor" | "fileManager" | "terminal";
+	/** Real application icon as a data URL, absent when it could not be read. */
+	iconDataUrl?: string;
+}
+
+export interface DesktopOpenWithInput {
+	appId: string;
+}
+
+/** A live shell owned by the main process. */
+export interface DesktopTerminalSession {
+	id: string;
+	shell: string;
+	cwd: string;
+}
+
+export interface DesktopTerminalCreateInput {
+	cols: number;
+	rows: number;
+}
+
+export interface DesktopTerminalWriteInput {
+	id: string;
+	data: string;
+}
+
+export interface DesktopTerminalResizeInput {
+	id: string;
+	cols: number;
+	rows: number;
+}
+
+export interface DesktopTerminalCloseInput {
+	id: string;
+}
+
+export interface DesktopTerminalDataEvent {
+	id: string;
+	data: string;
+}
+
+export interface DesktopTerminalExitEvent {
+	id: string;
+	exitCode: number;
+}
+
 export interface DesktopSessionStats {
 	sessionId: string;
 	userMessages: number;
@@ -447,6 +501,7 @@ export interface DesktopProviderModelConfig {
 	thinkingLevelMap?: Record<string, string | null>;
 	/** Provider compatibility flags (for example DeepSeek thinking format). */
 	compat?: Record<string, unknown>;
+
 	input?: string[];
 	contextWindow?: number;
 	maxTokens?: number;
@@ -551,6 +606,17 @@ export interface DesktopDeleteSessionInput {
 
 export interface DesktopProjectTrustInput {
 	trusted: boolean;
+}
+
+/**
+ * How much the agent may do without asking. "ask" prompts for every tool call,
+ * "autoEdit" also lets file changes through, and "full" lets everything through
+ * — including command execution, which is what a self-service install needs.
+ */
+export type DesktopPermissionMode = "ask" | "autoEdit" | "full";
+
+export interface DesktopPermissionModeInput {
+	mode: DesktopPermissionMode;
 }
 
 export interface DesktopToolApprovalDecisionInput {
@@ -728,6 +794,25 @@ export interface DesktopApi {
 	onExtensionUi(listener: DesktopExtensionUiListener): Unsubscribe;
 	onWorkspaceChanged(listener: (changes: DesktopWorkspaceChange[]) => void): Unsubscribe;
 	openExternalUrl(url: string): Promise<void>;
+	/**
+	 * Handing the workspace root to another application. The request names an app
+	 * from the main-process catalog rather than a path: the main process is already
+	 * the authority on which project is open, so the renderer cannot aim these at
+	 * an arbitrary location.
+	 */
+	getOpenWithApps(): Promise<DesktopOpenWithApp[]>;
+	openWorkspaceWith(input: DesktopOpenWithInput): Promise<void>;
+	/**
+	 * The integrated terminal: a shell owned by the main process whose working
+	 * directory is always the trusted workspace root. Output and exit are pushed
+	 * rather than polled.
+	 */
+	createTerminal(input: DesktopTerminalCreateInput): Promise<DesktopTerminalSession>;
+	writeTerminal(input: DesktopTerminalWriteInput): Promise<void>;
+	resizeTerminal(input: DesktopTerminalResizeInput): Promise<void>;
+	closeTerminal(input: DesktopTerminalCloseInput): Promise<void>;
+	onTerminalData(listener: (event: DesktopTerminalDataEvent) => void): Unsubscribe;
+	onTerminalExit(listener: (event: DesktopTerminalExitEvent) => void): Unsubscribe;
 	notifyComplete(input?: DesktopNotificationInput): Promise<void>;
 	listGitChanges(): Promise<DesktopGitChange[]>;
 	getGitDiff(input: DesktopGitDiffInput): Promise<string>;
@@ -743,6 +828,8 @@ export interface DesktopApi {
 	minimizeWindow(): Promise<void>;
 	toggleWindowMaximize(): Promise<boolean>;
 	closeWindow(): Promise<void>;
+	/** Sets the approval policy for tool calls in new and running sessions. */
+	setPermissionMode(input: DesktopPermissionModeInput): Promise<void>;
 	getModelsConfig(): Promise<DesktopProviderConfig[]>;
 	saveModelsConfig(input: DesktopSaveModelsConfigInput): Promise<DesktopSnapshot>;
 	getModelScope(): Promise<DesktopModelScope>;
@@ -1169,4 +1256,56 @@ export function isDesktopWorkspaceDirectoryPath(value: unknown): value is string
 		!value.includes("\0") &&
 		value.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..")
 	);
+}
+
+export function isDesktopPermissionModeInput(value: unknown): value is DesktopPermissionModeInput {
+	return (
+		isExactRecord(value, ["mode"]) && (value.mode === "ask" || value.mode === "autoEdit" || value.mode === "full")
+	);
+}
+
+export function isDesktopOpenWithInput(value: unknown): value is DesktopOpenWithInput {
+	return (
+		isExactRecord(value, ["appId"]) &&
+		typeof value.appId === "string" &&
+		value.appId.length > 0 &&
+		value.appId.length <= 60 &&
+		/^[a-z][a-z0-9-]*$/u.test(value.appId)
+	);
+}
+
+/** Terminal ids are minted by the main process; the renderer only echoes them. */
+function isTerminalId(value: unknown): value is string {
+	return typeof value === "string" && /^terminal-\d{1,6}$/u.test(value);
+}
+
+function isTerminalDimension(value: unknown): value is number {
+	return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 1_000;
+}
+
+export function isDesktopTerminalCreateInput(value: unknown): value is DesktopTerminalCreateInput {
+	return isExactRecord(value, ["cols", "rows"]) && isTerminalDimension(value.cols) && isTerminalDimension(value.rows);
+}
+
+export function isDesktopTerminalWriteInput(value: unknown): value is DesktopTerminalWriteInput {
+	return (
+		isExactRecord(value, ["id", "data"]) &&
+		isTerminalId(value.id) &&
+		typeof value.data === "string" &&
+		value.data.length > 0 &&
+		value.data.length <= 256 * 1024
+	);
+}
+
+export function isDesktopTerminalResizeInput(value: unknown): value is DesktopTerminalResizeInput {
+	return (
+		isExactRecord(value, ["id", "cols", "rows"]) &&
+		isTerminalId(value.id) &&
+		isTerminalDimension(value.cols) &&
+		isTerminalDimension(value.rows)
+	);
+}
+
+export function isDesktopTerminalCloseInput(value: unknown): value is DesktopTerminalCloseInput {
+	return isExactRecord(value, ["id"]) && isTerminalId(value.id);
 }

@@ -8,6 +8,8 @@ import type {
 	DesktopModelSelectionInput,
 	DesktopNavigateTreeInput,
 	DesktopOpenSessionInput,
+	DesktopOpenWithApp,
+	DesktopPermissionModeInput,
 	DesktopPluginPackageFilterInput,
 	DesktopPluginPackagesResult,
 	DesktopProviderConfig,
@@ -21,6 +23,9 @@ import type {
 	DesktopSkillUpdateResult,
 	DesktopSnapshot,
 	DesktopSnapshotListener,
+	DesktopTerminalDataEvent,
+	DesktopTerminalExitEvent,
+	DesktopTerminalSession,
 	DesktopToolApprovalDecisionInput,
 	DesktopUpdateDownloadInput,
 	DesktopUpdateDownloadState,
@@ -395,6 +400,46 @@ export function closeWindow(): Promise<void> {
 
 export function openExternalUrl(url: string): Promise<void> {
 	return window.piDesktop.openExternalUrl(url);
+}
+
+export function getOpenWithApps(): Promise<DesktopOpenWithApp[]> {
+	return window.piDesktop.getOpenWithApps();
+}
+
+export function openWorkspaceWith(appId: string): Promise<void> {
+	return window.piDesktop.openWorkspaceWith({ appId });
+}
+
+export function setPermissionMode(mode: "ask" | "autoEdit" | "full"): Promise<void> {
+	return window.piDesktop.setPermissionMode({ mode });
+}
+
+export function createTerminal(cols: number, rows: number): Promise<DesktopTerminalSession> {
+	return window.piDesktop.createTerminal({ cols, rows });
+}
+
+export function writeTerminal(id: string, data: string): Promise<void> {
+	return window.piDesktop.writeTerminal({ id, data });
+}
+
+export function resizeTerminal(id: string, cols: number, rows: number): Promise<void> {
+	return window.piDesktop.resizeTerminal({ id, cols, rows });
+}
+
+export function closeTerminal(id: string): Promise<void> {
+	return window.piDesktop.closeTerminal({ id });
+}
+
+export function onTerminalData(
+	listener: (event: DesktopTerminalDataEvent) => void,
+): ReturnType<typeof window.piDesktop.onTerminalData> {
+	return window.piDesktop.onTerminalData(listener);
+}
+
+export function onTerminalExit(
+	listener: (event: DesktopTerminalExitEvent) => void,
+): ReturnType<typeof window.piDesktop.onTerminalExit> {
+	return window.piDesktop.onTerminalExit(listener);
 }
 
 export function getModelsConfig(): Promise<DesktopProviderConfig[]> {

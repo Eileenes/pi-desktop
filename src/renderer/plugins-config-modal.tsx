@@ -217,6 +217,37 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 		return () => window.clearTimeout(timeout);
 	}, [removeArmed]);
 
+	/*
+	 * Installing and updating are confirmed in the app's own dialog rather than a
+	 * native alert, so the prompt keeps the app's look and stays reachable while
+	 * the window is not focused.
+	 */
+	const [confirmAction, setConfirmAction] = useState<{
+		kind: "install" | "update";
+		source: string;
+		local: boolean;
+	}>();
+
+	async function performConfirmed(): Promise<void> {
+		const action = confirmAction;
+		if (!action) return;
+		setConfirmAction(undefined);
+		if (action.kind === "install") {
+			await run(
+				"install",
+				async () => {
+					await installPlugin(action.source, action.local);
+					setInstallSource("");
+					setSelectedKey(`${action.local ? "project" : "user"}\0${action.source}`);
+					return true;
+				},
+				t("installedPlugin", { source: action.source }),
+			);
+			return;
+		}
+		await run("update", () => updatePlugin(action.source, action.local), t("pluginUpdated"));
+	}
+
 	async function run(
 		actionName: NonNullable<typeof busyAction>,
 		action: () => Promise<boolean | undefined>,
@@ -240,16 +271,40 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 	async function handleInstall(): Promise<void> {
 		const source = normalizeInstallSource(installSource);
 		if (!source) return;
-		await run(
-			"install",
-			async () => {
-				const performed = await installPlugin(source, installScope === "project");
-				if (!performed) return false;
-				setInstallSource("");
-				setSelectedKey(`${installScope}\0${source}`);
-				return true;
-			},
-			t("installedPlugin", { source }),
+		setConfirmAction({ kind: "install", source, local: installScope === "project" });
+	}
+
+	function renderConfirmDialog() {
+		if (!confirmAction) return null;
+		return (
+			// biome-ignore lint/a11y/noStaticElementInteractions: backdrop pointer handling does not expose an interactive control
+			<div
+				className="models-nested-backdrop"
+				role="presentation"
+				onMouseDown={(event) => {
+					if (event.target === event.currentTarget) setConfirmAction(undefined);
+				}}
+			>
+				<div className="models-discard-dialog" role="dialog" aria-modal="true">
+					<strong>
+						{confirmAction.kind === "install" ? t("confirmPluginInstall") : t("confirmPluginUpdate")}
+					</strong>
+					<p>{confirmAction.source}</p>
+					<div>
+						<button className="outline-button" type="button" onClick={() => setConfirmAction(undefined)}>
+							{t("cancel")}
+						</button>
+						<button
+							className="accent-button"
+							type="button"
+							disabled={busy}
+							onClick={() => void performConfirmed()}
+						>
+							{confirmAction.kind === "install" ? t("installPluginAction") : t("update")}
+						</button>
+					</div>
+				</div>
+			</div>
 		);
 	}
 
@@ -462,11 +517,11 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 										type="button"
 										disabled={busy || (selected.scope === "project" && !projectResourcesLoaded)}
 										onClick={() =>
-											void run(
-												"update",
-												() => updatePlugin(selected.source, selected.scope === "project"),
-												t("pluginUpdated"),
-											)
+											setConfirmAction({
+												kind: "update",
+												source: selected.source,
+												local: selected.scope === "project",
+											})
 										}
 									>
 										{busyAction === "update" ? t("updatingPlugin") : t("update")}
@@ -603,6 +658,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 					{t("close")}
 				</button>
 			</footer>
+			{renderConfirmDialog()}
 		</Modal>
 	);
 });

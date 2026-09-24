@@ -12,7 +12,9 @@ export type SecurityAuditEvent =
 	| "plugin.filters"
 	| "skill.install"
 	| "skill.toggle"
+	| "terminal.session"
 	| "tool.approval"
+	| "workspace.open"
 	| "workspace.trust";
 
 export interface SecurityAuditRecord {

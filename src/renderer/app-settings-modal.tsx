@@ -14,6 +14,7 @@ import {
 } from "./desktop-store.ts";
 import { useI18n } from "./i18n.ts";
 import { Modal } from "./modal.tsx";
+import { UpdateButton } from "./update-button.tsx";
 
 interface AppSettingsModalProps {
 	theme: "dark" | "light";
@@ -347,6 +348,15 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 							</span>
 							<input type="checkbox" checked={closeQuits} onChange={handleToggleCloseQuits} />
 						</label>
+						<div className="toggle-row">
+							<span>
+								<strong>{t("appUpdate")}</strong>
+								<small>
+									{t("currentVersionLabel")} v{__APP_VERSION__}
+								</small>
+							</span>
+							<UpdateButton variant="settings" />
+						</div>
 						<button className="outline-button settings-quit" type="button" onClick={() => void quitApp()}>
 							{t("quitPi")}
 						</button>

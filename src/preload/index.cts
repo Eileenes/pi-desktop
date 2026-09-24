@@ -6,6 +6,9 @@ import type {
 	DesktopBashOutputInput,
 	DesktopConfirmedPluginActionResult,
 	DesktopAddWorktreeInput,
+	DesktopOpenWithApp,
+	DesktopPermissionModeInput,
+	DesktopOpenWithInput,
 	DesktopDiscoverModelsInput,
 	DesktopGitChange,
 	DesktopGitBranches,
@@ -53,6 +56,13 @@ import type {
 	DesktopUpdateDownloadState,
 	DesktopUpdateInfo,
 	DesktopUsageActivity,
+	DesktopTerminalCloseInput,
+	DesktopTerminalCreateInput,
+	DesktopTerminalDataEvent,
+	DesktopTerminalExitEvent,
+	DesktopTerminalResizeInput,
+	DesktopTerminalSession,
+	DesktopTerminalWriteInput,
 	DesktopWorkspaceFileInput,
 	Unsubscribe,
 } from "../shared/contracts.ts" with { "resolution-mode": "import" };
@@ -130,6 +140,29 @@ const desktopApi: DesktopApi = {
 		ipcRenderer.invoke("pi-desktop:save-workspace-file", input) as Promise<string>,
 	openExternalUrl: (url: string) =>
 		ipcRenderer.invoke("pi-desktop:open-external-url", url) as Promise<void>,
+	getOpenWithApps: () => ipcRenderer.invoke("pi-desktop:get-open-with-apps") as Promise<DesktopOpenWithApp[]>,
+	openWorkspaceWith: (input: DesktopOpenWithInput) =>
+		ipcRenderer.invoke("pi-desktop:open-workspace-with", input) as Promise<void>,
+	setPermissionMode: (input: DesktopPermissionModeInput) =>
+		ipcRenderer.invoke("pi-desktop:set-permission-mode", input) as Promise<void>,
+	createTerminal: (input: DesktopTerminalCreateInput) =>
+		ipcRenderer.invoke("pi-desktop:terminal-create", input) as Promise<DesktopTerminalSession>,
+	writeTerminal: (input: DesktopTerminalWriteInput) =>
+		ipcRenderer.invoke("pi-desktop:terminal-write", input) as Promise<void>,
+	resizeTerminal: (input: DesktopTerminalResizeInput) =>
+		ipcRenderer.invoke("pi-desktop:terminal-resize", input) as Promise<void>,
+	closeTerminal: (input: DesktopTerminalCloseInput) =>
+		ipcRenderer.invoke("pi-desktop:terminal-close", input) as Promise<void>,
+	onTerminalData(listener: (event: DesktopTerminalDataEvent) => void): Unsubscribe {
+		const subscription = (_event: IpcRendererEvent, value: DesktopTerminalDataEvent) => listener(value);
+		ipcRenderer.on("pi-desktop:terminal-data", subscription);
+		return () => ipcRenderer.removeListener("pi-desktop:terminal-data", subscription);
+	},
+	onTerminalExit(listener: (event: DesktopTerminalExitEvent) => void): Unsubscribe {
+		const subscription = (_event: IpcRendererEvent, value: DesktopTerminalExitEvent) => listener(value);
+		ipcRenderer.on("pi-desktop:terminal-exit", subscription);
+		return () => ipcRenderer.removeListener("pi-desktop:terminal-exit", subscription);
+	},
 	notifyComplete: (input?: DesktopNotificationInput) =>
 		ipcRenderer.invoke("pi-desktop:notify-complete", input) as Promise<void>,
 	listGitChanges: () => ipcRenderer.invoke("pi-desktop:list-git-changes") as Promise<DesktopGitChange[]>,

@@ -28,6 +28,11 @@ describe("renderer translations", () => {
 			"source",
 			"preview",
 			"diff",
+			"openWithTitle",
+			"openWithMain",
+			"openWithChoose",
+			"terminalTitle",
+			"toggleTerminal",
 		] as const;
 		for (const key of keys) {
 			expect(translate("zh-CN", key).trim()).not.toBe("");

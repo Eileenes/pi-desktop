@@ -9,6 +9,8 @@ import type {
 	DesktopImageAttachment,
 	DesktopImportedFileResult,
 	DesktopModel,
+	DesktopOpenWithApp,
+	DesktopPermissionMode,
 	DesktopSessionInfo,
 	DesktopSessionPhase,
 	DesktopThinkingLevel,
@@ -52,6 +54,7 @@ import {
 	getDesktopSnapshot,
 	getDesktopStartupError,
 	getGitDiff,
+	getOpenWithApps,
 	importDroppedFiles,
 	listGitChanges,
 	listGitWorktrees,
@@ -66,6 +69,7 @@ import {
 	openSession,
 	openWorkspaceFile,
 	openWorkspacePath,
+	openWorkspaceWith,
 	readFullBashOutput,
 	readWorkspaceFile,
 	reloadSession,
@@ -80,6 +84,7 @@ import {
 	searchWorkspaceFiles,
 	sendExtensionCustomInput,
 	setModel,
+	setPermissionMode,
 	setProjectTrust,
 	setThinkingLevel,
 	startDesktopStore,
@@ -101,10 +106,48 @@ import { SearchDialog } from "./search-dialog.tsx";
 import { ContextUsageRing, SessionStatsPanel } from "./session-stats.tsx";
 import { SkillsConfigModal } from "./skills-config-modal.tsx";
 import { getLanguageForPath, HighlightedCode } from "./syntax-highlight.tsx";
+import { TerminalPanel } from "./terminal-panel.tsx";
 import { TokenActivityModal } from "./token-activity-modal.tsx";
 import { buildConversationTurns, partitionTranscript } from "./transcript-group.ts";
+import { UpdateButton } from "./update-button.tsx";
 import { UpdateReminder } from "./update-reminder.tsx";
 import { WorktreeSection } from "./worktree-selector.tsx";
+
+/** The configuration surfaces, reached from the footer's single entry point. */
+const FOOTER_SETTINGS_ENTRIES: ReadonlyArray<{
+	modal: ConfigModal;
+	icon: IconName;
+	label: TranslationKey;
+}> = [
+	{ modal: "settings", icon: "gear", label: "settings" },
+	{ modal: "models", icon: "model", label: "models" },
+	{ modal: "plugins", icon: "plugin", label: "plugins" },
+	{ modal: "skills", icon: "skill", label: "skills" },
+	{ modal: "usage", icon: "chart", label: "tokenActivity" },
+];
+
+/** Approval policies, in the order the menu lists them. */
+const PERMISSION_MODES: readonly DesktopPermissionMode[] = ["ask", "autoEdit", "full"];
+
+const PERMISSION_LABELS: Record<DesktopPermissionMode, TranslationKey> = {
+	ask: "permissionAsk",
+	autoEdit: "permissionAutoEdit",
+	full: "permissionFull",
+};
+
+const PERMISSION_HINTS: Record<DesktopPermissionMode, TranslationKey> = {
+	ask: "permissionAskHint",
+	autoEdit: "permissionAutoEditHint",
+	full: "permissionFullHint",
+};
+
+const LABEL_CHAR_LIMIT = 5;
+
+/** Cuts a label to the sidebar's character budget; the tooltip keeps the rest. */
+function truncateLabel(text: string): string {
+	const characters = [...text];
+	return characters.length > LABEL_CHAR_LIMIT ? `${characters.slice(0, LABEL_CHAR_LIMIT).join("")}…` : text;
+}
 
 type IconName =
 	| "branch"
@@ -112,6 +155,7 @@ type IconName =
 	| "chart"
 	| "chat"
 	| "chevron"
+	| "chevronDown"
 	| "close"
 	| "code"
 	| "compact"
@@ -124,6 +168,9 @@ type IconName =
 	| "history"
 	| "image"
 	| "model"
+	| "monitor"
+	| "newChat"
+	| "package"
 	| "moon"
 	| "more"
 	| "panel"
@@ -131,6 +178,10 @@ type IconName =
 	| "plus"
 	| "search"
 	| "send"
+	| "shield"
+	| "stop"
+	| "edit"
+	| "check"
 	| "skill"
 	| "sparkles"
 	| "speaker"
@@ -300,6 +351,67 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 			<svg {...shared} aria-hidden="true">
 				<path d="M6 3h8l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" />
 				<path d="M14 3v4h4M9 13h6M9 17h4" />
+			</svg>
+		);
+	}
+	if (name === "package") {
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="m7.5 4.3 9 5.2" />
+				<path d="M21 8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+				<path d="m3.3 7 8.7 5 8.7-5" />
+				<path d="M12 22V12" />
+			</svg>
+		);
+	}
+	if (name === "chevronDown")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="m6 9 6 6 6-6" />
+			</svg>
+		);
+	if (name === "monitor") {
+		return (
+			<svg {...shared} aria-hidden="true">
+				<rect x="3" y="4.5" width="18" height="12" rx="2" />
+				<path d="M8 20h8M12 16.5V20" />
+			</svg>
+		);
+	}
+	if (name === "newChat") {
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M12 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-6" />
+				<path d="M18.4 3.6a2 2 0 0 1 2.8 2.8L12 15.6l-4 .8.8-4z" />
+			</svg>
+		);
+	}
+	if (name === "shield") {
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M12 3.5 5 6.4v5.1c0 4 3 7.4 7 8.9 4-1.5 7-4.9 7-8.9V6.4z" />
+			</svg>
+		);
+	}
+	if (name === "stop") {
+		return (
+			<svg {...shared} aria-hidden="true">
+				<rect x="6" y="6" width="12" height="12" rx="2.5" />
+			</svg>
+		);
+	}
+	if (name === "edit") {
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M12 20h9" />
+				<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z" />
+			</svg>
+		);
+	}
+	if (name === "check") {
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="m5 12.5 4.5 4.5L19 7" />
 			</svg>
 		);
 	}
@@ -1126,17 +1238,28 @@ const TranscriptMessage = memo(function TranscriptMessage({
 				</div>
 			) : (
 				<div className="message-actions">
-					<button type="button" onClick={() => void copyMessage()} disabled={!message.text}>
-						{copied ? t("copied") : t("copy")}
+					<button
+						type="button"
+						aria-label={copied ? t("copied") : t("copy")}
+						title={copied ? t("copied") : t("copy")}
+						onClick={() => void copyMessage()}
+						disabled={!message.text}
+					>
+						<Icon name={copied ? "check" : "copy"} size={14} />
 					</button>
 					{!isAssistant && (message.text || message.blocks?.some((block) => block.type === "image")) ? (
-						<button type="button" onClick={() => onEdit(message)}>
-							{t("edit")}
+						<button type="button" aria-label={t("edit")} title={t("edit")} onClick={() => onEdit(message)}>
+							<Icon name="edit" size={14} />
 						</button>
 					) : null}
 					{!isAssistant && message.forkEntryId ? (
-						<button type="button" onClick={() => onFork(message.forkEntryId ?? "")}>
-							Fork
+						<button
+							type="button"
+							aria-label="Fork"
+							title="Fork"
+							onClick={() => onFork(message.forkEntryId ?? "")}
+						>
+							<Icon name="branch" size={14} />
 						</button>
 					) : null}
 				</div>
@@ -2248,9 +2371,24 @@ export function App() {
 		() => Number(localStorage.getItem("pi-desktop-file-tree-width")) || 280,
 	);
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+	const [composerProjectMenuOpen, setComposerProjectMenuOpen] = useState(false);
+	const [composerProjectMenuAnchor, setComposerProjectMenuAnchor] = useState<{ left: number; bottom: number }>();
+	const [branchMenuOpen, setBranchMenuOpen] = useState(false);
 	const [sessionMenuOpen, setSessionMenuOpen] = useState<string>();
 	const [deleteSessionPath, setDeleteSessionPath] = useState<string>();
 	const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+	const [terminalOpen, setTerminalOpen] = useState(false);
+	const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
+	/*
+	 * Approval policy mirrored for display; the host owns the real policy.
+	 */
+	const [permissionMode, setPermissionModeState] = useState<DesktopPermissionMode>(() => {
+		const stored = localStorage.getItem("pi-desktop-permission-mode");
+		return stored === "autoEdit" || stored === "full" ? stored : "ask";
+	});
+	const [openWithMenuOpen, setOpenWithMenuOpen] = useState(false);
+	const [openWithApps, setOpenWithApps] = useState<DesktopOpenWithApp[]>([]);
+	const [openWithAppId, setOpenWithAppId] = useState(() => localStorage.getItem("pi-desktop-open-with") ?? "finder");
 	const [renamingSession, setRenamingSession] = useState<{ path: string; name: string }>();
 	const [modelFilter, setModelFilter] = useState("");
 	const [projectRowMenuOpen, setProjectRowMenuOpen] = useState<string>();
@@ -2303,6 +2441,48 @@ export function App() {
 			setNotices((current) => current.filter((notice) => notice.id !== id));
 		}, 5000);
 	}, []);
+	// Installed apps are machine-specific, so the catalog is resolved once at startup.
+	useEffect(() => {
+		void getOpenWithApps().then(setOpenWithApps, () => setOpenWithApps([]));
+	}, []);
+
+	const openWith = useCallback(
+		async (appId: string): Promise<void> => {
+			setOpenWithMenuOpen(false);
+			try {
+				await openWorkspaceWith(appId);
+			} catch (error) {
+				pushNotice("error", error instanceof Error ? error.message : String(error));
+			}
+		},
+		[pushNotice],
+	);
+
+	const handlePermissionChange = useCallback(
+		async (mode: DesktopPermissionMode): Promise<void> => {
+			setPermissionModeState(mode);
+			localStorage.setItem("pi-desktop-permission-mode", mode);
+			try {
+				await setPermissionMode(mode);
+			} catch (error) {
+				pushNotice("error", error instanceof Error ? error.message : String(error));
+			}
+		},
+		[pushNotice],
+	);
+
+	// The host holds the policy, so the remembered choice is re-applied on launch.
+	useEffect(() => {
+		const stored = localStorage.getItem("pi-desktop-permission-mode");
+		void setPermissionMode(stored === "autoEdit" || stored === "full" ? stored : "ask").catch(() => undefined);
+	}, []);
+
+	const handleToggleOpenWithMenu = useCallback((): void => {
+		setMoreMenuOpen(false);
+		setTopPanel(undefined);
+		setOpenWithMenuOpen((current) => !current);
+	}, []);
+
 	const [workspaceEntries, setWorkspaceEntries] = useState<DesktopWorkspaceEntry[]>([]);
 	const [mentionEntries, setMentionEntries] = useState<DesktopWorkspaceEntry[]>([]);
 	const [gitWorktrees, setGitWorktrees] = useState<DesktopGitWorktree[]>([]);
@@ -2338,7 +2518,9 @@ export function App() {
 			return new Set();
 		}
 	});
-	const [composerMenu, setComposerMenu] = useState<"project" | "model" | "thinking" | "tools" | undefined>();
+	const [composerMenu, setComposerMenu] = useState<
+		"project" | "model" | "thinking" | "tools" | "permission" | undefined
+	>();
 	const [composerControlsOpen, setComposerControlsOpen] = useState(false);
 	const [historyMenuOpen, setHistoryMenuOpen] = useState(false);
 	const [historyActiveIndex, setHistoryActiveIndex] = useState(-1);
@@ -2394,6 +2576,15 @@ export function App() {
 		[session?.availableThinkingLevels],
 	);
 	const thinkingLabel = getThinkingDisplayLabel(selectedThinkingLevel, activeModel?.thinkingLevelMap);
+	// The persisted choice is only honoured while that app is still installed.
+	const selectedOpenWith = openWithApps.find((app) => app.id === openWithAppId) ?? openWithApps[0];
+
+	const composerBranch = (() => {
+		const root = snapshot.workspacePath?.replace(/[\\/]+$/u, "");
+		if (!root) return undefined;
+		return gitWorktrees.find((tree) => tree.path.replace(/[\\/]+$/u, "") === root)?.branch;
+	})();
+
 	const extensionStatusLine = useMemo(
 		() => formatExtensionStatusLine(snapshot.extensionStatuses ?? []),
 		[snapshot.extensionStatuses],
@@ -2699,6 +2890,7 @@ export function App() {
 		hadTransientUi: false,
 		running: false,
 		newSession: handleNewSession,
+		toggleTerminal: (): void => undefined,
 		abort: handleAbort,
 	});
 	shortcutStateRef.current = {
@@ -2720,6 +2912,7 @@ export function App() {
 		),
 		running: session?.phase === "running",
 		newSession: handleNewSession,
+		toggleTerminal: () => setTerminalOpen((isOpen) => !isOpen),
 		abort: handleAbort,
 	};
 	useEffect(() => {
@@ -2731,6 +2924,10 @@ export function App() {
 			} else if (event.key.toLowerCase() === "n") {
 				event.preventDefault();
 				void shortcutStateRef.current.newSession();
+			} else if (event.key.toLowerCase() === "j") {
+				// Matches the reference app's terminal toggle binding.
+				event.preventDefault();
+				void shortcutStateRef.current.toggleTerminal();
 			}
 		};
 		window.addEventListener("keydown", onKeyDown);
@@ -2742,7 +2939,7 @@ export function App() {
 			setComposerControlsOpen(false);
 			setHistoryMenuOpen(false);
 			setTopPanel(undefined);
-			setProjectMenuOpen(false);
+			close();
 			setSessionMenuOpen(undefined);
 			setMoreMenuOpen(false);
 			setFileActionsMenuOpen(false);
@@ -2807,30 +3004,55 @@ export function App() {
 		return () => media.removeEventListener("change", updateTheme);
 	}, [themeFollowsSystem]);
 	useEffect(() => {
-		if (!projectMenuOpen && !sessionMenuOpen && !moreMenuOpen && !fileActionsMenuOpen && !projectRowMenuOpen) return;
+		if (
+			!projectMenuOpen &&
+			!composerProjectMenuOpen &&
+			!branchMenuOpen &&
+			!sessionMenuOpen &&
+			!moreMenuOpen &&
+			!settingsMenuOpen &&
+			!fileActionsMenuOpen &&
+			!projectRowMenuOpen
+		)
+			return;
 		const close = (event: MouseEvent) => {
 			const target = event.target;
 			if (!(target instanceof Element)) {
 				setProjectMenuOpen(false);
+				setComposerProjectMenuOpen(false);
+				setBranchMenuOpen(false);
 				setSessionMenuOpen(undefined);
 				setDeleteSessionPath(undefined);
 				setMoreMenuOpen(false);
+				setSettingsMenuOpen(false);
 				setFileActionsMenuOpen(false);
 				setProjectRowMenuOpen(undefined);
 				return;
 			}
 			if (!target.closest(".project-menu-root")) {
 				setProjectMenuOpen(false);
+				setComposerProjectMenuOpen(false);
+				setBranchMenuOpen(false);
 				setProjectRowMenuOpen(undefined);
 			}
 			if (!target.closest(".session-row-wrap")) setSessionMenuOpen(undefined);
 			if (!target.closest(".top-bar-more-wrap")) setMoreMenuOpen(false);
+			if (!target.closest(".footer-menu-wrap")) setSettingsMenuOpen(false);
 			if (!target.closest(".file-actions-menu-anchor")) setFileActionsMenuOpen(false);
 			if (!target.closest(".top-bar")) setTopPanel(undefined);
 		};
 		document.addEventListener("mousedown", close);
 		return () => document.removeEventListener("mousedown", close);
-	}, [projectMenuOpen, sessionMenuOpen, moreMenuOpen, fileActionsMenuOpen, projectRowMenuOpen]);
+	}, [
+		projectMenuOpen,
+		composerProjectMenuOpen,
+		branchMenuOpen,
+		sessionMenuOpen,
+		moreMenuOpen,
+		settingsMenuOpen,
+		fileActionsMenuOpen,
+		projectRowMenuOpen,
+	]);
 	useEffect(() => {
 		if (historyActiveIndex < promptHistoryRef.current.length) return;
 		setHistoryActiveIndex(Math.max(0, promptHistoryRef.current.length - 1));
@@ -4107,7 +4329,9 @@ export function App() {
 										>
 											<Icon name="folder" size={15} />
 											<span className="sidebar-project-tree-copy">
-												<span className="sidebar-project-tree-name">{formatWorkspace(root, t)}</span>
+												<span className="sidebar-project-tree-name" title={formatWorkspace(root, t)}>
+													{truncateLabel(formatWorkspace(root, t))}
+												</span>
 												{branch ? <small>⎇ {formatGitBranch(branch)}</small> : null}
 											</span>
 										</button>
@@ -4228,7 +4452,9 @@ export function App() {
 																<span className="session-row-icon">
 																	<Icon name="chat" size={14} />
 																</span>
-																<span className="session-row-title">{sessionTitle(item, t)}</span>
+																<span className="session-row-title" title={sessionTitle(item, t)}>
+																	{truncateLabel(sessionTitle(item, t))}
+																</span>
 																{item.phase === "running" || item.phase === "error" ? (
 																	<span className={`session-status-badge is-${item.phase}`}>
 																		<span className="session-status-dot" aria-hidden="true" />
@@ -4368,7 +4594,7 @@ export function App() {
 	const bashMode = !attachments.length && draft.startsWith("!");
 	const macOSClassName = navigator.userAgent.includes("Macintosh") ? "is-macos" : "";
 
-	function renderProjectMenu() {
+	function renderProjectMenu(close: () => void = () => setProjectMenuOpen(false)) {
 		const query = projectFilter.trim().toLocaleLowerCase();
 		const archivedProjectPaths = [...archivedProjectRoots].sort((left, right) => left.localeCompare(right));
 		const activeProjectRoots = [
@@ -4398,7 +4624,7 @@ export function App() {
 							}
 							return next;
 						});
-						setProjectMenuOpen(false);
+						close();
 					}}
 				>
 					<Icon name="compact" size={14} />
@@ -4409,7 +4635,7 @@ export function App() {
 					type="button"
 					disabled={!canChooseWorkspace}
 					onClick={() => {
-						setProjectMenuOpen(false);
+						close();
 						void handleChooseWorkspace();
 					}}
 				>
@@ -4436,7 +4662,7 @@ export function App() {
 								title={path}
 								disabled={session?.phase === "running"}
 								onClick={() => {
-									setProjectMenuOpen(false);
+									close();
 									void handleSwitchWorkspacePath(path);
 									setProjectFilter("");
 								}}
@@ -4465,7 +4691,7 @@ export function App() {
 										next.delete(path);
 										return next;
 									});
-									setProjectMenuOpen(false);
+									close();
 								}}
 							>
 								<Icon name="folder" size={14} />
@@ -4481,7 +4707,7 @@ export function App() {
 						workspacePath={snapshot.workspacePath}
 						projectTrusted={snapshot.projectTrusted}
 						onSwitch={(path) => {
-							setProjectMenuOpen(false);
+							close();
 							void handleSwitchWorkspacePath(path);
 						}}
 					/>
@@ -4564,56 +4790,46 @@ export function App() {
 						onClick={() => void handleNewSession()}
 					>
 						<Icon name="plus" size={16} />
-						<span>{t("newChat")}</span>
+						<span>{t("newSessionShort")}</span>
 					</button>
 				</header>
 				<div className="sidebar-content">{renderSidebar()}</div>
 				<footer className="sidebar-footer">
-					<button
-						aria-label={t("models")}
-						className="footer-button"
-						title={t("models")}
-						type="button"
-						onClick={() => setConfigModal("models")}
-					>
-						<Icon name="model" size={16} />
-					</button>
-					<button
-						aria-label={t("skills")}
-						className="footer-button"
-						title={t("skills")}
-						type="button"
-						onClick={() => setConfigModal("skills")}
-					>
-						<Icon name="skill" size={16} />
-					</button>
-					<button
-						aria-label={t("plugins")}
-						className="footer-button"
-						title={t("plugins")}
-						type="button"
-						onClick={() => setConfigModal("plugins")}
-					>
-						<Icon name="plugin" size={16} />
-					</button>
-					<button
-						aria-label={t("tokenActivity")}
-						className="footer-button is-icon"
-						title={t("tokenActivity")}
-						type="button"
-						onClick={() => setConfigModal("usage")}
-					>
-						<Icon name="chart" size={16} />
-					</button>
-					<button
-						aria-label={t("settings")}
-						className="footer-button is-icon is-settings"
-						title={t("settings")}
-						type="button"
-						onClick={() => setConfigModal("settings")}
-					>
-						<Icon name="gear" size={16} />
-					</button>
+					<div className="footer-menu-wrap">
+						<button
+							aria-label={t("settings")}
+							aria-expanded={settingsMenuOpen}
+							aria-haspopup="menu"
+							className={`footer-button is-icon is-settings ${settingsMenuOpen ? "is-active" : ""}`}
+							title={t("settings")}
+							type="button"
+							onClick={() => setSettingsMenuOpen((open) => !open)}
+						>
+							<Icon name="gear" size={16} />
+						</button>
+						{settingsMenuOpen ? (
+							<div className="footer-menu" role="menu">
+								{FOOTER_SETTINGS_ENTRIES.map((entry) => (
+									<button
+										key={entry.modal}
+										className="footer-menu-item"
+										type="button"
+										role="menuitem"
+										onClick={() => {
+											setSettingsMenuOpen(false);
+											setConfigModal(entry.modal);
+										}}
+									>
+										<span className="footer-menu-icon">
+											<Icon name={entry.icon} size={15} />
+										</span>
+										<span>{t(entry.label)}</span>
+									</button>
+								))}
+							</div>
+						) : null}
+					</div>
+					<UpdateButton variant="footer" />
 					<span className="footer-build" title={t("desktopApp")}>
 						v{__APP_VERSION__}
 					</span>
@@ -4650,7 +4866,7 @@ export function App() {
 				/>
 			) : null}
 			<section
-				className={`chat-workspace ${!session?.messages.length ? "is-session-empty" : ""}`}
+				className={`chat-workspace ${!session?.messages.length ? "is-session-empty" : ""} ${terminalOpen ? "has-terminal" : ""}`}
 				aria-label={t("chatAria")}
 			>
 				<header className="top-bar">
@@ -4667,7 +4883,7 @@ export function App() {
 					{/* One line, like the reference's .ct-title; the second line of detail
 					    stays reachable through the tooltip. */}
 					<div className="chat-title" title={topBarSubtitle ? `${topBarTitle} — ${topBarSubtitle}` : topBarTitle}>
-						<span>{topBarTitle}</span>
+						<span title={topBarTitle}>{truncateLabel(topBarTitle)}</span>
 					</div>
 					<div className="top-bar-actions">
 						<button
@@ -4690,6 +4906,18 @@ export function App() {
 							open={topPanel === "branches"}
 							onToggle={() => setTopPanel((current) => (current === "branches" ? undefined : "branches"))}
 						/>
+						<button
+							className={`native-toolbar-button ${terminalOpen ? "is-active" : ""}`}
+							type="button"
+							aria-label={t("toggleTerminal")}
+							title={t("toggleTerminal")}
+							aria-expanded={terminalOpen}
+							disabled={!snapshot.workspacePath}
+							onClick={() => setTerminalOpen((isOpen) => !isOpen)}
+						>
+							<Icon name="terminal" size={12} />
+							<span>{t("toggleTerminal")}</span>
+						</button>
 						<div className="top-bar-more-wrap">
 							<button
 								className={`native-toolbar-button app-topbar-more-trigger ${moreMenuOpen ? "is-active" : ""}`}
@@ -4762,6 +4990,141 @@ export function App() {
 											<small>{statsSummary ?? t("noStats")}</small>
 										</span>
 									</button>
+									{(["none", "default", "full"] as const).map((preset) => (
+										<button
+											key={preset}
+											className="app-topbar-more-item"
+											type="button"
+											disabled={!canChangeToolPreset}
+											onClick={() => {
+												setMoreMenuOpen(false);
+												void handleToolPresetChange(preset);
+											}}
+										>
+											<span className="app-topbar-more-icon">
+												<Icon name="wrench" size={14} />
+											</span>
+											<span className="app-topbar-more-copy">
+												<span>
+													{t(
+														`toolPreset${preset[0].toUpperCase()}${preset.slice(1)}` as
+															| "toolPresetNone"
+															| "toolPresetDefault"
+															| "toolPresetFull",
+													)}
+													{preset === toolPreset ? " ✓" : ""}
+												</span>
+												<small>
+													{t(
+														`toolPreset${preset[0].toUpperCase()}${preset.slice(1)}Description` as
+															| "toolPresetNoneDescription"
+															| "toolPresetDefaultDescription"
+															| "toolPresetFullDescription",
+													)}
+												</small>
+											</span>
+										</button>
+									))}
+									<button
+										className="app-topbar-more-item"
+										type="button"
+										disabled={!session || aborting}
+										onClick={() => {
+											setMoreMenuOpen(false);
+											void (compacting ? handleAbort() : handleCompact());
+										}}
+									>
+										<span className="app-topbar-more-icon">
+											<Icon name="compact" size={14} />
+										</span>
+										<span className="app-topbar-more-copy">
+											<span>{compacting ? t("stopCompact") : t("compact")}</span>
+											<small>{t("compactContextAria")}</small>
+										</span>
+									</button>
+									<button
+										className="app-topbar-more-item"
+										type="button"
+										onClick={() => {
+											if (!soundOnComplete) unlockCompletionAudio();
+											setSoundOnComplete((current) => !current);
+										}}
+									>
+										<span className="app-topbar-more-icon">
+											<Icon name={soundOnComplete ? "speaker" : "speakerOff"} size={14} />
+										</span>
+										<span className="app-topbar-more-copy">
+											<span>
+												{soundOnComplete ? t("soundOn") : t("soundOff")}
+												{soundOnComplete ? " ✓" : ""}
+											</span>
+											<small>{t("toggleSoundAria")}</small>
+										</span>
+									</button>
+								</div>
+							) : null}
+						</div>
+						<div className="top-bar-more-wrap top-bar-openwith-wrap open-with-group">
+							<button
+								className="native-toolbar-button open-with-main"
+								type="button"
+								aria-label={t("openWithMain", { name: selectedOpenWith?.name ?? "" })}
+								title={t("openWithMain", { name: selectedOpenWith?.name ?? "" })}
+								disabled={!snapshot.workspacePath || !selectedOpenWith}
+								onClick={() => {
+									if (selectedOpenWith) void openWith(selectedOpenWith.id);
+								}}
+							>
+								{selectedOpenWith?.iconDataUrl ? (
+									<img alt="" aria-hidden="true" src={selectedOpenWith.iconDataUrl} />
+								) : (
+									<Icon name="external" size={14} />
+								)}
+								<span>{selectedOpenWith?.name ?? t("openWithTitle")}</span>
+							</button>
+							<button
+								className={`native-toolbar-button open-with-chevron ${openWithMenuOpen ? "is-active" : ""}`}
+								type="button"
+								aria-label={t("openWithChoose")}
+								title={t("openWithChoose")}
+								aria-expanded={openWithMenuOpen}
+								disabled={!snapshot.workspacePath}
+								onClick={handleToggleOpenWithMenu}
+							>
+								<Icon name="chevronDown" size={12} />
+							</button>
+							{openWithMenuOpen ? (
+								<div className="top-bar-more-menu open-with-menu" role="menu">
+									{openWithApps.map((app) => (
+										<button
+											key={app.id}
+											className="app-topbar-more-item open-with-item"
+											type="button"
+											role="menuitemradio"
+											aria-checked={app.id === selectedOpenWith?.id}
+											onClick={() => {
+												setOpenWithAppId(app.id);
+												localStorage.setItem("pi-desktop-open-with", app.id);
+												void openWith(app.id);
+											}}
+										>
+											<span className="app-topbar-more-icon">
+												{app.iconDataUrl ? (
+													<img alt="" aria-hidden="true" src={app.iconDataUrl} />
+												) : (
+													<Icon name="external" size={14} />
+												)}
+											</span>
+											<span className="app-topbar-more-copy">
+												<span>{app.name}</span>
+											</span>
+											{app.id === selectedOpenWith?.id ? (
+												<span className="open-with-check" aria-hidden="true">
+													✓
+												</span>
+											) : null}
+										</button>
+									))}
 								</div>
 							) : null}
 						</div>
@@ -5013,6 +5376,11 @@ export function App() {
 												count: session.runningTools.length,
 											})
 										: t("waitingForModel")}
+									<span className="running-dots" aria-hidden="true">
+										<i />
+										<i />
+										<i />
+									</span>
 								</output>
 							) : null}
 							{session?.autoRetry ? (
@@ -5079,6 +5447,61 @@ export function App() {
 					<ExtensionWidgetStack
 						widgets={(snapshot.extensionWidgets ?? []).filter((widget) => widget.placement === "aboveEditor")}
 					/>
+					{snapshot.workspacePath ? (
+						<div className="composer-project-line">
+							<div className="composer-project-anchor project-menu-root">
+								<button
+									className="composer-project-item"
+									type="button"
+									title={snapshot.workspacePath}
+									aria-expanded={composerProjectMenuOpen}
+									aria-haspopup="menu"
+									onClick={(event) => {
+										const rect = event.currentTarget.getBoundingClientRect();
+										setComposerProjectMenuAnchor({
+											left: rect.left,
+											bottom: window.innerHeight - rect.top + 6,
+										});
+										setComposerProjectMenuOpen((open) => !open);
+									}}
+								>
+									<Icon name="folder" size={14} />
+									<span>{formatWorkspace(snapshot.workspacePath, t)}</span>
+								</button>
+								{composerProjectMenuOpen ? (
+									<div className="composer-project-menu-host" style={composerProjectMenuAnchor}>
+										{renderProjectMenu(() => setComposerProjectMenuOpen(false))}
+									</div>
+								) : null}
+							</div>
+							{composerBranch ? (
+								<div className="composer-project-anchor project-menu-root">
+									<button
+										className="composer-project-item"
+										type="button"
+										aria-expanded={branchMenuOpen}
+										aria-haspopup="menu"
+										onClick={() => setBranchMenuOpen((open) => !open)}
+									>
+										<Icon name="branch" size={14} />
+										<span>{formatGitBranch(composerBranch)}</span>
+									</button>
+									{branchMenuOpen ? (
+										<div className="project-menu composer-branch-menu" role="menu">
+											<WorktreeSection
+												workspacePath={snapshot.workspacePath}
+												projectTrusted={snapshot.projectTrusted}
+												onSwitch={(path) => {
+													setBranchMenuOpen(false);
+													void handleSwitchWorkspacePath(path);
+												}}
+											/>
+										</div>
+									) : null}
+								</div>
+							) : null}
+						</div>
+					) : null}
 					<div className="composer-inner">
 						{slashActive ? (
 							<div className="slash-menu" role="listbox" aria-label={t("slashCommandsAria")}>
@@ -5389,88 +5812,39 @@ export function App() {
 									</button>
 									<div className="composer-control-anchor">
 										<button
-											className="composer-control-button chat-project-context"
+											className={`composer-control-button composer-permission-trigger is-${permissionMode}`}
 											type="button"
-											disabled={!canChooseWorkspace}
-											title={snapshot.workspacePath ?? t("pickProjectFolder")}
-											aria-expanded={composerMenu === "project"}
+											disabled={!session}
+											aria-label={t("permissionLabel")}
+											aria-expanded={composerMenu === "permission"}
 											aria-haspopup="menu"
-											onClick={() => {
-												setProjectFilter("");
-												setComposerMenu((current) => (current === "project" ? undefined : "project"));
-											}}
+											title={t(PERMISSION_HINTS[permissionMode])}
+											onClick={() =>
+												setComposerMenu((current) => (current === "permission" ? undefined : "permission"))
+											}
 										>
-											<Icon name="folder" size={15} />
-											<span>
-												{snapshot.workspacePath
-													? (snapshot.workspacePath.split(/[\\/]/u).filter(Boolean).at(-1) ??
-														snapshot.workspacePath)
-													: t("chooseProjectLabel")}
-											</span>
+											<Icon name="shield" size={14} />
+											<span>{t(PERMISSION_LABELS[permissionMode])}</span>
 										</button>
-										{composerMenu === "project" ? (
-											<div className="composer-popover project-composer-popover" role="menu">
-												<button
-													type="button"
-													onClick={() => {
-														setComposerMenu(undefined);
-														void openDefaultWorkspace().catch((error: unknown) =>
-															setActionError(error instanceof Error ? error.message : String(error)),
-														);
-													}}
-												>
-													{t("useDefaultDirectory")}
-												</button>
-												<button
-													type="button"
-													onClick={() => {
-														setComposerMenu(undefined);
-														void handleChooseWorkspace();
-													}}
-												>
-													<Icon name="folder" size={13} />
-													{t("chooseFolder")}
-												</button>
-												{recentWorkspaces.length > 7 ? (
-													<input
-														className="composer-popover-filter"
-														value={projectFilter}
-														onChange={(event) => setProjectFilter(event.target.value)}
-														placeholder={t("filterProjects")}
-														aria-label={t("filterProjects")}
-													/>
-												) : null}
-												{knownWorkspacePaths
-													.filter(
-														(path) =>
-															!projectFilter.trim() ||
-															path
-																.toLocaleLowerCase()
-																.includes(projectFilter.trim().toLocaleLowerCase()),
-													)
-													.slice(0, projectFilter.trim() ? undefined : 7)
-													.map((path) => (
-														<button
-															key={path}
-															type="button"
-															className={path === snapshot.workspacePath ? "is-current" : ""}
-															onClick={() => {
-																setComposerMenu(undefined);
-																setProjectFilter("");
-																void handleSwitchWorkspacePath(path);
-															}}
-														>
-															{path === snapshot.workspacePath ? "✓ " : ""}
-															{formatWorkspace(path, t)}
-														</button>
-													))}
-												{knownWorkspacePaths.length > 0 &&
-												knownWorkspacePaths.every(
-													(path) =>
-														!path.toLocaleLowerCase().includes(projectFilter.trim().toLocaleLowerCase()),
-												) ? (
-													<p className="composer-popover-empty">{t("noMatchingProjects")}</p>
-												) : null}
+										{composerMenu === "permission" ? (
+											<div className="composer-popover permission-popover" role="menu">
+												{PERMISSION_MODES.map((mode) => (
+													<button
+														key={mode}
+														type="button"
+														className={mode === permissionMode ? "is-current" : ""}
+														onClick={() => {
+															setComposerMenu(undefined);
+															void handlePermissionChange(mode);
+														}}
+													>
+														<span>{mode === permissionMode ? "✓" : ""}</span>
+														<span className="permission-option-copy">
+															<span>{t(PERMISSION_LABELS[mode])}</span>
+															<small>{t(PERMISSION_HINTS[mode])}</small>
+														</span>
+													</button>
+												))}
 											</div>
 										) : null}
 									</div>
@@ -5545,10 +5919,53 @@ export function App() {
 											</div>
 										) : null}
 									</div>
-									<ContextUsageRing
-										stats={snapshot.sessionStats}
-										onToggle={() => setTopPanel((current) => (current === "session" ? undefined : "session"))}
-									/>
+									<div className="composer-control-anchor is-right">
+										<button
+											className="composer-control-button"
+											type="button"
+											disabled={!session}
+											aria-label={t("changeThinkingAria")}
+											aria-expanded={composerMenu === "thinking"}
+											aria-haspopup="menu"
+											title={
+												scopedThinkingFixed
+													? t("scopeThinkingFixed", { level: scopedThinkingFixed })
+													: t("changeThinkingAria")
+											}
+											onClick={() =>
+												setComposerMenu((current) => (current === "thinking" ? undefined : "thinking"))
+											}
+										>
+											<Icon name="bulb" size={14} />
+											<span>
+												{thinkingLabel}
+												{scopedThinkingFixed && selectedThinkingLevel === scopedThinkingFixed
+													? t("scopeSuffix")
+													: ""}
+											</span>
+										</button>
+										{composerMenu === "thinking" ? (
+											<div className="composer-popover thinking-composer-popover" role="menu">
+												{thinkingLevels.map((level) => {
+													const current = level === selectedThinkingLevel;
+													return (
+														<button
+															key={level}
+															type="button"
+															className={current ? "is-current" : ""}
+															onClick={() => void handleChangeThinking(level)}
+														>
+															<span>{current ? "✓" : ""}</span>
+															<span>
+																{getThinkingDisplayLabel(level, activeModel?.thinkingLevelMap)}
+															</span>
+															<small>{t(THINKING_LEVEL_DESCRIPTION_KEYS[level])}</small>
+														</button>
+													);
+												})}
+											</div>
+										) : null}
+									</div>
 									{extensionStatusLine ? (
 										<output className="extension-status-bar" title={plainExtensionStatusLine}>
 											{parseAnsiLine(extensionStatusLine).map((segment, index) => (
@@ -5577,150 +5994,18 @@ export function App() {
 										compactComposerControls && !composerControlsOpen ? " is-collapsed" : ""
 									}`}
 								>
-									{session?.phase !== "running" ? (
-										<>
-											<div className="composer-control-anchor is-right">
-												<button
-													className="composer-control-button"
-													type="button"
-													disabled={!session}
-													aria-label={t("changeThinkingAria")}
-													aria-expanded={composerMenu === "thinking"}
-													aria-haspopup="menu"
-													title={
-														scopedThinkingFixed
-															? t("scopeThinkingFixed", { level: scopedThinkingFixed })
-															: t("changeThinkingAria")
-													}
-													onClick={() =>
-														setComposerMenu((current) =>
-															current === "thinking" ? undefined : "thinking",
-														)
-													}
-												>
-													<Icon name="bulb" size={14} />
-													<span>
-														{thinkingLabel}
-														{scopedThinkingFixed && selectedThinkingLevel === scopedThinkingFixed
-															? t("scopeSuffix")
-															: ""}
-													</span>
-												</button>
-												{composerMenu === "thinking" ? (
-													<div className="composer-popover thinking-composer-popover" role="menu">
-														{thinkingLevels.map((level) => {
-															const current = level === selectedThinkingLevel;
-															return (
-																<button
-																	key={level}
-																	type="button"
-																	className={current ? "is-current" : ""}
-																	onClick={() => void handleChangeThinking(level)}
-																>
-																	<span>{current ? "✓" : ""}</span>
-																	<span>
-																		{getThinkingDisplayLabel(level, activeModel?.thinkingLevelMap)}
-																	</span>
-																	<small>{t(THINKING_LEVEL_DESCRIPTION_KEYS[level])}</small>
-																</button>
-															);
-														})}
-													</div>
-												) : null}
-											</div>
-											<div className="composer-control-anchor is-right">
-												<button
-													className="composer-control-button"
-													type="button"
-													disabled={!canChangeToolPreset}
-													aria-label={t("changeToolPresetAria")}
-													aria-expanded={composerMenu === "tools"}
-													aria-haspopup="menu"
-													title={
-														snapshot.projectTrusted
-															? t("changeToolPresetAria")
-															: t("toolPresetRequiresTrust")
-													}
-													onClick={() =>
-														setComposerMenu((current) => (current === "tools" ? undefined : "tools"))
-													}
-												>
-													<Icon name="wrench" size={14} />
-													<span>
-														{t(
-															`toolPreset${toolPreset[0].toUpperCase()}${toolPreset.slice(1)}` as
-																| "toolPresetNone"
-																| "toolPresetDefault"
-																| "toolPresetFull",
-														)}
-													</span>
-												</button>
-												{composerMenu === "tools" ? (
-													<div className="composer-popover" role="menu">
-														{(["none", "default", "full"] as const).map((preset) => (
-															<button
-																key={preset}
-																type="button"
-																className={`tool-preset-option${preset === toolPreset ? " is-current" : ""}`}
-																onClick={() => void handleToolPresetChange(preset)}
-															>
-																<span>{preset === toolPreset ? "✓" : ""}</span>
-																<span>
-																	{t(
-																		`toolPreset${preset[0].toUpperCase()}${preset.slice(1)}` as
-																			| "toolPresetNone"
-																			| "toolPresetDefault"
-																			| "toolPresetFull",
-																	)}
-																</span>
-																<small>
-																	{t(
-																		`toolPreset${preset[0].toUpperCase()}${preset.slice(1)}Description` as
-																			| "toolPresetNoneDescription"
-																			| "toolPresetDefaultDescription"
-																			| "toolPresetFullDescription",
-																	)}
-																</small>
-															</button>
-														))}
-													</div>
-												) : null}
-											</div>
-											<button
-												className="composer-control-button"
-												type="button"
-												disabled={!session || aborting}
-												aria-label={t("compactContextAria")}
-												title={t("compactContextAria")}
-												onClick={() => void (compacting ? handleAbort() : handleCompact())}
-											>
-												<Icon name="compact" size={14} />
-												<span>{compacting ? t("stopCompact") : t("compact")}</span>
-											</button>
-										</>
-									) : (
+									{session?.phase === "running" ? (
 										<button
 											className="stop-button"
 											type="button"
 											disabled={aborting}
+											aria-label={aborting ? t("stopping") : t("stop")}
+											title={aborting ? t("stopping") : t("stop")}
 											onClick={() => void handleAbort()}
 										>
-											{aborting ? t("stopping") : t("stop")}
+											<Icon name="stop" size={16} />
 										</button>
-									)}
-									<button
-										className="composer-control-button"
-										type="button"
-										aria-label={t("toggleSoundAria")}
-										aria-pressed={soundOnComplete}
-										title={soundOnComplete ? t("soundOn") : t("soundOff")}
-										onClick={() => {
-											if (!soundOnComplete) unlockCompletionAudio();
-											setSoundOnComplete((current) => !current);
-										}}
-									>
-										<Icon name={soundOnComplete ? "speaker" : "speakerOff"} size={14} />
-									</button>
+									) : null}
 									{compactComposerControls ? (
 										<button
 											className="composer-control-button composer-close-controls"
@@ -5752,15 +6037,23 @@ export function App() {
 										</button>
 									</div>
 								) : (
-									<button
-										className="send-button composer-send-button"
-										type="submit"
-										disabled={!canSubmit}
-										aria-label={submitting ? t("sending") : t("send")}
-										title={submitting ? t("sending") : t("send")}
-									>
-										<Icon name="send" size={15} />
-									</button>
+									<>
+										<ContextUsageRing
+											stats={snapshot.sessionStats}
+											onToggle={() =>
+												setTopPanel((current) => (current === "session" ? undefined : "session"))
+											}
+										/>
+										<button
+											className="send-button composer-send-button"
+											type="submit"
+											disabled={!canSubmit}
+											aria-label={submitting ? t("sending") : t("send")}
+											title={submitting ? t("sending") : t("send")}
+										>
+											<Icon name="send" size={15} />
+										</button>
+									</>
 								)}
 							</div>
 						</div>
@@ -5769,6 +6062,7 @@ export function App() {
 						widgets={(snapshot.extensionWidgets ?? []).filter((widget) => widget.placement === "belowEditor")}
 					/>
 				</form>
+				<TerminalPanel open={terminalOpen} onOpenChange={setTerminalOpen} />
 			</section>
 			{inspectorOpen ? (
 				<hr

@@ -46,6 +46,33 @@
 	--ds-bg-composer: color-mix(in oklab, var(--gray-800) 96%, transparent);
 	--ds-bg-chip: color-mix(in oklab, var(--gray-0) 6%, transparent);
 
+	/*
+	 * Integrated terminal. xterm needs concrete colours, so these are plain values
+	 * rather than color-mix() expressions, and the renderer reads them back out of
+	 * the computed style when it themes the emulator.
+	 */
+	--ds-terminal-bg: #0d0d0d;
+	--ds-terminal-fg: #e5e5e5;
+	--ds-terminal-cursor: #e5e5e5;
+	--ds-terminal-cursor-accent: #0d0d0d;
+	--ds-terminal-selection: rgba(125, 125, 125, 0.3);
+	--ds-terminal-black: #1f2937;
+	--ds-terminal-red: #ef4444;
+	--ds-terminal-green: #22c55e;
+	--ds-terminal-yellow: #eab308;
+	--ds-terminal-blue: #3b82f6;
+	--ds-terminal-magenta: #a855f7;
+	--ds-terminal-cyan: #06b6d4;
+	--ds-terminal-white: #e5e7eb;
+	--ds-terminal-bright-black: #6b7280;
+	--ds-terminal-bright-red: #f87171;
+	--ds-terminal-bright-green: #4ade80;
+	--ds-terminal-bright-yellow: #facc15;
+	--ds-terminal-bright-blue: #60a5fa;
+	--ds-terminal-bright-magenta: #c084fc;
+	--ds-terminal-bright-cyan: #22d3ee;
+	--ds-terminal-bright-white: #f9fafb;
+
 	/* Ink. One alpha ramp covers the secondary/muted/faint tier so each step
 	 * keeps its contrast over hover and elevated fills too. */
 	--ds-text-primary: var(--gray-0);
@@ -328,6 +355,29 @@
 	--ds-bg-active: color-mix(in oklab, #1a1c1f 8%, transparent);
 	--ds-bg-composer: #fff;
 	--ds-bg-chip: color-mix(in oklab, #1a1c1f 4%, transparent);
+
+	/* Terminal palette for a light window. */
+	--ds-terminal-bg: #fff;
+	--ds-terminal-fg: #1a1c1f;
+	--ds-terminal-cursor: #1a1c1f;
+	--ds-terminal-cursor-accent: #fff;
+	--ds-terminal-selection: rgba(26, 28, 31, 0.18);
+	--ds-terminal-black: #24292f;
+	--ds-terminal-red: #cf222e;
+	--ds-terminal-green: #1a7f37;
+	--ds-terminal-yellow: #9a6700;
+	--ds-terminal-blue: #0969da;
+	--ds-terminal-magenta: #8250df;
+	--ds-terminal-cyan: #1b7c83;
+	--ds-terminal-white: #6e7781;
+	--ds-terminal-bright-black: #57606a;
+	--ds-terminal-bright-red: #a40e26;
+	--ds-terminal-bright-green: #1a7f37;
+	--ds-terminal-bright-yellow: #7d4e00;
+	--ds-terminal-bright-blue: #0550ae;
+	--ds-terminal-bright-magenta: #6639ba;
+	--ds-terminal-bright-cyan: #0f6f74;
+	--ds-terminal-bright-white: #24292f;
 
 	--ds-text-primary: #1a1c1f;
 	--ds-text-secondary: color-mix(in oklab, #1a1c1f 74%, transparent);
@@ -661,8 +711,10 @@ html {
 	display: inline-flex;
 	min-width: 0;
 	align-items: center;
-	gap: 7px;
-	padding-left: 2px;
+	/* The mark sits on the block's left edge and the product name on the same
+	 * icon column the rows use. */
+	gap: 4px;
+	padding-left: 0;
 }
 
 .sidebar-brand-logo {
@@ -850,8 +902,9 @@ html {
 	align-items: center;
 	justify-content: space-between;
 	min-height: 34px;
-	margin: 4px 8px 0;
-	padding: 0 2px 0 8px;
+	margin: 4px 0 0;
+	/* The label sits on the block's own left edge, level with the row plates. */
+	padding: 0 2px 0 0;
 	color: var(--text-dim);
 	font-size: var(--text-md);
 	font-weight: 500;
@@ -914,8 +967,11 @@ html {
 }
 .sidebar-project-tree-action { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--radius-2xs); color: var(--muted); background: transparent; }
 .sidebar-project-tree-action:hover { color: var(--text); background: var(--hover); }
-.sidebar-project-tree-children { display: grid; gap: 2px; padding-left: 12px; }
-.sidebar-more-button { border: 0; background: transparent; color: var(--text-dim); font-size: var(--text-xs); text-align: left; padding: 5px 8px; }
+/* One left edge for the whole project block: the task list is not indented
+ * further, and .session-row carries the full inset itself, so the task plates,
+ * icons, and titles land on the same columns as the project row's. */
+.sidebar-project-tree-children { display: grid; gap: 2px; padding-left: 0; }
+.sidebar-more-button { border: 0; background: transparent; color: var(--text-dim); font-size: var(--text-xs); text-align: left; padding: 5px 0; }
 .sidebar-more-button:hover { color: var(--text); }
 
 
@@ -967,6 +1023,8 @@ html {
 	z-index: 50;
 	display: grid;
 	min-width: 260px;
+	/* Capped because a project path in an item's hint is wide and nowrap. */
+	max-width: 380px;
 	padding: 5px;
 	border: 1px solid var(--border-subtle);
 	border-radius: var(--radius-sm);
@@ -1574,7 +1632,8 @@ html {
 	min-width: 0;
 	align-items: center;
 	gap: 4px;
-	padding: 2px 3px 2px 8px;
+	/* Keeps the rename field on the same column as the task icon it replaces. */
+	padding: 2px 5px 2px 22px;
 }
 
 .session-inline-rename input {
@@ -8864,7 +8923,9 @@ summary:focus-visible {
 
 .session-row {
 	border-radius: var(--radius-sm);
-	padding-inline: 10px 5px;
+	/* Matches the project row's total inset (row padding + .sidebar-project-tree-row-main)
+	 * so the task icon column and title column line up with the project's. */
+	padding-inline: 22px 5px;
 }
 
 .sidebar-project-tree-row-main,
@@ -8928,9 +8989,8 @@ summary:focus-visible {
 	font-size: var(--text-sm-plus);
 }
 
-.chat-column,
-.composer-inner,
-
+/* Transcript inset only: the composer owns its own padding, so
+ * .composer-inner must not join this selector list. */
 .chat-column {
 	padding-top: 28px;
 }
@@ -10276,3 +10336,700 @@ summary:focus-visible {
 	user-select: none;
 }
 
+/*
+ * "Open with" split button: the main half acts on the remembered application and
+ * the chevron half picks a different one, which is the shape the reference app
+ * uses in this corner of the bar.
+ */
+.open-with-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 0;
+}
+
+.top-bar-actions .open-with-main,
+.top-bar-actions .open-with-chevron {
+	height: var(--ds-control-size);
+	width: auto;
+	min-width: 0;
+	border-radius: 0;
+	gap: 6px;
+	padding: 0 4px;
+}
+
+.top-bar-actions .open-with-main {
+	padding-left: 6px;
+	border-top-left-radius: var(--radius-2xs);
+	border-bottom-left-radius: var(--radius-2xs);
+}
+
+.top-bar-actions .open-with-chevron {
+	width: 20px;
+	padding: 0;
+	border-top-right-radius: var(--radius-2xs);
+	border-bottom-right-radius: var(--radius-2xs);
+}
+
+.top-bar-actions .open-with-main img,
+.open-with-item img {
+	width: 15px;
+	height: 15px;
+	flex: 0 0 auto;
+	object-fit: contain;
+}
+
+.top-bar-actions .open-with-main > span {
+	max-width: 110px;
+	overflow: hidden;
+	font-size: var(--text-xs);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.open-with-menu {
+	min-width: 200px;
+}
+
+.open-with-item {
+	position: relative;
+	padding-right: 26px;
+}
+
+.open-with-check {
+	position: absolute;
+	right: 8px;
+	color: var(--ds-text-primary);
+	font-size: var(--text-xs);
+}
+
+/* ------------------------------------------------------------------ *
+ * Integrated terminal
+ *
+ * Docked under the composer as the last row of the workspace grid. The panels
+ * own the theme tokens, and xterm reads them back when it themes itself.
+ * ------------------------------------------------------------------ */
+.terminal-panel {
+	display: flex;
+	height: var(--terminal-height, 280px);
+	min-height: 0;
+	flex-direction: column;
+	overflow: hidden;
+	background: var(--ds-terminal-bg);
+	border-top: 1px solid var(--ds-border-subtle);
+	transition: height var(--motion-duration-normal) var(--motion-ease-out);
+}
+
+.terminal-panel.is-collapsed {
+	height: 0;
+	border-top-color: transparent;
+}
+
+.terminal-resizer {
+	position: relative;
+	z-index: 5;
+	height: 8px;
+	margin-top: -4px;
+	flex: 0 0 8px;
+	cursor: row-resize;
+	touch-action: none;
+	background: transparent;
+}
+
+.terminal-resizer::after {
+	position: absolute;
+	top: 3px;
+	right: 0;
+	left: 0;
+	height: 2px;
+	border-radius: var(--radius-full);
+	background: transparent;
+	content: "";
+	transition: background var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.terminal-resizer:hover::after,
+.terminal-resizer:focus-visible::after,
+body.is-resizing-terminal .terminal-resizer::after {
+	background: color-mix(in oklab, var(--ds-accent) 60%, transparent);
+}
+
+body.is-resizing-terminal {
+	cursor: row-resize;
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+.terminal-panel-header {
+	display: flex;
+	height: 34px;
+	min-height: 34px;
+	align-items: center;
+	gap: var(--space-2);
+	padding: 0 var(--space-2) 0 var(--space-3);
+	border-bottom: 1px solid var(--ds-border-subtle);
+	color: var(--ds-text-secondary);
+}
+
+.terminal-panel-title {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: var(--space-2);
+	font-size: var(--text-sm);
+	font-weight: var(--font-weight-medium);
+}
+
+.terminal-panel-title small {
+	overflow: hidden;
+	color: var(--ds-text-faint);
+	font-size: var(--text-2xs);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.terminal-tabs {
+	display: flex;
+	min-width: 0;
+	flex: 1 1 auto;
+	align-items: center;
+	gap: 2px;
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+
+.terminal-tab {
+	display: inline-flex;
+	align-items: center;
+	border-radius: var(--radius-2xs);
+	color: var(--ds-text-muted);
+	background: transparent;
+}
+
+.terminal-tab.is-active {
+	color: var(--ds-text-primary);
+	background: var(--ds-bg-active);
+}
+
+.terminal-tab-label,
+.terminal-tab-close,
+.terminal-panel-actions button {
+	border: 0;
+	color: inherit;
+	background: transparent;
+	font-size: var(--text-xs);
+}
+
+.terminal-tab-label {
+	padding: 3px 2px 3px 8px;
+}
+
+.terminal-tab-close {
+	padding: 3px 6px 3px 2px;
+	opacity: 0.6;
+}
+
+.terminal-tab-close:hover,
+.terminal-panel-actions button:hover {
+	opacity: 1;
+}
+
+.terminal-panel-actions {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 2px;
+}
+
+.terminal-panel-actions button {
+	display: inline-grid;
+	width: 24px;
+	height: 24px;
+	place-items: center;
+	border-radius: var(--radius-2xs);
+	font-size: var(--text-md);
+}
+
+.terminal-panel-actions button:hover {
+	background: var(--ds-bg-hover);
+}
+
+.terminal-panel-body {
+	position: relative;
+	min-height: 0;
+	flex: 1 1 auto;
+}
+
+.terminal-pane {
+	position: absolute;
+	inset: 0;
+	display: none;
+	padding: 4px 6px 6px;
+}
+
+.terminal-pane.is-active {
+	display: block;
+}
+
+.terminal-host {
+	width: 100%;
+	height: 100%;
+}
+
+/* The scrollbar slider colour is the one thing xterm sets from the renderer at
+ * runtime; these rules keep it on the app's tokens either way. */
+.terminal-pane .xterm .xterm-scrollable-element > .scrollbar > .slider {
+	background: color-mix(in oklab, var(--ds-text-primary) 22%, transparent);
+}
+
+.terminal-pane .xterm .xterm-scrollable-element > .scrollbar > .slider:hover {
+	background: color-mix(in oklab, var(--ds-text-primary) 34%, transparent);
+}
+
+.terminal-pane .xterm .xterm-scrollable-element > .scrollbar > .slider.active {
+	background: color-mix(in oklab, var(--ds-text-primary) 46%, transparent);
+}
+
+.terminal-error {
+	display: block;
+	margin: 0 0 6px;
+	color: var(--ds-error);
+	font-size: var(--text-sm);
+}
+
+/*
+ * An empty session centres the composer in the pane, which would put it on top
+ * of the terminal; with the dock open it returns to the normal grid flow.
+ */
+.chat-workspace.is-session-empty.has-terminal .composer {
+	position: static;
+	transform: none;
+}
+
+
+/* Menu icons read as bare glyphs: the plate behind them added a box on every
+ * row without carrying any meaning. */
+.app-topbar-more-icon {
+	background: none;
+}
+
+/* Menu rows centre their icon on the label block; the icon no longer sits in a
+ * fixed plate, so a nudge would push it off the text's centre line. */
+.app-topbar-more-item {
+	align-items: center;
+}
+
+.app-topbar-more-icon {
+	width: 22px;
+	height: 22px;
+	margin-top: 0;
+}
+
+.app-topbar-more-copy > span {
+	line-height: var(--leading-tight);
+}
+
+/* The brand row and the primary action share the project block's left edge, so
+ * the whole sidebar reads as one column instead of three different insets. */
+.session-sidebar-header {
+	padding-left: 16px;
+}
+
+.new-chat-button {
+	justify-content: flex-start;
+	padding-left: 8px;
+}
+
+.new-chat-button > svg {
+	margin-left: 2px;
+}
+
+/*
+ * One plate per row, at one inset. The project plate used to be painted twice —
+ * by the row and again by the button inside it, 16px apart — which both doubled
+ * the tint (making the project read brighter than the selected task) and left
+ * the project's visible edge 16px right of the task's. The row is now a plain
+ * layout strip, and the button carries the whole inset so its plate starts where
+ * the task plates start.
+ */
+.sidebar-project-tree-row,
+.sidebar-project-tree-row:hover,
+.sidebar-project-tree-group.is-active .sidebar-project-tree-row {
+	background: transparent;
+}
+
+.sidebar-project-tree-row {
+	padding: 0 10px 0 0;
+}
+
+.sidebar-project-tree-row-main {
+	padding-left: 22px;
+}
+
+.sidebar-project-tree-group.is-active .sidebar-project-tree-row-main {
+	background: var(--hover-strong);
+}
+
+/*
+ * Sidebar rows share one geometry: the plate spans the row, the icon sits a
+ * uniform 10px inside it, and the label follows on one column. The project plate
+ * is drawn by the row itself so it is exactly as wide as a task's, and the
+ * primary action centres its glyph and label.
+ */
+.sidebar-project-tree-row {
+	padding: 0 10px 0 0;
+}
+
+.sidebar-project-tree-row:hover,
+.sidebar-project-tree-group.is-active .sidebar-project-tree-row {
+	background: var(--hover-strong);
+}
+
+.sidebar-project-tree-row-main,
+.sidebar-project-tree-row-main:hover,
+.sidebar-project-tree-group.is-active .sidebar-project-tree-row-main {
+	padding-left: 10px;
+	background: transparent;
+}
+
+.session-row {
+	padding-inline: 10px 5px;
+}
+
+.session-inline-rename {
+	padding: 2px 5px 2px 10px;
+}
+
+/* The lockup sits on the row columns: mark on the icon column, name on the text
+ * column. */
+.sidebar-brand-row {
+	padding-left: 10px;
+}
+
+.new-chat-button {
+	justify-content: center;
+	padding-inline: 10px;
+}
+
+.new-chat-button > svg {
+	margin-left: 0;
+}
+
+/*
+ * Menu rows never wrap: a long label used to break onto a second line and made
+ * that row twice as tall as its neighbours. The menu is capped so an overlong
+ * label ellipsises instead of stretching the panel.
+ */
+.project-menu,
+.session-more-menu {
+	max-width: 240px;
+}
+
+.project-menu-item,
+.session-more-menu button {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+/*
+ * One settings entry point in the footer. The menu opens upward from the gear,
+ * since the button sits on the window's bottom edge.
+ */
+.footer-menu-wrap {
+	position: relative;
+	display: inline-flex;
+}
+
+.footer-menu {
+	position: absolute;
+	bottom: calc(100% + 6px);
+	left: 0;
+	z-index: 60;
+	display: grid;
+	min-width: 168px;
+	padding: 5px;
+	border: 1px solid var(--ds-border-subtle);
+	border-radius: var(--radius-md-plus);
+	background: var(--ds-bg-elevated-opaque);
+	box-shadow: var(--ds-shadow-dialog);
+}
+
+.footer-menu-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 7px 10px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	color: var(--text);
+	background: transparent;
+	font-size: var(--text-sm-plus);
+	text-align: left;
+	white-space: nowrap;
+}
+
+.footer-menu-item:hover:not(:disabled) {
+	background: var(--ds-bg-hover);
+}
+
+.footer-menu-icon {
+	display: inline-grid;
+	width: 18px;
+	place-items: center;
+	color: var(--muted);
+}
+
+/*
+ * Update affordance. It reads as a quiet label beside the version, and only
+ * becomes a button when there is something to do.
+ */
+.footer-update-button,
+.settings-update-button {
+	padding: 2px 8px;
+	border: 1px solid color-mix(in oklab, var(--ds-success) 42%, transparent);
+	border-radius: var(--radius-full);
+	color: var(--ds-success);
+	background: color-mix(in oklab, var(--ds-success) 12%, transparent);
+	font-size: var(--text-2xs);
+	font-weight: var(--font-weight-medium);
+	white-space: nowrap;
+}
+
+.footer-update-button:hover:not(:disabled),
+.settings-update-button:hover:not(:disabled) {
+	background: color-mix(in oklab, var(--ds-success) 22%, transparent);
+}
+
+.footer-update-button:disabled,
+.settings-update-button:disabled {
+	color: var(--ds-text-muted);
+	border-color: color-mix(in oklab, var(--ds-text-primary) 14%, transparent);
+	background: color-mix(in oklab, var(--ds-text-primary) 6%, transparent);
+}
+
+.sidebar-footer {
+	gap: 6px;
+}
+
+/* A gap between the project row and its task list: their plates share an edge
+ * otherwise, which reads as one merged block. */
+.sidebar-project-tree-children {
+	padding-top: 4px;
+}
+
+/*
+ * The stop control takes the send button's slot, so it takes its geometry: a
+ * 28px circle with no frame. The danger tint is what distinguishes it, not a
+ * border, which is why the old boxed version read as an empty frame with a
+ * small glyph adrift inside it.
+ */
+.stop-button {
+	display: inline-grid;
+	width: var(--ds-control-size);
+	height: var(--ds-control-size);
+	min-width: var(--ds-control-size);
+	flex: 0 0 var(--ds-control-size);
+	place-items: center;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-round);
+	color: var(--ds-error);
+	background: color-mix(in oklab, var(--ds-error) 16%, transparent);
+	transition: background var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.stop-button:hover:not(:disabled) {
+	border: 0;
+	background: color-mix(in oklab, var(--ds-error) 28%, transparent);
+}
+
+.stop-button:disabled {
+	background: color-mix(in oklab, var(--ds-error) 8%, transparent);
+}
+
+/* Message actions are glyphs, so they take a square hit target instead of text
+ * padding, and the copied state reads as a tick rather than a word. */
+.message-actions button {
+	display: inline-grid;
+	width: 22px;
+	height: 22px;
+	min-width: 22px;
+	place-items: center;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-2xs);
+	color: inherit;
+	background: transparent;
+}
+
+.message-actions button:hover:not(:disabled) {
+	color: var(--ds-text-primary);
+	background: var(--hover);
+}
+
+/*
+ * Activity cue for a run in progress: three dots that light in sequence. Without
+ * it a long tool call is indistinguishable from a frozen window.
+ */
+.agent-running-status .running-dots {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	margin-left: 5px;
+}
+
+.agent-running-status .running-dots i {
+	width: 3px;
+	height: 3px;
+	border-radius: var(--radius-round);
+	background: currentcolor;
+	opacity: 0.25;
+	animation: running-dot 1.2s var(--motion-ease-standard) infinite;
+}
+
+.agent-running-status .running-dots i:nth-child(2) {
+	animation-delay: 0.15s;
+}
+
+.agent-running-status .running-dots i:nth-child(3) {
+	animation-delay: 0.3s;
+}
+
+@keyframes running-dot {
+	0%,
+	60%,
+	100% {
+		opacity: 0.25;
+	}
+
+	20% {
+		opacity: 1;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.agent-running-status .running-dots i {
+		animation: none;
+		opacity: 0.6;
+	}
+}
+
+/* The composer field is a fixed height with its own scroll, so a long draft
+ * scrolls inside the box instead of growing it down the window. */
+.composer textarea {
+	height: 3lh;
+	min-height: 3lh;
+	max-height: 3lh;
+	overflow-y: auto;
+}
+
+/*
+ * Project line above the composer, matching the reference: one quiet row of
+ * icon + label chips sitting on the box's left edge.
+ */
+.composer-project-line {
+	display: flex;
+	align-items: center;
+	gap: 18px;
+	width: min(var(--ds-composer-max-width), 100%);
+	margin: 0 auto 8px;
+	padding-left: 14px;
+	color: var(--ds-text-muted);
+	font-size: var(--text-sm);
+}
+
+.composer-project-item {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+
+.composer-project-item > svg {
+	flex: 0 0 auto;
+	opacity: 0.72;
+}
+
+.composer-project-item > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+
+.composer-project-anchor {
+	position: relative;
+	display: inline-flex;
+	min-width: 0;
+}
+
+.composer-project-item {
+	border: 0;
+	color: inherit;
+	background: transparent;
+	font: inherit;
+	cursor: pointer;
+}
+
+.composer-project-item:hover {
+	color: var(--ds-text-primary);
+}
+
+.composer-project-anchor .project-menu {
+	position: fixed;
+	bottom: auto;
+	left: auto;
+	z-index: 80;
+	right: auto;
+	width: max-content;
+	min-width: 220px;
+	height: max-content;
+	max-height: min(360px, 46vh);
+	overflow: auto;
+}
+
+/* The workspace clips overflow, so the project row's menus have to escape it. */
+.chat-workspace:has(.composer-project-anchor .project-menu) {
+	overflow: visible;
+}
+
+
+
+.composer-project-menu-host {
+	position: fixed;
+	z-index: 80;
+}
+
+.composer-project-menu-host .project-menu {
+	position: static;
+	right: auto;
+	width: max-content;
+	min-width: 220px;
+	height: max-content;
+	max-height: min(360px, 46vh);
+}
+
+.permission-popover button {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	white-space: normal;
+}
+
+.permission-popover button > span:first-child {
+	width: 12px;
+	flex: 0 0 12px;
+	line-height: 1.4;
+}
+
+.permission-option-copy {
+	display: grid;
+	gap: 2px;
+	min-width: 0;
+}
+
+.permission-option-copy small {
+	color: var(--ds-text-muted);
+	font-size: var(--text-xs);
+	line-height: 1.4;
+}

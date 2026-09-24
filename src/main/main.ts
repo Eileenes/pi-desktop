@@ -24,7 +24,9 @@ import {
 	type DesktopDirectoryEntry,
 	type DesktopDirectoryListing,
 	type DesktopImageAttachment,
+	type DesktopOpenWithApp,
 	type DesktopSnapshot,
+	type DesktopTerminalSession,
 	type DesktopWorkspaceChange,
 	isDesktopAddWorktreeInput,
 	isDesktopAuthenticationPromptResponseInput,
@@ -35,7 +37,9 @@ import {
 	isDesktopNavigateTreeInput,
 	isDesktopOpenExternalUrlInput,
 	isDesktopOpenSessionInput,
+	isDesktopOpenWithInput,
 	isDesktopOpenWorkspacePathInput,
+	isDesktopPermissionModeInput,
 	isDesktopPluginPackageFilterInput,
 	isDesktopPluginSourceInput,
 	isDesktopProjectTrustInput,
@@ -46,6 +50,10 @@ import {
 	isDesktopRestoreImageAttachmentsInput,
 	isDesktopRestoreMessageImagesInput,
 	isDesktopSaveModelsConfigInput,
+	isDesktopTerminalCloseInput,
+	isDesktopTerminalCreateInput,
+	isDesktopTerminalResizeInput,
+	isDesktopTerminalWriteInput,
 	isDesktopToggleSkillInput,
 	isDesktopToolApprovalDecisionInput,
 	isDesktopUpdateDownloadInput,
@@ -822,6 +830,63 @@ function registerIpc(): void {
 		}
 		await getHost().openExternalUrl(value);
 	});
+	/*
+	 * "Open with" handoffs name an app from the main-process catalog and carry no
+	 * path: the workspace root is the only target, and the host owns that path.
+	 */
+	ipcMain.handle("pi-desktop:get-open-with-apps", (event, value: unknown): Promise<DesktopOpenWithApp[]> => {
+		assertMainWindowSender(event);
+		if (value !== undefined) {
+			throw new Error("无效的应用列表请求。");
+		}
+		return getHost().getOpenWithApps();
+	});
+	ipcMain.handle("pi-desktop:open-workspace-with", async (event, value: unknown): Promise<void> => {
+		assertMainWindowSender(event);
+		if (!isDesktopOpenWithInput(value)) {
+			throw new Error("无效的打开请求。");
+		}
+		await getHost().openWorkspaceWith(value.appId);
+	});
+	/*
+	 * Integrated terminal. The renderer never supplies a directory: the host owns
+	 * the trusted project root, and it is what every shell is opened in.
+	 */
+	ipcMain.handle("pi-desktop:set-permission-mode", (event, value: unknown): void => {
+		assertMainWindowSender(event);
+		if (!isDesktopPermissionModeInput(value)) {
+			throw new Error("无效的权限模式。");
+		}
+		getHost().setPermissionMode(value.mode);
+	});
+	ipcMain.handle("pi-desktop:terminal-create", (event, value: unknown): DesktopTerminalSession => {
+		assertMainWindowSender(event);
+		if (!isDesktopTerminalCreateInput(value)) {
+			throw new Error("无效的终端请求。");
+		}
+		return getHost().createTerminalSession(value.cols, value.rows);
+	});
+	ipcMain.handle("pi-desktop:terminal-write", (event, value: unknown): void => {
+		assertMainWindowSender(event);
+		if (!isDesktopTerminalWriteInput(value)) {
+			throw new Error("无效的终端输入。");
+		}
+		getHost().writeTerminalSession(value.id, value.data);
+	});
+	ipcMain.handle("pi-desktop:terminal-resize", (event, value: unknown): void => {
+		assertMainWindowSender(event);
+		if (!isDesktopTerminalResizeInput(value)) {
+			throw new Error("无效的终端尺寸。");
+		}
+		getHost().resizeTerminalSession(value.id, value.cols, value.rows);
+	});
+	ipcMain.handle("pi-desktop:terminal-close", (event, value: unknown): void => {
+		assertMainWindowSender(event);
+		if (!isDesktopTerminalCloseInput(value)) {
+			throw new Error("无效的终端请求。");
+		}
+		getHost().closeTerminalSession(value.id);
+	});
 	ipcMain.handle("pi-desktop:notify-complete", (event, value: unknown): void => {
 		assertMainWindowSender(event);
 		if (
@@ -1061,17 +1126,7 @@ function registerIpc(): void {
 			if (value.local && !host.getSnapshot().projectTrusted) {
 				throw new Error("请先信任当前项目，再安装项目插件。");
 			}
-			const confirmation = await dialog.showMessageBox(mainWindow!, {
-				type: "warning",
-				title: "确认安装插件",
-				message: `安装${value.local ? "项目" : "用户"}插件？`,
-				detail: value.source,
-				buttons: ["取消", "安装"],
-				defaultId: 0,
-				cancelId: 0,
-				noLink: true,
-			});
-			if (confirmation.response !== 1) return { snapshot: host.getSnapshot(), performed: false };
+			// The renderer confirms in its own dialog; main only validates and acts.
 			return { snapshot: await host.installPlugin(value.source, value.local), performed: true };
 		},
 	);
@@ -1086,17 +1141,6 @@ function registerIpc(): void {
 			if (value.local && !host.getSnapshot().projectTrusted) {
 				throw new Error("请先信任当前项目，再更新项目插件。");
 			}
-			const confirmation = await dialog.showMessageBox(mainWindow!, {
-				type: "warning",
-				title: "确认更新插件",
-				message: `更新${value.local ? "项目" : "用户"}插件？`,
-				detail: value.source,
-				buttons: ["取消", "更新"],
-				defaultId: 0,
-				cancelId: 0,
-				noLink: true,
-			});
-			if (confirmation.response !== 1) return { snapshot: host.getSnapshot(), performed: false };
 			return { snapshot: await host.updatePlugin(value.source, value.local), performed: true };
 		},
 	);
@@ -1201,6 +1245,16 @@ if (!hasSingleInstanceLock) {
 		host.onExtensionUi((event) => {
 			if (mainWindow && !mainWindow.isDestroyed()) {
 				mainWindow.webContents.send("pi-desktop:extension-ui", event);
+			}
+		});
+		host.onTerminalData((id, data) => {
+			if (mainWindow && !mainWindow.isDestroyed()) {
+				mainWindow.webContents.send("pi-desktop:terminal-data", { id, data });
+			}
+		});
+		host.onTerminalExit((id, exitCode) => {
+			if (mainWindow && !mainWindow.isDestroyed()) {
+				mainWindow.webContents.send("pi-desktop:terminal-exit", { id, exitCode });
 			}
 		});
 		updateDownloader = new DesktopUpdateDownloader(join(app.getPath("userData"), "updates"), () =>

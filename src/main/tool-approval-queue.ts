@@ -51,11 +51,23 @@ export class ToolApprovalQueue {
 		const pending = this.pending.get(id);
 		if (!pending) return false;
 
-		clearTimeout(pending.timeout);
-		this.pending.delete(id);
-		pending.resolve(approved);
+		this.settle(id, pending, approved);
 		this.onChange?.();
 		return true;
+	}
+
+	/** Release every call still waiting, for a policy that no longer asks. */
+	resolveAll(approved: boolean): number {
+		const pendingApprovals = [...this.pending.entries()];
+		for (const [id, pending] of pendingApprovals) this.settle(id, pending, approved);
+		if (pendingApprovals.length > 0) this.onChange?.();
+		return pendingApprovals.length;
+	}
+
+	private settle(_id: string, pending: PendingToolApproval, approved: boolean): void {
+		clearTimeout(pending.timeout);
+		this.pending.delete(pending.approval.id);
+		pending.resolve(approved);
 	}
 
 	cancelAll(): void {

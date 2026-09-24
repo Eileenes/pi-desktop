@@ -1,5 +1,8 @@
 export type IconName =
+	| "archiveBox"
 	| "branch"
+	| "briefcase"
+	| "briefcaseOpen"
 	| "chevron"
 	| "close"
 	| "code"
@@ -8,7 +11,10 @@ export type IconName =
 	| "external"
 	| "files"
 	| "folder"
+	| "folderPlus"
 	| "gear"
+	| "pin"
+	| "sections"
 	| "history"
 	| "image"
 	| "model"
@@ -186,6 +192,56 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 		return (
 			<svg {...shared} aria-hidden="true">
 				<path d="M3.5 6.5A1.5 1.5 0 0 1 5 5h5l1.8 2h7.7A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-11Z" />
+			</svg>
+		);
+	/*
+	 * The project row shows whether its chat list is folded away: a closed case
+	 * reads as "nothing inside", an open one as "expanded".
+	 */
+	if (name === "briefcase")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<rect x="3" y="8" width="18" height="12" rx="2.5" />
+				<path d="M9 8V6.5A1.5 1.5 0 0 1 10.5 5h3A1.5 1.5 0 0 1 15 6.5V8" />
+				<path d="M3 13h18" />
+			</svg>
+		);
+	if (name === "briefcaseOpen")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M3 20v-5.5A2.5 2.5 0 0 1 5.5 12h13a2.5 2.5 0 0 1 2.5 2.5V20" />
+				<path d="M3 20h18" />
+				<path d="M9 12V9.5A1.5 1.5 0 0 1 10.5 8h3A1.5 1.5 0 0 1 15 9.5V12" />
+				<path d="M5.5 12 7 6.5h10l1.5 5.5" />
+			</svg>
+		);
+	if (name === "folderPlus")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M3.5 7A1.5 1.5 0 0 1 5 5.5h4.5l1.8 2h7.7A1.5 1.5 0 0 1 20.5 9v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5Z" />
+				<path d="M8 11.5v4M6 13.5h4" />
+			</svg>
+		);
+	if (name === "pin")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M12 17v5" />
+				<path d="M9 10.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.2V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.8a2 2 0 0 0-1.1-1.8l-1.8-.9A2 2 0 0 1 15 10.8V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1Z" />
+			</svg>
+		);
+	if (name === "sections")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M9 6h12M9 12h12M9 18h12" />
+				<path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" />
+			</svg>
+		);
+	if (name === "archiveBox")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<rect x="3" y="4" width="18" height="16" rx="2.5" />
+				<path d="M3 9h18" />
+				<path d="M10 13h4" />
 			</svg>
 		);
 	if (name === "gear")

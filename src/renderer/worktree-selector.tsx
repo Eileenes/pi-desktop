@@ -9,6 +9,7 @@ import {
 	switchGitBranch,
 } from "./desktop-store.ts";
 import { useI18n } from "./i18n.ts";
+import { MenuHeading } from "./menu.tsx";
 
 interface WorktreeSectionProps {
 	workspacePath: string;
@@ -166,7 +167,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 
 	return (
 		<div className="worktree-section">
-			<div className="project-menu-label">Worktrees</div>
+			<MenuHeading>Worktrees</MenuHeading>
 			{worktrees.length >= 8 ? (
 				<input
 					className="worktree-filter"

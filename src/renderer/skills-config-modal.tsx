@@ -15,6 +15,8 @@ import { Modal } from "./modal.tsx";
 interface SkillsConfigModalProps {
 	workspacePath?: string;
 	projectTrusted: boolean;
+	/** Opens the project trust confirmation, so the banner is actionable. */
+	onTrustProject?: () => void;
 	onClose: () => void;
 }
 
@@ -384,6 +386,7 @@ function AddSkillPanel({
 export const SkillsConfigModal = memo(function SkillsConfigModal({
 	workspacePath,
 	projectTrusted,
+	onTrustProject,
 	onClose,
 }: SkillsConfigModalProps) {
 	const { t } = useI18n();
@@ -649,6 +652,11 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 						<div className="resource-trust-banner">
 							<strong>{t("skillProjectNotTrustedTitle")}</strong>
 							<span>{t("skillProjectNotTrustedHint")}</span>
+							{onTrustProject ? (
+								<button className="outline-button" type="button" onClick={onTrustProject}>
+									{t("trustProject")}
+								</button>
+							) : null}
 						</div>
 					) : null}
 					{addMode ? (

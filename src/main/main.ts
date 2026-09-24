@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
 	app,
 	BrowserWindow,
@@ -49,6 +50,7 @@ import {
 	isDesktopRemoveWorktreeInput,
 	isDesktopRestoreImageAttachmentsInput,
 	isDesktopRestoreMessageImagesInput,
+	isDesktopRevealProjectPathInput,
 	isDesktopSaveModelsConfigInput,
 	isDesktopTerminalCloseInput,
 	isDesktopTerminalCreateInput,
@@ -82,15 +84,27 @@ const TRAY_ICON_WHITE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" 
 const TRAY_ICON_COLOR_BASE64 =
 	"iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAABjklEQVR4nO2ZvW6DMBRGv5ZKvARlqxTBC2RJ361pJNKdJWVpprqvwEuwBnVmYWFGArWTo/J/DdjgKmdiMPcefTK2hYEbcrmbq9Bm8/QzNOZy+Z7cb1IBimQXY+VHvTRFtI6ouNDgOUXrUMXvqQVlyorUJwnLlhXpMyisSpbar1dYtSylb6fwUrJD/VuFl5bltHk8jCm02z3D87xJMmEYYr9/EX6vkfBa0uXUfRqLtYiwZVlg7AsAwNgnfN9vHee6Lk6ndwBAEAQ4nz/oxqhuKpWE15Yu568XeadbC/oKr3U6cLifvgnrwk1YNkqEi6K4PhuGMamWEuEsy67P2+0WlvUI27ZH1VIinKYpkiQBADiOA8YYjse3UbWUzeHD4RVxHKMsy0l1Kocf0c3DNE04jgOgmqIM+AFo1HmYk+c5oiiax4iI3svaHP++ZNB5HtaBhvDaUq776J8wsJ6U2zw6E15auqt/75RYSrqv7+AcVi091I/00amSpvQhrxKypan1//cdRx1tbpHaUHVPpx2/NvmcOC+ox8YAAAAASUVORK5CYII=";
 
+const APP_ICON_PATH = join(currentDirectory, "..", "..", "build", "icon.png");
+
+function loadAppIcon(): NativeImage {
+	return nativeImage.createFromPath(APP_ICON_PATH);
+}
+
+/** Packaged and window icon: the same pi tile used inside the app. */
+function getAppIcon(): NativeImage {
+	const icon = loadAppIcon();
+	return icon.isEmpty() ? nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_COLOR_BASE64}`) : icon;
+}
+
 function getTrayIcon(): NativeImage {
 	if (process.platform === "darwin") {
 		const image = nativeImage.createFromDataURL(
 			`data:image/svg+xml;base64,${Buffer.from(TRAY_ICON_WHITE_SVG).toString("base64")}`,
 		);
-		image.setTemplateImage(false);
+		image.setTemplateImage(true);
 		return image;
 	}
-	return nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_COLOR_BASE64}`);
+	return getAppIcon();
 }
 
 const MAX_IMAGE_ATTACHMENTS = 10;
@@ -121,7 +135,7 @@ function pendingImagePaths(id: string): { data: string; metadata: string } {
 
 function getHost(): DesktopAgentHost {
 	if (!host) {
-		host = new DesktopAgentHost(join(app.getPath("userData"), "agent"));
+		host = new DesktopAgentHost(getAgentDir());
 	}
 	return host;
 }
@@ -130,7 +144,7 @@ function publishSnapshot(snapshot: DesktopSnapshot): void {
 	if (!mainWindow || mainWindow.isDestroyed()) return;
 	mainWindow.webContents.send("pi-desktop:snapshot", snapshot);
 	const folderName = snapshot.workspacePath?.split(/[\\/]/u).filter(Boolean).at(-1);
-	const title = folderName ? `${folderName} - Pi Agent` : "Pi Agent";
+	const title = folderName ? `${folderName} - Pi Desktop` : "Pi Desktop";
 	if (mainWindow.getTitle() !== title) mainWindow.setTitle(title);
 }
 
@@ -151,7 +165,7 @@ function configureAutoUpdater(): void {
 			buttons: ["立即重启安装", "稍后"],
 			defaultId: 0,
 			cancelId: 1,
-			title: "Pi Agent 有新版本",
+			title: "Pi Desktop 有新版本",
 			message: `版本 ${info.version} 已下载完成。`,
 			detail: "重启应用后将完成更新。",
 		});
@@ -170,7 +184,7 @@ function configureAutoUpdater(): void {
 
 function assertMainWindowSender(event: IpcMainInvokeEvent): void {
 	if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
-		throw new Error("Pi 桌面端拒绝了来自未受信任渲染进程的请求。");
+		throw new Error("Pi Desktop 拒绝了来自未受信任渲染进程的请求。");
 	}
 }
 
@@ -188,6 +202,7 @@ function createWindow(): BrowserWindow {
 		height: state.height,
 		minWidth: 900,
 		minHeight: 600,
+		icon: getAppIcon(),
 		backgroundColor: "#161615",
 		...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const } : {}),
 		...(process.platform === "darwin" ? {} : { frame: false }),
@@ -232,10 +247,10 @@ function showMainWindow(): void {
 function createTray(): void {
 	if (tray) return;
 	tray = new Tray(getTrayIcon());
-	tray.setToolTip("Pi 桌面端");
+	tray.setToolTip("Pi Desktop");
 	tray.setContextMenu(
 		Menu.buildFromTemplate([
-			{ label: "显示 Pi", click: () => showMainWindow() },
+			{ label: "显示 Pi Desktop", click: () => showMainWindow() },
 			{ type: "separator" },
 			{
 				label: "退出",
@@ -802,6 +817,18 @@ function registerIpc(): void {
 		}
 		await getHost().revealWorkspaceFile(value.path);
 	});
+	/*
+	 * A project root is a directory, so it cannot travel through the file
+	 * channel above. The host matches it against the projects it already knows
+	 * instead of trusting the renderer's path.
+	 */
+	ipcMain.handle("pi-desktop:reveal-project-path", async (event, value: unknown): Promise<void> => {
+		assertMainWindowSender(event);
+		if (!isDesktopRevealProjectPathInput(value)) {
+			throw new Error("无效的项目路径请求。");
+		}
+		await getHost().revealProjectPath(value.path);
+	});
 	ipcMain.handle("pi-desktop:save-workspace-file", async (event, value: unknown): Promise<string> => {
 		assertMainWindowSender(event);
 		if (!isDesktopWorkspaceFileInput(value)) {
@@ -1060,7 +1087,7 @@ function registerIpc(): void {
 		try {
 			await readFile(cssPath);
 		} catch {
-			await writeFile(cssPath, "/* Pi Agent custom styles */\n", { mode: 0o600 });
+			await writeFile(cssPath, "/* Pi Desktop custom styles */\n", { mode: 0o600 });
 		}
 		await getHost().openPath(cssPath);
 		return cssPath;
@@ -1238,6 +1265,11 @@ if (!hasSingleInstanceLock) {
 	app.on("second-instance", () => showMainWindow());
 
 	app.whenReady().then(() => {
+		if (process.platform === "win32") app.setAppUserModelId("com.earendil.pi.desktop");
+		if (process.platform === "darwin" && app.dock) {
+			const icon = loadAppIcon();
+			if (!icon.isEmpty()) app.dock.setIcon(icon);
+		}
 		registerIpc();
 		host = getHost();
 		host.subscribe(publishSnapshot);

@@ -78,10 +78,12 @@ import {
 	respondToExtensionDialog,
 	restoreImageAttachments,
 	restoreMessageImages,
+	revealProjectPath,
 	revealWorkspaceFile,
 	saveFullBashOutput,
 	saveWorkspaceFile,
 	searchWorkspaceFiles,
+	selectDirectory,
 	sendExtensionCustomInput,
 	setModel,
 	setPermissionMode,
@@ -98,8 +100,11 @@ import { ExtensionCustomPanel, ExtensionWidgetStack } from "./extension-custom-p
 import { ExtensionDialog } from "./extension-dialog.tsx";
 import { type I18n, type TranslationKey, useI18n } from "./i18n.ts";
 import { MarkdownBody } from "./markdown.tsx";
+import { Menu, MenuDivider, MenuEmpty, MenuFilter, MenuHeading, MenuItem } from "./menu.tsx";
 import { ModelsConfigModal } from "./models-config-modal.tsx";
+import { PermissionRiskDialog } from "./permission-risk-dialog.tsx";
 import { PluginsConfigModal } from "./plugins-config-modal.tsx";
+import { ProjectEditorDialog } from "./project-editor-dialog.tsx";
 import { ProjectTrustDialog } from "./project-trust-dialog.tsx";
 import { forgetScrollPosition, readScrollPosition, writeScrollPosition } from "./scroll-memory.ts";
 import { SearchDialog } from "./search-dialog.tsx";
@@ -110,7 +115,7 @@ import { TerminalPanel } from "./terminal-panel.tsx";
 import { TokenActivityModal } from "./token-activity-modal.tsx";
 import { buildConversationTurns, partitionTranscript } from "./transcript-group.ts";
 import { UpdateButton } from "./update-button.tsx";
-import { UpdateReminder } from "./update-reminder.tsx";
+
 import { WorktreeSection } from "./worktree-selector.tsx";
 
 /** The configuration surfaces, reached from the footer's single entry point. */
@@ -141,6 +146,123 @@ const PERMISSION_HINTS: Record<DesktopPermissionMode, TranslationKey> = {
 	full: "permissionFullHint",
 };
 
+/*
+ * Project presentation lives in the renderer: the sidebar already derives its
+ * project list from the session index, so the name, the folded-in folders, the
+ * pin, the section, and the archived-chat flag are local preferences rather
+ * than runtime state.
+ */
+interface ProjectProfile {
+	name?: string;
+	folders?: string[];
+}
+
+interface ProjectSections {
+	names: string[];
+	assignments: Record<string, string>;
+}
+
+function readStoredStringSet(key: string): Set<string> {
+	try {
+		const value: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
+		return new Set(Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
+	} catch {
+		return new Set();
+	}
+}
+
+function readStoredProjectProfiles(): Record<string, ProjectProfile> {
+	try {
+		const value: unknown = JSON.parse(localStorage.getItem("pi-desktop-project-profiles") ?? "{}");
+		if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+		const profiles: Record<string, ProjectProfile> = {};
+		for (const [root, profile] of Object.entries(value as Record<string, unknown>)) {
+			if (typeof profile !== "object" || profile === null || Array.isArray(profile)) continue;
+			const record = profile as Record<string, unknown>;
+			const name = typeof record.name === "string" ? record.name : undefined;
+			const folders = Array.isArray(record.folders)
+				? record.folders.filter((item): item is string => typeof item === "string")
+				: undefined;
+			profiles[root] = { ...(name ? { name } : {}), ...(folders?.length ? { folders } : {}) };
+		}
+		return profiles;
+	} catch {
+		return {};
+	}
+}
+
+function readStoredProjectSections(): ProjectSections {
+	try {
+		const value: unknown = JSON.parse(localStorage.getItem("pi-desktop-project-sections") ?? "{}");
+		if (typeof value !== "object" || value === null || Array.isArray(value)) return { names: [], assignments: {} };
+		const record = value as Record<string, unknown>;
+		const names = Array.isArray(record.names)
+			? record.names.filter((item): item is string => typeof item === "string" && item.length > 0)
+			: [];
+		const assignments: Record<string, string> = {};
+		if (typeof record.assignments === "object" && record.assignments !== null && !Array.isArray(record.assignments)) {
+			for (const [root, section] of Object.entries(record.assignments as Record<string, unknown>)) {
+				if (typeof section === "string" && section.length > 0) assignments[root] = section;
+			}
+		}
+		return { names, assignments };
+	} catch {
+		return { names: [], assignments: {} };
+	}
+}
+
+/** The project's own folder name, for rows that have no custom name yet. */
+function projectFolderLabel(path: string): string {
+	return (
+		path
+			.replace(/[\\/]+$/u, "")
+			.split(/[\\/]/u)
+			.at(-1) || path
+	);
+}
+
+/** Tool presets are built from a fixed name pair so the menu stays type-safe. */
+type ToolPresetLabelKey = "toolPresetNone" | "toolPresetDefault" | "toolPresetFull";
+type ToolPresetHintKey = "toolPresetNoneDescription" | "toolPresetDefaultDescription" | "toolPresetFullDescription";
+
+/** Commands still ask under auto-edit, so running one needs full access. */
+const COMMAND_TOOLS = new Set(["bash", "powershell", "execute", "shell", "run"]);
+const EDIT_PERMISSION_TOOLS = new Set(["edit", "write", "str_replace", "apply_patch"]);
+const READ_PERMISSION_TOOLS = new Set(["read", "grep", "find", "ls"]);
+const TOOL_DENIED_REASON = "Desktop user denied this tool call.";
+
+type PermissionAction = "command" | "edit" | "read" | "tool";
+
+function permissionActionFor(toolName: string): PermissionAction {
+	if (COMMAND_TOOLS.has(toolName)) return "command";
+	if (EDIT_PERMISSION_TOOLS.has(toolName)) return "edit";
+	if (READ_PERMISSION_TOOLS.has(toolName)) return "read";
+	return "tool";
+}
+
+/** The mode that lets this tool through without another prompt. */
+function permissionNeededFor(action: PermissionAction): DesktopPermissionMode {
+	return action === "command" || action === "tool" ? "full" : "autoEdit";
+}
+
+function autoApprovesTool(mode: DesktopPermissionMode, toolName: string): boolean {
+	if (mode === "full") return true;
+	if (mode === "autoEdit") return EDIT_PERMISSION_TOOLS.has(toolName);
+	return false;
+}
+
+function lastDeniedTool(
+	messages: ReadonlyArray<{ role: string; text: string; toolName?: string }> | undefined,
+): string | undefined {
+	if (!messages) return undefined;
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (!message || message.role !== "tool" || !message.text.includes(TOOL_DENIED_REASON)) continue;
+		return message.toolName ?? "tool";
+	}
+	return undefined;
+}
+
 const LABEL_CHAR_LIMIT = 5;
 
 /** Cuts a label to the sidebar's character budget; the tooltip keeps the rest. */
@@ -149,8 +271,27 @@ function truncateLabel(text: string): string {
 	return characters.length > LABEL_CHAR_LIMIT ? `${characters.slice(0, LABEL_CHAR_LIMIT).join("")}…` : text;
 }
 
+function tipPosition(event: { currentTarget: HTMLElement }): { top: number; left: number } {
+	const rect = event.currentTarget.getBoundingClientRect();
+	return { top: rect.top, left: rect.right };
+}
+
+function displayPath(path: string): string {
+	const home = path.startsWith("/Users/") ? path.replace(/^\/Users\/[^/]+/u, "~") : path;
+	return home;
+}
+
+function sessionAgeLabel(timestamp: number, t: I18n["t"]): string {
+	const days = Math.floor((Date.now() - timestamp) / 86_400_000);
+	if (days <= 0) return t("sessionAgeToday");
+	return t("sessionAgeDays", { count: days });
+}
+
 type IconName =
+	| "archiveBox"
 	| "branch"
+	| "briefcase"
+	| "briefcaseOpen"
 	| "bulb"
 	| "chart"
 	| "chat"
@@ -174,9 +315,11 @@ type IconName =
 	| "moon"
 	| "more"
 	| "panel"
+	| "pin"
 	| "plugin"
 	| "plus"
 	| "search"
+	| "sections"
 	| "send"
 	| "shield"
 	| "stop"
@@ -395,8 +538,8 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 	}
 	if (name === "stop") {
 		return (
-			<svg {...shared} aria-hidden="true">
-				<rect x="6" y="6" width="12" height="12" rx="2.5" />
+			<svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+				<rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" />
 			</svg>
 		);
 	}
@@ -465,6 +608,45 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 			<svg {...shared} aria-hidden="true">
 				<path d="m4 17 6-6-6-6" />
 				<path d="M12 19h8" />
+			</svg>
+		);
+	if (name === "briefcase")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<rect x="3" y="8" width="18" height="12" rx="2.5" />
+				<path d="M9 8V6.5A1.5 1.5 0 0 1 10.5 5h3A1.5 1.5 0 0 1 15 6.5V8" />
+				<path d="M3 13h18" />
+			</svg>
+		);
+	if (name === "briefcaseOpen")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M3 20v-5.5A2.5 2.5 0 0 1 5.5 12h13a2.5 2.5 0 0 1 2.5 2.5V20" />
+				<path d="M3 20h18" />
+				<path d="M9 12V9.5A1.5 1.5 0 0 1 10.5 8h3A1.5 1.5 0 0 1 15 9.5V12" />
+				<path d="M5.5 12 7 6.5h10l1.5 5.5" />
+			</svg>
+		);
+	if (name === "pin")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M12 17v5" />
+				<path d="M9 10.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.2V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.8a2 2 0 0 0-1.1-1.8l-1.8-.9A2 2 0 0 1 15 10.8V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1Z" />
+			</svg>
+		);
+	if (name === "sections")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M9 6h12M9 12h12M9 18h12" />
+				<path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" />
+			</svg>
+		);
+	if (name === "archiveBox")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<rect x="3" y="4" width="18" height="16" rx="2.5" />
+				<path d="M3 9h18" />
+				<path d="M10 13h4" />
 			</svg>
 		);
 	if (name === "image")
@@ -2371,8 +2553,7 @@ export function App() {
 		() => Number(localStorage.getItem("pi-desktop-file-tree-width")) || 280,
 	);
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
-	const [composerProjectMenuOpen, setComposerProjectMenuOpen] = useState(false);
-	const [composerProjectMenuAnchor, setComposerProjectMenuAnchor] = useState<{ left: number; bottom: number }>();
+
 	const [branchMenuOpen, setBranchMenuOpen] = useState(false);
 	const [sessionMenuOpen, setSessionMenuOpen] = useState<string>();
 	const [deleteSessionPath, setDeleteSessionPath] = useState<string>();
@@ -2412,6 +2593,7 @@ export function App() {
 	});
 	const [submittingSessionId, setSubmittingSessionId] = useState<string>();
 	const [aborting, setAborting] = useState(false);
+	const [allowingPermission, setAllowingPermission] = useState(false);
 	const [awayFromBottom, setAwayFromBottom] = useState(false);
 	const [unseenMessages, setUnseenMessages] = useState(0);
 	const [changingTrust, setChangingTrust] = useState(false);
@@ -2458,7 +2640,7 @@ export function App() {
 		[pushNotice],
 	);
 
-	const handlePermissionChange = useCallback(
+	const applyPermissionMode = useCallback(
 		async (mode: DesktopPermissionMode): Promise<void> => {
 			setPermissionModeState(mode);
 			localStorage.setItem("pi-desktop-permission-mode", mode);
@@ -2469,6 +2651,23 @@ export function App() {
 			}
 		},
 		[pushNotice],
+	);
+
+	const handlePermissionChange = useCallback(
+		async (mode: DesktopPermissionMode): Promise<void> => {
+			/*
+			 * Full access is the one mode that removes the per-call confirmation
+			 * step, so the risk is acknowledged in a dialog before the host policy
+			 * moves. The remembered mode is applied at launch without asking again.
+			 */
+			if (mode === "full" && permissionMode !== "full") {
+				setComposerMenu(undefined);
+				setPermissionRiskOpen(true);
+				return;
+			}
+			await applyPermissionMode(mode);
+		},
+		[applyPermissionMode, permissionMode],
 	);
 
 	// The host holds the policy, so the remembered choice is re-applied on launch.
@@ -2495,12 +2694,26 @@ export function App() {
 	const [inspectorOpen, setInspectorOpen] = useState(() => localStorage.getItem("pi-desktop-inspector-open") === "on");
 	const [fileActionsMenuOpen, setFileActionsMenuOpen] = useState(false);
 	const [sidebarOpen, setSidebarOpen] = useState(true);
+	const [hoverCard, setHoverCard] = useState<
+		| { kind: "project"; root: string; count: number; top: number; left: number }
+		| { kind: "session"; title: string; timestamp: number; top: number; left: number }
+	>();
+	const hoverCloseTimer = useRef<number | undefined>(undefined);
+	const clearHoverClose = useCallback(() => {
+		if (hoverCloseTimer.current !== undefined) window.clearTimeout(hoverCloseTimer.current);
+		hoverCloseTimer.current = undefined;
+	}, []);
+	const scheduleHoverClose = useCallback(() => {
+		clearHoverClose();
+		hoverCloseTimer.current = window.setTimeout(() => setHoverCard(undefined), 180);
+	}, [clearHoverClose]);
 	const [isOnline, setIsOnline] = useState(() => navigator.onLine);
 	const [configModal, setConfigModal] = useState<ConfigModal | undefined>();
 	const [topPanel, setTopPanel] = useState<"branches" | "session" | "system" | undefined>();
 	const [namingState, setNamingState] = useState<"idle" | "loading" | "success" | "error">("idle");
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
+	const [projectsInitialized, setProjectsInitialized] = useState(false);
 	const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
 	const [archivedProjectRoots, setArchivedProjectRoots] = useState<Set<string>>(() => {
 		try {
@@ -2510,6 +2723,21 @@ export function App() {
 			return new Set();
 		}
 	});
+	const [pinnedProjectRoots, setPinnedProjectRoots] = useState<Set<string>>(() =>
+		readStoredStringSet("pi-desktop-pinned-projects"),
+	);
+	const [archivedChatRoots, setArchivedChatRoots] = useState<Set<string>>(() =>
+		readStoredStringSet("pi-desktop-archived-chats"),
+	);
+	const [projectProfiles, setProjectProfiles] = useState<Record<string, ProjectProfile>>(() =>
+		readStoredProjectProfiles(),
+	);
+	const [projectSections, setProjectSections] = useState<ProjectSections>(() => readStoredProjectSections());
+	const [editingProjectRoot, setEditingProjectRoot] = useState<string>();
+	const [openProjectSection, setOpenProjectSection] = useState<string>();
+	const [pendingSectionRoot, setPendingSectionRoot] = useState<string>();
+	const [sectionNameDraft, setSectionNameDraft] = useState("");
+	const [permissionRiskOpen, setPermissionRiskOpen] = useState(false);
 	const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => {
 		try {
 			const stored: unknown = JSON.parse(localStorage.getItem("pi-desktop-unread-sessions") ?? "[]");
@@ -2912,7 +3140,7 @@ export function App() {
 		),
 		running: session?.phase === "running",
 		newSession: handleNewSession,
-		toggleTerminal: () => setTerminalOpen((isOpen) => !isOpen),
+		toggleTerminal: handleToggleTerminal,
 		abort: handleAbort,
 	};
 	useEffect(() => {
@@ -3006,7 +3234,6 @@ export function App() {
 	useEffect(() => {
 		if (
 			!projectMenuOpen &&
-			!composerProjectMenuOpen &&
 			!branchMenuOpen &&
 			!sessionMenuOpen &&
 			!moreMenuOpen &&
@@ -3019,7 +3246,6 @@ export function App() {
 			const target = event.target;
 			if (!(target instanceof Element)) {
 				setProjectMenuOpen(false);
-				setComposerProjectMenuOpen(false);
 				setBranchMenuOpen(false);
 				setSessionMenuOpen(undefined);
 				setDeleteSessionPath(undefined);
@@ -3031,7 +3257,6 @@ export function App() {
 			}
 			if (!target.closest(".project-menu-root")) {
 				setProjectMenuOpen(false);
-				setComposerProjectMenuOpen(false);
 				setBranchMenuOpen(false);
 				setProjectRowMenuOpen(undefined);
 			}
@@ -3045,7 +3270,6 @@ export function App() {
 		return () => document.removeEventListener("mousedown", close);
 	}, [
 		projectMenuOpen,
-		composerProjectMenuOpen,
 		branchMenuOpen,
 		sessionMenuOpen,
 		moreMenuOpen,
@@ -3078,6 +3302,25 @@ export function App() {
 	useEffect(() => {
 		localStorage.setItem("pi-desktop-archived-projects", JSON.stringify([...archivedProjectRoots]));
 	}, [archivedProjectRoots]);
+	useEffect(() => {
+		localStorage.setItem("pi-desktop-pinned-projects", JSON.stringify([...pinnedProjectRoots]));
+	}, [pinnedProjectRoots]);
+	useEffect(() => {
+		localStorage.setItem("pi-desktop-archived-chats", JSON.stringify([...archivedChatRoots]));
+	}, [archivedChatRoots]);
+	useEffect(() => {
+		localStorage.setItem("pi-desktop-project-profiles", JSON.stringify(projectProfiles));
+	}, [projectProfiles]);
+	useEffect(() => {
+		localStorage.setItem("pi-desktop-project-sections", JSON.stringify(projectSections));
+	}, [projectSections]);
+	useEffect(() => {
+		if (projectsInitialized || snapshot.sessions.length === 0) return;
+		setCollapsedProjects(
+			new Set(snapshot.sessions.map((item) => (item.projectRoot ?? item.cwd).replace(/[\\/]+$/, ""))),
+		);
+		setProjectsInitialized(true);
+	}, [projectsInitialized, snapshot.sessions]);
 	useEffect(() => {
 		const previous = previousSessionPhasesRef.current;
 		const completed: DesktopSessionInfo[] = [];
@@ -3542,44 +3785,14 @@ export function App() {
 			}
 			return;
 		}
-		if (session?.phase === "running" && attachments.length > 0) {
-			setActionError(t("noImagesWhileRunning"));
-			return;
-		}
+		if (session?.phase === "running") return;
 		setSubmittingSessionId(submissionSessionId);
 		setActionError(undefined);
 		try {
 			await submitPrompt(
 				draft,
 				attachments.map((attachment) => attachment.id),
-				session?.phase === "running" ? "followUp" : undefined,
-				[...selectedSessionReferenceLabelsRef.current],
-			);
-			clearSubmittedComposer(submissionSessionId, submissionDraftKey);
-		} catch (error) {
-			setActionError(error instanceof Error ? error.message : String(error));
-		} finally {
-			setSubmittingSessionId((current) => (current === submissionSessionId ? undefined : current));
-		}
-	}
-
-	async function handleSteer(): Promise<void> {
-		if (!canSubmit || session?.phase !== "running") return;
-		unlockCompletionAudio();
-		if (attachments.length > 0) {
-			setActionError(t("noImagesWhileRunning"));
-			return;
-		}
-		const submissionSessionId = session.id;
-		const submissionDraftKey = draftKey;
-		rememberPrompt(draft);
-		setSubmittingSessionId(submissionSessionId);
-		setActionError(undefined);
-		try {
-			await submitPrompt(
-				draft,
-				attachments.map((attachment) => attachment.id),
-				"steer",
+				undefined,
 				[...selectedSessionReferenceLabelsRef.current],
 			);
 			clearSubmittedComposer(submissionSessionId, submissionDraftKey);
@@ -3630,6 +3843,70 @@ export function App() {
 			setActionError(error instanceof Error ? error.message : String(error));
 		} finally {
 			setChangingTrust(false);
+		}
+	}
+
+	/*
+	 * The integrated terminal runs a shell in the project root, which the host
+	 * allows only for a trusted project. Asking for trust here keeps that policy
+	 * from surfacing as a raw IPC error inside the panel.
+	 */
+	function handleToggleTerminal(): void {
+		if (terminalOpen) {
+			setTerminalOpen(false);
+			return;
+		}
+		if (!snapshot.projectTrusted) {
+			pushNotice("warning", t("terminalNeedsTrust"));
+			setTrustDialogOpen(true);
+			return;
+		}
+		setTerminalOpen(true);
+	}
+
+	function confirmPermissionRisk(): void {
+		setPermissionRiskOpen(false);
+		void applyPermissionMode("full");
+	}
+
+	const blockedApproval = snapshot.pendingToolApprovals.find(
+		(approval) => !autoApprovesTool(permissionMode, approval.toolName),
+	);
+	const deniedTool = blockedApproval ? undefined : lastDeniedTool(session?.messages);
+	const promptTool = blockedApproval?.toolName ?? deniedTool;
+	const promptAction = promptTool ? permissionActionFor(promptTool) : undefined;
+	const neededMode = promptAction ? permissionNeededFor(promptAction) : undefined;
+	const permissionPrompt =
+		promptTool && promptAction && neededMode && permissionMode !== neededMode && permissionMode !== "full"
+			? {
+					mode: neededMode,
+					text: t(blockedApproval ? "permissionBlockedHint" : "permissionDeniedHint", {
+						current: t(PERMISSION_LABELS[permissionMode]),
+						needed: t(PERMISSION_LABELS[neededMode]),
+						action:
+							promptAction === "tool"
+								? t("permissionActionTool", { tool: promptTool })
+								: t(
+										promptAction === "command"
+											? "permissionActionCommand"
+											: promptAction === "edit"
+												? "permissionActionEdit"
+												: "permissionActionRead",
+									),
+					}),
+				}
+			: undefined;
+
+	async function allowBlockedPermission(): Promise<void> {
+		if (!permissionPrompt || allowingPermission) return;
+		setAllowingPermission(true);
+		setActionError(undefined);
+		try {
+			await handlePermissionChange(permissionPrompt.mode);
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setAllowingPermission(false);
 		}
 	}
 
@@ -4158,6 +4435,90 @@ export function App() {
 		}
 	}, []);
 
+	/** Project rows prefer the custom name and fall back to the folder name. */
+	function projectLabel(root: string): string {
+		return projectProfiles[root]?.name?.trim() || projectFolderLabel(root);
+	}
+
+	const handleRevealProject = useCallback(
+		async (path: string): Promise<void> => {
+			setActionError(undefined);
+			try {
+				await revealProjectPath(path);
+			} catch (error) {
+				pushNotice("error", error instanceof Error ? error.message : String(error));
+			}
+		},
+		[pushNotice],
+	);
+
+	function togglePinnedProject(root: string): void {
+		setPinnedProjectRoots((current) => {
+			const next = new Set(current);
+			if (next.has(root)) next.delete(root);
+			else next.add(root);
+			return next;
+		});
+	}
+
+	function toggleArchivedChats(root: string): void {
+		setArchivedChatRoots((current) => {
+			const next = new Set(current);
+			if (next.has(root)) next.delete(root);
+			else next.add(root);
+			return next;
+		});
+	}
+
+	function assignProjectSection(root: string, section?: string): void {
+		setProjectSections((current) => {
+			const assignments = { ...current.assignments };
+			if (section) assignments[root] = section;
+			else delete assignments[root];
+			return { names: current.names, assignments };
+		});
+	}
+
+	function createProjectSection(root: string, name: string): void {
+		const trimmed = name.trim();
+		if (!trimmed) return;
+		setProjectSections((current) => ({
+			names: current.names.includes(trimmed) ? current.names : [...current.names, trimmed],
+			assignments: { ...current.assignments, [root]: trimmed },
+		}));
+	}
+
+	/** "Add folder" reuses the native directory picker; cancelling returns undefined. */
+	function handleRequestProjectFolder(): Promise<string | undefined> {
+		return selectDirectory();
+	}
+
+	function handleSaveProject(root: string, draft: { name: string; folders: string[] }): void {
+		const folders = [root, ...draft.folders.filter((folder) => folder !== root)];
+		/* A name equal to the folder name is the default, not an alias: storing it
+		 * would freeze the label when the folder is renamed on disk. */
+		const typed = draft.name.trim();
+		const name = typed === projectFolderLabel(root) ? "" : typed;
+		setProjectProfiles((current) => ({
+			...current,
+			[root]: { folders, ...(name ? { name } : {}) },
+		}));
+		setEditingProjectRoot(undefined);
+		pushNotice("success", t("projectSaved"));
+	}
+
+	function handleRemoveLocalProject(root: string): void {
+		setEditingProjectRoot(undefined);
+		setArchivedProjectRoots((current) => new Set(current).add(root));
+		setProjectProfiles((current) => {
+			if (!(root in current)) return current;
+			const next = { ...current };
+			delete next[root];
+			return next;
+		});
+		pushNotice("success", t("projectRemoved"));
+	}
+
 	const handleDownloadFile = useCallback(
 		async (path: string): Promise<void> => {
 			try {
@@ -4260,6 +4621,17 @@ export function App() {
 	}
 
 	function renderSidebar() {
+		/*
+		 * Folders a project absorbed are resolved to that project before grouping,
+		 * so "add folder" really does mean "these chats belong together".
+		 */
+		const folderAliases = new Map<string, string>();
+		for (const [root, profile] of Object.entries(projectProfiles)) {
+			for (const folder of profile.folders ?? []) {
+				const alias = folder.replace(/[/]+$/, "");
+				if (alias !== root) folderAliases.set(alias, root);
+			}
+		}
 		const projects = new Map<string, DesktopSessionInfo[]>();
 		for (const item of snapshot.sessions) {
 			const root = (item.projectRoot ?? item.cwd).replace(/[\\\\/]+$/, "");
@@ -4267,7 +4639,34 @@ export function App() {
 			entries.push(item);
 			projects.set(root, entries);
 		}
-		const activeProjects = [...projects.entries()].filter(([root]) => !archivedProjectRoots.has(root));
+		const mergedProjects = new Map<string, DesktopSessionInfo[]>();
+		for (const [root, items] of projects) {
+			const target = folderAliases.get(root) ?? root;
+			mergedProjects.set(target, [...(mergedProjects.get(target) ?? []), ...items]);
+		}
+		/* Pinned projects lead the list; everything else stays newest-first. */
+		const activeProjects = [...mergedProjects.entries()]
+			.filter(([root]) => !archivedProjectRoots.has(root))
+			.sort(([leftRoot, leftItems], [rightRoot, rightItems]) => {
+				const pinned = Number(pinnedProjectRoots.has(rightRoot)) - Number(pinnedProjectRoots.has(leftRoot));
+				if (pinned !== 0) return pinned;
+				const leftRecent = Math.max(...leftItems.map((item) => item.modified));
+				const rightRecent = Math.max(...rightItems.map((item) => item.modified));
+				return rightRecent - leftRecent;
+			});
+		const projectGroups = [
+			...projectSections.names.map((name) => ({
+				section: name as string | undefined,
+				entries: activeProjects.filter(([root]) => projectSections.assignments[root] === name),
+			})),
+			{
+				section: undefined,
+				entries: activeProjects.filter(([root]) => {
+					const assigned = projectSections.assignments[root];
+					return !assigned || !projectSections.names.includes(assigned);
+				}),
+			},
+		].filter((group) => group.entries.length > 0);
 		return (
 			<section className="sessions-panel sidebar-project-tree" aria-label={t("sessions")}>
 				<div className="sidebar-projects-header project-menu-root">
@@ -4295,297 +4694,400 @@ export function App() {
 					{projectMenuOpen ? renderProjectMenu() : null}
 				</div>
 				{activeProjects.length
-					? activeProjects.map(([root, items]) => {
-							const flattenedItems = flattenSessionTree(items);
-							const active = items.some((item) => item.id === session?.id);
-							const branch =
-								items.find((item) => item.worktreeBranch)?.worktreeBranch ??
-								gitWorktrees.find((tree) => tree.path.replace(/[\\/]+$/u, "") === root)?.branch;
-							const collapsed = collapsedProjects.has(root);
-							const expanded = expandedProjects.has(root);
-							const visibleItems = (() => {
-								if (expanded) return flattenedItems;
-								const first = flattenedItems.slice(0, 5);
-								const current = flattenedItems.find((item) => item.info.id === session?.id);
-								if (!current || first.some((item) => item.info.id === current.info.id)) return first;
-								return [...first.slice(0, 4), current];
-							})();
-							return (
-								<section className={`sidebar-project-tree-group ${active ? "is-active" : ""}`} key={root}>
-									<div className="sidebar-project-tree-row">
-										<button
-											className="sidebar-project-tree-row-main"
-											type="button"
-											onClick={() =>
-												setCollapsedProjects((current) => {
-													const next = new Set(current);
-													if (next.has(root)) next.delete(root);
-													else next.add(root);
-													return next;
-												})
-											}
-											title={root}
-											aria-expanded={!collapsed}
-										>
-											<Icon name="folder" size={15} />
-											<span className="sidebar-project-tree-copy">
-												<span className="sidebar-project-tree-name" title={formatWorkspace(root, t)}>
-													{truncateLabel(formatWorkspace(root, t))}
-												</span>
-												{branch ? <small>⎇ {formatGitBranch(branch)}</small> : null}
-											</span>
-										</button>
-										<div className="sidebar-project-tree-row-actions">
-											<button
-												className="sidebar-project-tree-action"
-												type="button"
-												aria-label={t("newSessionAria")}
-												onClick={() => void handleNewSessionForProject(root)}
-											>
-												<Icon name="plus" size={13} />
-											</button>
-											<div className="sidebar-project-more-wrap project-menu-root">
-												<button
-													className="sidebar-project-tree-action sidebar-project-tree-more"
-													type="button"
-													aria-label={t("projectActions")}
-													aria-expanded={projectRowMenuOpen === root}
-													onClick={() =>
-														setProjectRowMenuOpen((current) => (current === root ? undefined : root))
-													}
-												>
-													<Icon name="more" size={13} />
-												</button>
-												{projectRowMenuOpen === root ? (
-													<div className="session-more-menu" role="menu">
-														<button
-															type="button"
-															onClick={() => {
-																setProjectRowMenuOpen(undefined);
-																void handleNewSessionForProject(root);
-															}}
-														>
-															{t("newChat")}
-														</button>
-														<button
-															type="button"
-															onClick={() => {
-																setProjectRowMenuOpen(undefined);
-																void handleRevealFile(root);
-															}}
-														>
-															{t("revealInFinder")}
-														</button>
-														{root !== snapshot.workspacePath &&
-														gitWorktrees.some((tree) => tree.path === root) ? (
-															<button
-																type="button"
-																onClick={() => {
-																	setProjectRowMenuOpen(undefined);
-																	void handleSwitchWorkspacePath(root);
-																}}
-															>
-																{t("switchToWorktree")}
-															</button>
-														) : null}
-														<button
-															type="button"
-															onClick={() => {
-																setProjectRowMenuOpen(undefined);
-																setArchivedProjectRoots((current) => new Set(current).add(root));
-															}}
-														>
-															{t("archiveProject")}
-														</button>
-													</div>
-												) : null}
-											</div>
-										</div>
+					? projectGroups.map((group, groupIndex) => (
+							<div
+								className="sidebar-project-section"
+								key={group.section ? `section-${group.section}` : `ungrouped-${groupIndex}`}
+							>
+								{group.section ? (
+									<div className="sidebar-project-section-head">
+										<Icon name="sections" size={12} />
+										<span>{group.section}</span>
 									</div>
-									{!collapsed ? (
-										<div className="sidebar-project-tree-children">
-											{visibleItems.map(({ info: item, depth }) => {
-												const isCurrent = item.id === session?.id;
-												const isRenaming = renamingSession?.path === item.path;
-												return (
-													<div
-														className={`session-row-wrap ${isCurrent ? "is-current" : ""} ${depth ? "is-forked" : ""}`}
-														key={item.path}
-														style={{ "--session-depth": Math.min(depth, 5) } as CSSProperties}
-													>
-														{isRenaming ? (
-															<form
-																className="session-inline-rename"
-																onSubmit={(event) => {
-																	event.preventDefault();
-																	void handleRenameSubmit();
-																}}
-															>
-																<input
-																	// biome-ignore lint/a11y/noAutofocus: 用户刚触发了内联重命名
-																	autoFocus
-																	aria-label={t("sessionNameAria")}
-																	value={renamingSession.name}
-																	onChange={(event) =>
-																		setRenamingSession({
-																			...renamingSession,
-																			name: event.target.value,
-																		})
-																	}
-																	onKeyDown={(event) => {
-																		if (event.key === "Escape") setRenamingSession(undefined);
-																	}}
-																/>
-																<button type="submit">{t("save")}</button>
-															</form>
-														) : (
-															<button
-																className="session-row"
-																type="button"
-																title={`${sessionTitle(item, t)} · ${item.messageCount} · ${formatSessionDate(item.modified)}`}
-																onClick={() =>
-																	isCurrent
-																		? promptRef.current?.focus()
-																		: void handleOpenSession(item.path)
-																}
-															>
-																<span className="session-row-icon">
-																	<Icon name="chat" size={14} />
-																</span>
-																<span className="session-row-title" title={sessionTitle(item, t)}>
-																	{truncateLabel(sessionTitle(item, t))}
-																</span>
-																{item.phase === "running" || item.phase === "error" ? (
-																	<span className={`session-status-badge is-${item.phase}`}>
-																		<span className="session-status-dot" aria-hidden="true" />
-																		{item.phase === "running"
-																			? t("sessionRunning")
-																			: t("sessionError")}
-																	</span>
-																) : null}
-																{unreadSessionIds.has(item.id) ? (
-																	<span className="session-unread-dot" />
-																) : null}
-															</button>
-														)}
-														{!isRenaming ? (
-															<button
-																className="session-more"
-																type="button"
-																aria-label={t("sessionActions")}
-																aria-expanded={sessionMenuOpen === item.path}
-																onClick={() =>
-																	setSessionMenuOpen((open) =>
-																		open === item.path ? undefined : item.path,
-																	)
-																}
-															>
-																<Icon name="more" size={14} />
-															</button>
-														) : null}
-														{sessionMenuOpen === item.path ? (
-															<div className="session-more-menu" role="menu">
-																<button
-																	type="button"
-																	onClick={() => {
-																		setSessionMenuOpen(undefined);
-																		setRenamingSession({
-																			path: item.path,
-																			name: item.name ?? sessionTitle(item, t),
-																		});
-																	}}
-																>
-																	{t("rename")}
-																</button>
-																{isCurrent ? (
-																	<button
-																		type="button"
-																		onClick={() => {
-																			setSessionMenuOpen(undefined);
-																			setTopPanel("session");
-																		}}
-																	>
-																		{t("sessionStats")}
-																	</button>
-																) : null}
-																{isCurrent ? (
-																	<button
-																		type="button"
-																		disabled={session?.phase === "running"}
-																		onClick={() => {
-																			setSessionMenuOpen(undefined);
-																			void handleForkSession();
-																		}}
-																	>
-																		{t("forkAsSession")}
-																	</button>
-																) : null}
-																<button
-																	type="button"
-																	className="is-danger"
-																	disabled={item.phase === "running"}
-																	onClick={(event) => {
-																		if (!event.shiftKey && deleteSessionPath !== item.path) {
-																			void handleDeleteSession(item.path);
-																			return;
-																		}
-																		setSessionMenuOpen(undefined);
-																		void handleDeleteSession(item.path, event.shiftKey);
-																	}}
-																>
-																	{deleteSessionPath === item.path
-																		? t("confirmDelete")
-																		: t("deleteSession")}
-																</button>
-																{deleteSessionPath === item.path ? (
-																	<button
-																		type="button"
-																		onClick={() => setDeleteSessionPath(undefined)}
-																	>
-																		{t("cancel")}
-																	</button>
-																) : null}
-																<div className="session-more-meta">
-																	<span>{formatSessionDate(item.modified)}</span>
-																	<span>{t("messageCount", { count: item.messageCount })}</span>
-																	<span>
-																		{item.parentSessionPath ? t("forkBadge") : t("mainBranchBadge")}
-																	</span>
-																</div>
-															</div>
-														) : null}
-													</div>
-												);
-											})}
-											{!expanded && flattenedItems.length > 5 ? (
+								) : null}
+								{group.entries.map(([root, items]) => {
+									const flattenedItems = flattenSessionTree(items);
+									const active = items.some((item) => item.id === session?.id);
+									const branch =
+										items.find((item) => item.worktreeBranch)?.worktreeBranch ??
+										gitWorktrees.find((tree) => tree.path.replace(/[\\/]+$/u, "") === root)?.branch;
+									const collapsed = collapsedProjects.has(root);
+									const expanded = expandedProjects.has(root);
+									const visibleItems = (() => {
+										if (archivedChatRoots.has(root)) return [];
+										if (expanded) return flattenedItems;
+										const first = flattenedItems.slice(0, 5);
+										const current = flattenedItems.find((item) => item.info.id === session?.id);
+										if (!current || first.some((item) => item.info.id === current.info.id)) return first;
+										return [...first.slice(0, 4), current];
+									})();
+									return (
+										<section
+											className={`sidebar-project-tree-group ${active ? "is-active" : ""} ${collapsed ? "is-collapsed" : ""}`}
+											key={root}
+										>
+											<div className="sidebar-project-tree-row">
 												<button
-													className="sidebar-more-button"
-													type="button"
-													onClick={() => setExpandedProjects((current) => new Set(current).add(root))}
-												>
-													{t("showMore", { count: flattenedItems.length - 5 })}
-												</button>
-											) : null}
-											{expanded && flattenedItems.length > 5 ? (
-												<button
-													className="sidebar-more-button"
+													className="sidebar-project-tree-row-main"
 													type="button"
 													onClick={() =>
-														setExpandedProjects((current) => {
+														setCollapsedProjects((current) => {
 															const next = new Set(current);
-															next.delete(root);
+															if (next.has(root)) next.delete(root);
+															else next.add(root);
 															return next;
 														})
 													}
+													aria-expanded={!collapsed}
+													onMouseEnter={(event) => {
+														clearHoverClose();
+														setHoverCard({
+															kind: "project",
+															root,
+															count: flattenedItems.length,
+															...tipPosition(event),
+														});
+													}}
+													onMouseLeave={scheduleHoverClose}
 												>
-													{t("showLess")}
+													<Icon name={collapsed ? "briefcase" : "briefcaseOpen"} size={15} />
+													<span className="sidebar-project-tree-copy">
+														{/*
+														 * The whole project name, wrapped over at most two lines:
+														 * the five-character cut made "pi-desktop" read as
+														 * "pi-de…" even when the sidebar had room for it.
+														 */}
+														<span className="sidebar-project-tree-name" title={projectLabel(root)}>
+															{projectLabel(root)}
+														</span>
+														{branch ? <small>⎇ {formatGitBranch(branch)}</small> : null}
+													</span>
 												</button>
+												<div className="sidebar-project-tree-row-actions">
+													<button
+														className="sidebar-project-tree-action"
+														type="button"
+														aria-label={t("newSessionAria")}
+														onClick={() => void handleNewSessionForProject(root)}
+													>
+														<Icon name="plus" size={13} />
+													</button>
+													<div className="sidebar-project-more-wrap project-menu-root">
+														<button
+															className="sidebar-project-tree-action sidebar-project-tree-more"
+															type="button"
+															aria-label={t("projectActions")}
+															aria-expanded={projectRowMenuOpen === root}
+															onClick={() =>
+																setProjectRowMenuOpen((current) =>
+																	current === root ? undefined : root,
+																)
+															}
+														>
+															<Icon name="more" size={13} />
+														</button>
+														{projectRowMenuOpen === root ? (
+															<Menu className="session-more-menu project-row-menu">
+																<MenuItem
+																	icon={<Icon name="pin" size={15} />}
+																	label={
+																		pinnedProjectRoots.has(root) ? t("unpinProject") : t("pinProject")
+																	}
+																	onSelect={() => {
+																		setProjectRowMenuOpen(undefined);
+																		togglePinnedProject(root);
+																	}}
+																/>
+																<MenuItem
+																	icon={<Icon name="gear" size={15} />}
+																	label={t("editProject")}
+																	onSelect={() => {
+																		setProjectRowMenuOpen(undefined);
+																		setEditingProjectRoot(root);
+																	}}
+																/>
+																<MenuDivider />
+																<div className="project-row-submenu-anchor">
+																	<MenuItem
+																		icon={<Icon name="sections" size={15} />}
+																		label={t("projectSection")}
+																		trailing={<Icon name="chevron" size={12} />}
+																		onSelect={() =>
+																			setOpenProjectSection((current) =>
+																				current === root ? undefined : root,
+																			)
+																		}
+																	/>
+																	{openProjectSection === root ? (
+																		<Menu className="project-row-submenu" inline>
+																			{projectSections.names.map((name) => (
+																				<MenuItem
+																					key={name}
+																					label={name}
+																					current={projectSections.assignments[root] === name}
+																					onSelect={() => {
+																						assignProjectSection(root, name);
+																						setOpenProjectSection(undefined);
+																						setProjectRowMenuOpen(undefined);
+																					}}
+																				/>
+																			))}
+																			{projectSections.assignments[root] ? (
+																				<MenuItem
+																					label={t("projectSectionNone")}
+																					onSelect={() => {
+																						assignProjectSection(root, undefined);
+																						setOpenProjectSection(undefined);
+																						setProjectRowMenuOpen(undefined);
+																					}}
+																				/>
+																			) : null}
+																			{pendingSectionRoot === root ? (
+																				<form
+																					className="project-row-submenu-form"
+																					onSubmit={(event) => {
+																						event.preventDefault();
+																						createProjectSection(root, sectionNameDraft);
+																						setSectionNameDraft("");
+																						setPendingSectionRoot(undefined);
+																						setOpenProjectSection(undefined);
+																						setProjectRowMenuOpen(undefined);
+																					}}
+																				>
+																					<input
+																						// biome-ignore lint/a11y/noAutofocus: 用户刚触发新建分区, 输入框已就位
+																						autoFocus
+																						value={sectionNameDraft}
+																						onChange={(event) =>
+																							setSectionNameDraft(event.target.value)
+																						}
+																						placeholder={t("projectSectionPlaceholder")}
+																						aria-label={t("projectSectionPlaceholder")}
+																					/>
+																				</form>
+																			) : (
+																				<MenuItem
+																					icon={<Icon name="plus" size={15} />}
+																					label={t("projectSectionNew")}
+																					onSelect={() => {
+																						setPendingSectionRoot(root);
+																						setSectionNameDraft("");
+																					}}
+																				/>
+																			)}
+																		</Menu>
+																	) : null}
+																</div>
+																<MenuItem
+																	icon={<Icon name="archiveBox" size={15} />}
+																	label={
+																		archivedChatRoots.has(root)
+																			? t("unarchiveChats")
+																			: t("archiveChats")
+																	}
+																	onSelect={() => {
+																		setProjectRowMenuOpen(undefined);
+																		toggleArchivedChats(root);
+																	}}
+																/>
+																<MenuDivider />
+																<MenuItem
+																	icon={<Icon name="close" size={15} />}
+																	label={t("removeProject")}
+																	danger
+																	onSelect={() => {
+																		setProjectRowMenuOpen(undefined);
+																		handleRemoveLocalProject(root);
+																	}}
+																/>
+															</Menu>
+														) : null}
+													</div>
+												</div>
+											</div>
+											{!collapsed ? (
+												<div className="sidebar-project-tree-children">
+													{visibleItems.map(({ info: item, depth }) => {
+														const isCurrent = item.id === session?.id;
+														const isRenaming = renamingSession?.path === item.path;
+														return (
+															<div
+																className={`session-row-wrap ${isCurrent ? "is-current" : ""} ${depth ? "is-forked" : ""}`}
+																key={item.path}
+																style={{ "--session-depth": Math.min(depth, 5) } as CSSProperties}
+															>
+																{isRenaming ? (
+																	<form
+																		className="session-inline-rename"
+																		onSubmit={(event) => {
+																			event.preventDefault();
+																			void handleRenameSubmit();
+																		}}
+																	>
+																		<input
+																			// biome-ignore lint/a11y/noAutofocus: 用户刚触发了内联重命名
+																			autoFocus
+																			aria-label={t("sessionNameAria")}
+																			value={renamingSession.name}
+																			onChange={(event) =>
+																				setRenamingSession({
+																					...renamingSession,
+																					name: event.target.value,
+																				})
+																			}
+																			onKeyDown={(event) => {
+																				if (event.key === "Escape") setRenamingSession(undefined);
+																			}}
+																		/>
+																		<button type="submit">{t("save")}</button>
+																	</form>
+																) : (
+																	<button
+																		className="session-row"
+																		type="button"
+																		onMouseEnter={(event) =>
+																			setHoverCard({
+																				kind: "session",
+																				title:
+																					item.name ??
+																					(item.firstMessage.trim() || sessionTitle(item, t)),
+																				timestamp: item.modified,
+																				...tipPosition(event),
+																			})
+																		}
+																		onMouseLeave={() => setHoverCard(undefined)}
+																		onClick={() =>
+																			isCurrent
+																				? promptRef.current?.focus()
+																				: void handleOpenSession(item.path)
+																		}
+																	>
+																		<span className="session-row-icon">
+																			<Icon name="chat" size={14} />
+																		</span>
+																		<span className="session-row-title">
+																			{truncateLabel(sessionTitle(item, t))}
+																		</span>
+																		{item.phase === "running" || item.phase === "error" ? (
+																			<span className={`session-status-badge is-${item.phase}`}>
+																				<span className="session-status-dot" aria-hidden="true" />
+																				{item.phase === "running"
+																					? t("sessionRunning")
+																					: t("sessionError")}
+																			</span>
+																		) : null}
+																		{unreadSessionIds.has(item.id) ? (
+																			<span className="session-unread-dot" />
+																		) : null}
+																	</button>
+																)}
+																{!isRenaming ? (
+																	<button
+																		className="session-more"
+																		type="button"
+																		aria-label={t("sessionActions")}
+																		aria-expanded={sessionMenuOpen === item.path}
+																		onClick={() =>
+																			setSessionMenuOpen((open) =>
+																				open === item.path ? undefined : item.path,
+																			)
+																		}
+																	>
+																		<Icon name="more" size={14} />
+																	</button>
+																) : null}
+																{sessionMenuOpen === item.path ? (
+																	<Menu className="session-more-menu">
+																		<MenuItem
+																			icon={<Icon name="edit" size={15} />}
+																			label={t("rename")}
+																			onSelect={() => {
+																				setSessionMenuOpen(undefined);
+																				setRenamingSession({
+																					path: item.path,
+																					name: item.name ?? sessionTitle(item, t),
+																				});
+																			}}
+																		/>
+																		{isCurrent ? (
+																			<MenuItem
+																				icon={<Icon name="chart" size={15} />}
+																				label={t("sessionStats")}
+																				onSelect={() => {
+																					setSessionMenuOpen(undefined);
+																					setTopPanel("session");
+																				}}
+																			/>
+																		) : null}
+																		{isCurrent ? (
+																			<MenuItem
+																				icon={<Icon name="branch" size={15} />}
+																				label={t("forkAsSession")}
+																				disabled={session?.phase === "running"}
+																				onSelect={() => {
+																					setSessionMenuOpen(undefined);
+																					void handleForkSession();
+																				}}
+																			/>
+																		) : null}
+																		<MenuDivider />
+																		<MenuItem
+																			icon={<Icon name="close" size={15} />}
+																			label={t("deleteSession")}
+																			danger
+																			disabled={item.phase === "running"}
+																			onSelect={(event) => {
+																				setSessionMenuOpen(undefined);
+																				void handleDeleteSession(item.path, event.shiftKey);
+																			}}
+																		/>
+																		<div className="session-more-meta">
+																			<span>{formatSessionDate(item.modified)}</span>
+																			<span>{t("messageCount", { count: item.messageCount })}</span>
+																			<span>
+																				{item.parentSessionPath
+																					? t("forkBadge")
+																					: t("mainBranchBadge")}
+																			</span>
+																		</div>
+																	</Menu>
+																) : null}
+															</div>
+														);
+													})}
+													{!expanded && flattenedItems.length > 5 ? (
+														<button
+															className="sidebar-more-button"
+															type="button"
+															onClick={() =>
+																setExpandedProjects((current) => new Set(current).add(root))
+															}
+														>
+															{t("showMore", { count: flattenedItems.length - 5 })}
+														</button>
+													) : null}
+													{expanded && flattenedItems.length > 5 ? (
+														<button
+															className="sidebar-more-button"
+															type="button"
+															onClick={() =>
+																setExpandedProjects((current) => {
+																	const next = new Set(current);
+																	next.delete(root);
+																	return next;
+																})
+															}
+														>
+															{t("showLess")}
+														</button>
+													) : null}
+												</div>
 											) : null}
-										</div>
-									) : null}
-								</section>
-							);
-						})
+										</section>
+									);
+								})}
+							</div>
+						))
 					: null}
 			</section>
 		);
@@ -4610,12 +5112,12 @@ export function App() {
 			(path) => !query || path.toLocaleLowerCase().includes(query),
 		);
 		return (
-			<div className="project-menu" role="menu">
-				<button
-					className="project-menu-item"
-					type="button"
+			<Menu className="project-menu">
+				<MenuItem
+					icon={<Icon name="compact" size={15} />}
+					label={allProjectsCollapsed ? t("expandProjects") : t("collapseProjects")}
 					disabled={activeProjectRoots.length === 0}
-					onClick={() => {
+					onSelect={() => {
 						setCollapsedProjects((current) => {
 							const next = new Set(current);
 							for (const path of activeProjectRoots) {
@@ -4626,66 +5128,56 @@ export function App() {
 						});
 						close();
 					}}
-				>
-					<Icon name="compact" size={14} />
-					<span>{allProjectsCollapsed ? t("expandProjects") : t("collapseProjects")}</span>
-				</button>
-				<button
-					className="project-menu-item"
-					type="button"
+				/>
+				<MenuItem
+					icon={<Icon name="folder" size={15} />}
+					label={t("chooseFolder")}
 					disabled={!canChooseWorkspace}
-					onClick={() => {
+					onSelect={() => {
 						close();
 						void handleChooseWorkspace();
 					}}
-				>
-					<Icon name="folder" size={14} />
-					<span>{t("chooseFolder")}</span>
-				</button>
+				/>
 				{recentWorkspaces.length > 0 ? (
 					<>
-						<div className="project-menu-label">{t("recentProjects")}</div>
+						<MenuHeading>{t("recentProjects")}</MenuHeading>
 						{knownWorkspacePaths.length > 7 ? (
-							<input
-								className="project-menu-filter"
+							<MenuFilter
 								value={projectFilter}
-								onChange={(event) => setProjectFilter(event.target.value)}
+								onChange={setProjectFilter}
 								placeholder={t("filterProjects")}
-								aria-label={t("filterProjects")}
+								ariaLabel={t("filterProjects")}
 							/>
 						) : null}
 						{visibleRecentWorkspaces.slice(0, query ? visibleRecentWorkspaces.length : 7).map((path) => (
-							<button
-								className="project-menu-item"
+							<MenuItem
 								key={path}
-								type="button"
+								icon={<Icon name="folder" size={15} />}
+								label={formatWorkspace(path, t)}
 								title={path}
 								disabled={session?.phase === "running"}
-								onClick={() => {
+								onSelect={() => {
 									close();
 									void handleSwitchWorkspacePath(path);
 									setProjectFilter("");
 								}}
-							>
-								<Icon name="folder" size={14} />
-								<span>{formatWorkspace(path, t)}</span>
-							</button>
+							/>
 						))}
-						{visibleRecentWorkspaces.length === 0 ? (
-							<p className="project-menu-empty">{t("noMatchingProjects")}</p>
-						) : null}
+						{visibleRecentWorkspaces.length === 0 ? <MenuEmpty>{t("noMatchingProjects")}</MenuEmpty> : null}
 					</>
 				) : null}
 				{archivedProjectPaths.length ? (
 					<>
-						<div className="project-menu-label project-menu-archived-label">{t("archivedProjects")}</div>
+						<MenuDivider />
+						<MenuHeading>{t("archivedProjects")}</MenuHeading>
 						{archivedProjectPaths.map((path) => (
-							<button
-								className="project-menu-item project-menu-archived-item"
+							<MenuItem
 								key={path}
-								type="button"
+								icon={<Icon name="folder" size={15} />}
+								label={formatWorkspace(path, t)}
 								title={path}
-								onClick={() => {
+								trailing={t("restore")}
+								onSelect={() => {
 									setArchivedProjectRoots((current) => {
 										const next = new Set(current);
 										next.delete(path);
@@ -4693,11 +5185,7 @@ export function App() {
 									});
 									close();
 								}}
-							>
-								<Icon name="folder" size={14} />
-								<span>{formatWorkspace(path, t)}</span>
-								<small>{t("restore")}</small>
-							</button>
+							/>
 						))}
 					</>
 				) : null}
@@ -4712,7 +5200,7 @@ export function App() {
 						}}
 					/>
 				) : null}
-			</div>
+			</Menu>
 		);
 	}
 
@@ -4727,12 +5215,66 @@ export function App() {
 				} as CSSProperties
 			}
 		>
+			{hoverCard?.kind === "project" ? (
+				<div
+					className="sidebar-hover-card"
+					style={{ top: hoverCard.top, left: hoverCard.left }}
+					role="menu"
+					onMouseEnter={clearHoverClose}
+					onMouseLeave={scheduleHoverClose}
+				>
+					<div className="sidebar-hover-card-title">
+						<Icon name="folder" size={14} />
+						<span>{projectLabel(hoverCard.root)}</span>
+					</div>
+					<div className="sidebar-hover-card-row">
+						<Icon name="chat" size={14} />
+						<span>{t("projectTaskCount", { count: hoverCard.count })}</span>
+					</div>
+					<div className="sidebar-hover-card-divider" />
+					<div className="sidebar-hover-card-row">
+						<Icon name="folder" size={14} />
+						<span>{displayPath(hoverCard.root)}</span>
+					</div>
+					<div className="sidebar-hover-card-divider" />
+					<button
+						type="button"
+						onMouseDown={(event) => event.preventDefault()}
+						onClick={() => {
+							setEditingProjectRoot(hoverCard.root);
+							setHoverCard(undefined);
+						}}
+					>
+						<Icon name="gear" size={14} />
+						<span>{t("editProject")}</span>
+					</button>
+					<button
+						type="button"
+						onMouseDown={(event) => event.preventDefault()}
+						onClick={() => {
+							void handleRevealProject(hoverCard.root);
+							setHoverCard(undefined);
+						}}
+					>
+						<Icon name="folder" size={14} />
+						<span>{t("revealInFinder")}</span>
+					</button>
+				</div>
+			) : null}
+			{hoverCard?.kind === "session" ? (
+				<div className="sidebar-hover-card" style={{ top: hoverCard.top, left: hoverCard.left }} role="tooltip">
+					<div className="sidebar-hover-card-title">
+						<span>{hoverCard.title}</span>
+						<small>{sessionAgeLabel(hoverCard.timestamp, t)}</small>
+					</div>
+				</div>
+			) : null}
 			<aside className="sidebar" aria-label={t("projectNavAria")} aria-hidden={!sidebarOpen}>
 				<header className="session-sidebar-header">
 					<div className="sidebar-brand-row">
 						<span className="sidebar-brand">
 							<BrandMark className="sidebar-brand-logo" size={18} />
-							<span className="sidebar-brand-name">Pi Agent</span>
+							<span className="sidebar-brand-name">Pi Desktop</span>
 						</span>
 						<div className="sidebar-controls-row">
 							<button
@@ -4808,25 +5350,19 @@ export function App() {
 							<Icon name="gear" size={16} />
 						</button>
 						{settingsMenuOpen ? (
-							<div className="footer-menu" role="menu">
+							<Menu className="footer-menu">
 								{FOOTER_SETTINGS_ENTRIES.map((entry) => (
-									<button
+									<MenuItem
 										key={entry.modal}
-										className="footer-menu-item"
-										type="button"
-										role="menuitem"
-										onClick={() => {
+										icon={<Icon name={entry.icon} size={15} />}
+										label={t(entry.label)}
+										onSelect={() => {
 											setSettingsMenuOpen(false);
 											setConfigModal(entry.modal);
 										}}
-									>
-										<span className="footer-menu-icon">
-											<Icon name={entry.icon} size={15} />
-										</span>
-										<span>{t(entry.label)}</span>
-									</button>
+									/>
 								))}
-							</div>
+							</Menu>
 						) : null}
 					</div>
 					<UpdateButton variant="footer" />
@@ -4913,7 +5449,7 @@ export function App() {
 							title={t("toggleTerminal")}
 							aria-expanded={terminalOpen}
 							disabled={!snapshot.workspacePath}
-							onClick={() => setTerminalOpen((isOpen) => !isOpen)}
+							onClick={handleToggleTerminal}
 						>
 							<Icon name="terminal" size={12} />
 							<span>{t("toggleTerminal")}</span>
@@ -4931,137 +5467,82 @@ export function App() {
 								<span>{t("more")}</span>
 							</button>
 							{moreMenuOpen ? (
-								<div className="top-bar-more-menu" role="menu">
-									<button
-										className="app-topbar-more-item"
-										type="button"
+								<Menu className="top-bar-more-menu">
+									<MenuItem
+										icon={<Icon name="sparkles" size={15} />}
+										label={
+											namingState === "loading"
+												? t("generatingTitle")
+												: namingState === "success"
+													? t("generatedTitle")
+													: namingState === "error"
+														? t("generateTitleFailed")
+														: t("generateTitle")
+										}
+										hint={t("autoNameHint")}
 										disabled={!session?.messages.length || namingState === "loading"}
-										onClick={() => void handleAutoName()}
-									>
-										<span className="app-topbar-more-icon">
-											<Icon name="sparkles" size={14} />
-										</span>
-										<span className="app-topbar-more-copy">
-											<span>
-												{namingState === "loading"
-													? t("generatingTitle")
-													: namingState === "success"
-														? t("generatedTitle")
-														: namingState === "error"
-															? t("generateTitleFailed")
-															: t("generateTitle")}
-											</span>
-											<small>{t("autoNameHint")}</small>
-										</span>
-									</button>
-									<button
-										className="app-topbar-more-item"
-										type="button"
+										onSelect={() => void handleAutoName()}
+									/>
+									<MenuItem
+										icon={<Icon name="terminal" size={15} />}
+										label={t("systemPrompt")}
+										hint={session?.systemPrompt ? t("viewSystemPromptHint") : t("noSystemPrompt")}
 										disabled={!session}
-										onClick={() => {
+										onSelect={() => {
 											setMoreMenuOpen(false);
 											setTopPanel((current) => (current === "system" ? undefined : "system"));
 										}}
-									>
-										<span className="app-topbar-more-icon">
-											<Icon name="terminal" size={14} />
-										</span>
-										<span className="app-topbar-more-copy">
-											<span>{t("systemPrompt")}</span>
-											<small>
-												{session?.systemPrompt ? t("viewSystemPromptHint") : t("noSystemPrompt")}
-											</small>
-										</span>
-									</button>
-									<button
-										className="app-topbar-more-item"
-										type="button"
+									/>
+									<MenuItem
+										icon={<Icon name="chart" size={15} />}
+										label={t("sessionStats")}
+										hint={statsSummary ?? t("noStats")}
 										disabled={!session}
-										onClick={() => {
+										onSelect={() => {
 											setMoreMenuOpen(false);
 											setTopPanel((current) => (current === "session" ? undefined : "session"));
 										}}
-									>
-										<span className="app-topbar-more-icon">
-											<Icon name="chart" size={14} />
-										</span>
-										<span className="app-topbar-more-copy">
-											<span>{t("sessionStats")}</span>
-											<small>{statsSummary ?? t("noStats")}</small>
-										</span>
-									</button>
+									/>
+									<MenuDivider />
 									{(["none", "default", "full"] as const).map((preset) => (
-										<button
+										<MenuItem
 											key={preset}
-											className="app-topbar-more-item"
-											type="button"
+											icon={<Icon name="wrench" size={15} />}
+											label={t(
+												`toolPreset${preset[0].toUpperCase()}${preset.slice(1)}` as ToolPresetLabelKey,
+											)}
+											hint={t(
+												`toolPreset${preset[0].toUpperCase()}${preset.slice(1)}Description` as ToolPresetHintKey,
+											)}
+											current={preset === toolPreset}
 											disabled={!canChangeToolPreset}
-											onClick={() => {
+											onSelect={() => {
 												setMoreMenuOpen(false);
 												void handleToolPresetChange(preset);
 											}}
-										>
-											<span className="app-topbar-more-icon">
-												<Icon name="wrench" size={14} />
-											</span>
-											<span className="app-topbar-more-copy">
-												<span>
-													{t(
-														`toolPreset${preset[0].toUpperCase()}${preset.slice(1)}` as
-															| "toolPresetNone"
-															| "toolPresetDefault"
-															| "toolPresetFull",
-													)}
-													{preset === toolPreset ? " ✓" : ""}
-												</span>
-												<small>
-													{t(
-														`toolPreset${preset[0].toUpperCase()}${preset.slice(1)}Description` as
-															| "toolPresetNoneDescription"
-															| "toolPresetDefaultDescription"
-															| "toolPresetFullDescription",
-													)}
-												</small>
-											</span>
-										</button>
+										/>
 									))}
-									<button
-										className="app-topbar-more-item"
-										type="button"
+									<MenuItem
+										icon={<Icon name="compact" size={15} />}
+										label={compacting ? t("stopCompact") : t("compact")}
+										hint={t("compactContextAria")}
 										disabled={!session || aborting}
-										onClick={() => {
+										onSelect={() => {
 											setMoreMenuOpen(false);
 											void (compacting ? handleAbort() : handleCompact());
 										}}
-									>
-										<span className="app-topbar-more-icon">
-											<Icon name="compact" size={14} />
-										</span>
-										<span className="app-topbar-more-copy">
-											<span>{compacting ? t("stopCompact") : t("compact")}</span>
-											<small>{t("compactContextAria")}</small>
-										</span>
-									</button>
-									<button
-										className="app-topbar-more-item"
-										type="button"
-										onClick={() => {
+									/>
+									<MenuItem
+										icon={<Icon name={soundOnComplete ? "speaker" : "speakerOff"} size={15} />}
+										label={soundOnComplete ? t("soundOn") : t("soundOff")}
+										hint={t("toggleSoundAria")}
+										current={soundOnComplete}
+										onSelect={() => {
 											if (!soundOnComplete) unlockCompletionAudio();
 											setSoundOnComplete((current) => !current);
 										}}
-									>
-										<span className="app-topbar-more-icon">
-											<Icon name={soundOnComplete ? "speaker" : "speakerOff"} size={14} />
-										</span>
-										<span className="app-topbar-more-copy">
-											<span>
-												{soundOnComplete ? t("soundOn") : t("soundOff")}
-												{soundOnComplete ? " ✓" : ""}
-											</span>
-											<small>{t("toggleSoundAria")}</small>
-										</span>
-									</button>
-								</div>
+									/>
+								</Menu>
 							) : null}
 						</div>
 						<div className="top-bar-more-wrap top-bar-openwith-wrap open-with-group">
@@ -5094,38 +5575,27 @@ export function App() {
 								<Icon name="chevronDown" size={12} />
 							</button>
 							{openWithMenuOpen ? (
-								<div className="top-bar-more-menu open-with-menu" role="menu">
+								<Menu className="top-bar-more-menu open-with-menu">
 									{openWithApps.map((app) => (
-										<button
+										<MenuItem
 											key={app.id}
-											className="app-topbar-more-item open-with-item"
-											type="button"
-											role="menuitemradio"
-											aria-checked={app.id === selectedOpenWith?.id}
-											onClick={() => {
+											icon={
+												app.iconDataUrl ? (
+													<img alt="" aria-hidden="true" src={app.iconDataUrl} />
+												) : (
+													<Icon name="external" size={15} />
+												)
+											}
+											label={app.name}
+											current={app.id === selectedOpenWith?.id}
+											onSelect={() => {
 												setOpenWithAppId(app.id);
 												localStorage.setItem("pi-desktop-open-with", app.id);
 												void openWith(app.id);
 											}}
-										>
-											<span className="app-topbar-more-icon">
-												{app.iconDataUrl ? (
-													<img alt="" aria-hidden="true" src={app.iconDataUrl} />
-												) : (
-													<Icon name="external" size={14} />
-												)}
-											</span>
-											<span className="app-topbar-more-copy">
-												<span>{app.name}</span>
-											</span>
-											{app.id === selectedOpenWith?.id ? (
-												<span className="open-with-check" aria-hidden="true">
-													✓
-												</span>
-											) : null}
-										</button>
+										/>
 									))}
-								</div>
+								</Menu>
 							) : null}
 						</div>
 						<button
@@ -5447,59 +5917,37 @@ export function App() {
 					<ExtensionWidgetStack
 						widgets={(snapshot.extensionWidgets ?? []).filter((widget) => widget.placement === "aboveEditor")}
 					/>
-					{snapshot.workspacePath ? (
+					{/*
+					 * The composer carries no project name: the sidebar already says
+					 * which project is open, and the row above the field is reserved
+					 * for the branch chip.
+					 */}
+					{snapshot.workspacePath && composerBranch ? (
 						<div className="composer-project-line">
 							<div className="composer-project-anchor project-menu-root">
 								<button
 									className="composer-project-item"
 									type="button"
-									title={snapshot.workspacePath}
-									aria-expanded={composerProjectMenuOpen}
+									aria-expanded={branchMenuOpen}
 									aria-haspopup="menu"
-									onClick={(event) => {
-										const rect = event.currentTarget.getBoundingClientRect();
-										setComposerProjectMenuAnchor({
-											left: rect.left,
-											bottom: window.innerHeight - rect.top + 6,
-										});
-										setComposerProjectMenuOpen((open) => !open);
-									}}
+									onClick={() => setBranchMenuOpen((open) => !open)}
 								>
-									<Icon name="folder" size={14} />
-									<span>{formatWorkspace(snapshot.workspacePath, t)}</span>
+									<Icon name="branch" size={14} />
+									<span>{formatGitBranch(composerBranch)}</span>
 								</button>
-								{composerProjectMenuOpen ? (
-									<div className="composer-project-menu-host" style={composerProjectMenuAnchor}>
-										{renderProjectMenu(() => setComposerProjectMenuOpen(false))}
+								{branchMenuOpen ? (
+									<div className="project-menu composer-branch-menu" role="menu">
+										<WorktreeSection
+											workspacePath={snapshot.workspacePath}
+											projectTrusted={snapshot.projectTrusted}
+											onSwitch={(path) => {
+												setBranchMenuOpen(false);
+												void handleSwitchWorkspacePath(path);
+											}}
+										/>
 									</div>
 								) : null}
 							</div>
-							{composerBranch ? (
-								<div className="composer-project-anchor project-menu-root">
-									<button
-										className="composer-project-item"
-										type="button"
-										aria-expanded={branchMenuOpen}
-										aria-haspopup="menu"
-										onClick={() => setBranchMenuOpen((open) => !open)}
-									>
-										<Icon name="branch" size={14} />
-										<span>{formatGitBranch(composerBranch)}</span>
-									</button>
-									{branchMenuOpen ? (
-										<div className="project-menu composer-branch-menu" role="menu">
-											<WorktreeSection
-												workspacePath={snapshot.workspacePath}
-												projectTrusted={snapshot.projectTrusted}
-												onSwitch={(path) => {
-													setBranchMenuOpen(false);
-													void handleSwitchWorkspacePath(path);
-												}}
-											/>
-										</div>
-									) : null}
-								</div>
-							) : null}
 						</div>
 					) : null}
 					<div className="composer-inner">
@@ -5794,6 +6242,19 @@ export function App() {
 								{modelScopeNotice}
 							</output>
 						) : null}
+						{permissionPrompt ? (
+							<div className="composer-permission-prompt">
+								<p>{permissionPrompt.text}</p>
+								<button
+									className="composer-permission-allow"
+									type="button"
+									disabled={allowingPermission}
+									onClick={() => void allowBlockedPermission()}
+								>
+									{allowingPermission ? t("allowingPermissionChange") : t("allowPermissionChange")}
+								</button>
+							</div>
+						) : null}
 						<div
 							className={`composer-footer${compactComposerControls ? " is-compact" : ""}`}
 							ref={composerControlsRef}
@@ -5978,6 +6439,18 @@ export function App() {
 								</div>
 							</div>
 							<div className="composer-footer-right composer-controls-slot">
+								{session?.phase === "running" ? (
+									<button
+										className="stop-button"
+										type="button"
+										disabled={aborting}
+										aria-label={aborting ? t("stopping") : t("stop")}
+										title={aborting ? t("stopping") : t("stop")}
+										onClick={() => void handleAbort()}
+									>
+										<Icon name="stop" size={16} />
+									</button>
+								) : null}
 								{compactComposerControls && !composerControlsOpen ? (
 									<button
 										className="composer-control-button composer-more-controls"
@@ -5994,18 +6467,6 @@ export function App() {
 										compactComposerControls && !composerControlsOpen ? " is-collapsed" : ""
 									}`}
 								>
-									{session?.phase === "running" ? (
-										<button
-											className="stop-button"
-											type="button"
-											disabled={aborting}
-											aria-label={aborting ? t("stopping") : t("stop")}
-											title={aborting ? t("stopping") : t("stop")}
-											onClick={() => void handleAbort()}
-										>
-											<Icon name="stop" size={16} />
-										</button>
-									) : null}
 									{compactComposerControls ? (
 										<button
 											className="composer-control-button composer-close-controls"
@@ -6018,25 +6479,7 @@ export function App() {
 										</button>
 									) : null}
 								</div>
-								{session?.phase === "running" ? (
-									<div className="composer-stream-actions">
-										<button
-											className="composer-steer-button"
-											type="button"
-											disabled={!draft.trim() || submitting || attachments.length > 0}
-											onClick={() => void handleSteer()}
-										>
-											{t("steer")}
-										</button>
-										<button
-											className="composer-followup-button"
-											type="submit"
-											disabled={!canSubmit || attachments.length > 0}
-										>
-											{submitting ? t("queuedButton") : t("followUp")}
-										</button>
-									</div>
-								) : (
+								{session?.phase === "running" ? null : (
 									<>
 										<ContextUsageRing
 											stats={snapshot.sessionStats}
@@ -6312,6 +6755,7 @@ export function App() {
 				<SkillsConfigModal
 					workspacePath={snapshot.workspacePath}
 					projectTrusted={snapshot.projectTrusted}
+					onTrustProject={() => void handleProjectTrust()}
 					onClose={() => setConfigModal(undefined)}
 				/>
 			) : null}
@@ -6320,6 +6764,7 @@ export function App() {
 					plugins={snapshot.plugins}
 					workspacePath={snapshot.workspacePath}
 					projectTrusted={snapshot.projectTrusted}
+					onTrustProject={() => void handleProjectTrust()}
 					onClose={() => setConfigModal(undefined)}
 				/>
 			) : null}
@@ -6345,6 +6790,25 @@ export function App() {
 				/>
 			) : null}
 			{configModal === "usage" ? <TokenActivityModal onClose={() => setConfigModal(undefined)} /> : null}
+			{editingProjectRoot ? (
+				<ProjectEditorDialog
+					projectRoot={editingProjectRoot}
+					initialName={projectProfiles[editingProjectRoot]?.name ?? projectFolderLabel(editingProjectRoot)}
+					initialFolders={[
+						editingProjectRoot,
+						...(projectProfiles[editingProjectRoot]?.folders ?? []).filter(
+							(folder) => folder !== editingProjectRoot,
+						),
+					]}
+					onRequestFolder={handleRequestProjectFolder}
+					onRemoveProject={() => handleRemoveLocalProject(editingProjectRoot)}
+					onClose={() => setEditingProjectRoot(undefined)}
+					onSave={(draft) => handleSaveProject(editingProjectRoot, draft)}
+				/>
+			) : null}
+			{permissionRiskOpen ? (
+				<PermissionRiskDialog onCancel={() => setPermissionRiskOpen(false)} onConfirm={confirmPermissionRisk} />
+			) : null}
 			{trustDialogOpen && snapshot.workspacePath ? (
 				<ProjectTrustDialog
 					workspacePath={snapshot.workspacePath}
@@ -6377,6 +6841,31 @@ export function App() {
 					onInput={(id, data) => void sendExtensionCustomInput(id, data).catch(() => {})}
 				/>
 			) : null}
+			{deleteSessionPath ? (
+				<div className="modal-backdrop">
+					<div
+						className="models-discard-dialog"
+						role="alertdialog"
+						aria-modal="true"
+						aria-label={t("deleteSessionTitle")}
+					>
+						<strong>{t("deleteSessionTitle")}</strong>
+						<p>{t("deleteSessionHint")}</p>
+						<div>
+							<button className="outline-button" type="button" onClick={() => setDeleteSessionPath(undefined)}>
+								{t("cancel")}
+							</button>
+							<button
+								className="danger-button"
+								type="button"
+								onClick={() => void handleDeleteSession(deleteSessionPath, true)}
+							>
+								{t("deleteSession")}
+							</button>
+						</div>
+					</div>
+				</div>
+			) : null}
 			{pendingFileConflicts ? (
 				<div className="modal-backdrop">
 					<div className="models-discard-dialog" role="dialog" aria-modal="true" aria-label={t("conflictAria")}>
@@ -6407,7 +6896,6 @@ export function App() {
 					</div>
 				</div>
 			) : null}
-			<UpdateReminder onOpenSettings={() => setConfigModal("settings")} />
 		</main>
 	);
 }

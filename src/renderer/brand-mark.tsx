@@ -31,9 +31,14 @@ export const BrandMark = memo(function BrandMark({
 		>
 			{title ? <title>{title}</title> : null}
 			<defs>
+				{/*
+				 * The plate takes its ink from theme tokens rather than currentColor:
+				 * dark chrome lights a white plate, and light chrome brushes graphite
+				 * instead of flat black, so both themes keep the same material.
+				 */}
 				<linearGradient id={gradientId} x1="0.2" y1="0" x2="0.6" y2="1">
-					<stop offset="0%" stopColor="currentColor" />
-					<stop offset="100%" stopColor="currentColor" stopOpacity="0.62" />
+					<stop offset="0%" stopColor="var(--ds-brand-mark-top, currentColor)" />
+					<stop offset="100%" stopColor="var(--ds-brand-mark-bottom, currentColor)" />
 				</linearGradient>
 			</defs>
 			<path

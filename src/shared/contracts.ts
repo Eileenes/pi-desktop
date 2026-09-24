@@ -460,6 +460,12 @@ export interface DesktopBranchPoint {
 	text: string;
 }
 
+/**
+ * One branch-tree node, sent in pre-order with its depth rather than nested in
+ * its children. A long session is a chain hundreds of entries deep, and the
+ * Electron bridge refuses values nested deeper than a thousand levels, so the
+ * renderer rebuilds the tree instead of receiving it nested.
+ */
 export interface DesktopSessionTreeNode {
 	entry: {
 		id: string;
@@ -467,7 +473,7 @@ export interface DesktopSessionTreeNode {
 		role?: string;
 		text?: string;
 	};
-	children: DesktopSessionTreeNode[];
+	depth: number;
 }
 
 export interface DesktopGitChange {
@@ -726,6 +732,15 @@ export interface DesktopWorkspaceFileInput {
 	path: string;
 }
 
+/**
+ * Revealing a whole project root rather than one file inside it. The path is
+ * only ever matched against projects the main process already knows, so the
+ * renderer still cannot point the shell at an arbitrary location.
+ */
+export interface DesktopRevealProjectPathInput {
+	path: string;
+}
+
 export interface DesktopBashOutputInput {
 	messageId: string;
 }
@@ -788,6 +803,7 @@ export interface DesktopApi {
 	readWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<DesktopWorkspaceFilePreview>;
 	openWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<void>;
 	revealWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<void>;
+	revealProjectPath(input: DesktopRevealProjectPathInput): Promise<void>;
 	saveWorkspaceFile(input: DesktopWorkspaceFileInput): Promise<string>;
 	respondToExtensionDialog(input: DesktopExtensionDialogResponseInput): Promise<void>;
 	sendExtensionCustomInput(input: DesktopExtensionCustomInput): Promise<void>;
@@ -1242,6 +1258,17 @@ export function isDesktopWorkspaceFileInput(value: unknown): value is DesktopWor
 		!value.path.startsWith("/") &&
 		!value.path.includes("\0") &&
 		!value.path.split("/").includes("..")
+	);
+}
+
+export function isDesktopRevealProjectPathInput(value: unknown): value is DesktopRevealProjectPathInput {
+	return (
+		isExactRecord(value, ["path"]) &&
+		typeof value.path === "string" &&
+		value.path.length > 0 &&
+		value.path.length <= 2_000 &&
+		!value.path.includes("\0") &&
+		!value.path.split(/[\\/]/u).includes("..")
 	);
 }
 

@@ -144,7 +144,7 @@ export class TrustedWorkspaceBrowser {
 	async listDirectory(directoryPath = ""): Promise<DesktopWorkspaceDirectoryListing> {
 		const normalized = directoryPath.replaceAll("\\", "/").replace(/^\/+|\/+$/gu, "");
 		if (normalized.split("/").includes("..") || isIgnoredPath(normalized)) {
-			throw new Error("Pi 桌面端无法浏览该受保护项目路径。");
+			throw new Error("Pi Desktop 无法浏览该受保护项目路径。");
 		}
 		const workspacePath = await realpath(this.workspacePath);
 		const candidatePath = resolve(workspacePath, normalized);
@@ -153,7 +153,7 @@ export class TrustedWorkspaceBrowser {
 		}
 		const directoryStats = await lstat(candidatePath);
 		if (directoryStats.isSymbolicLink() || !directoryStats.isDirectory()) {
-			throw new Error("Pi 桌面端只能浏览项目内的普通目录。");
+			throw new Error("Pi Desktop 只能浏览项目内的普通目录。");
 		}
 		const resolvedDirectory = await realpath(candidatePath);
 		if (resolvedDirectory !== workspacePath && !isWithinWorkspace(workspacePath, resolvedDirectory)) {
@@ -258,7 +258,7 @@ export class TrustedWorkspaceBrowser {
 
 		const content = await readFile(resolvedFilePath);
 		if (content.includes(0)) {
-			throw new Error("Pi 桌面端无法预览二进制文件。");
+			throw new Error("Pi Desktop 无法预览二进制文件。");
 		}
 
 		return { path: toWorkspacePath(relative(workspacePath, resolvedFilePath)), content: content.toString("utf8") };
@@ -282,7 +282,7 @@ export class TrustedWorkspaceBrowser {
 		workspacePath: string;
 	}> {
 		if (isIgnoredPath(path)) {
-			throw new Error("Pi 桌面端无法打开该受保护项目路径。");
+			throw new Error("Pi Desktop 无法打开该受保护项目路径。");
 		}
 
 		const workspacePath = await realpath(this.workspacePath);
@@ -293,7 +293,7 @@ export class TrustedWorkspaceBrowser {
 
 		const fileStats = await lstat(candidatePath);
 		if (!fileStats.isFile() || fileStats.isSymbolicLink()) {
-			throw new Error("Pi 桌面端只能操作普通文件。");
+			throw new Error("Pi Desktop 只能操作普通文件。");
 		}
 
 		const resolvedFilePath = await realpath(candidatePath);

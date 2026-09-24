@@ -19,7 +19,7 @@ document.documentElement.dataset.accent = isAppAccent(localStorage.getItem("pi-d
 	: "mono";
 
 const root = document.getElementById("root");
-if (!root) throw new Error("Pi Agent root element is missing.");
+if (!root) throw new Error("Pi Desktop root element is missing.");
 
 createRoot(root).render(
 	<StrictMode>

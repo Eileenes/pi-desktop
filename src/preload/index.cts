@@ -36,6 +36,9 @@ import type {
 	DesktopPluginPackagesResult,
 	DesktopPluginPackageFilterInput,
 	DesktopPromptInput,
+	DesktopPromptReceipt,
+	DesktopQueueReceipt,
+	DesktopSessionTargetInput,
 	DesktopRevealProjectPathInput,
 	DesktopRestoreImageAttachmentsInput,
 	DesktopRestoreMessageImagesInput,
@@ -88,9 +91,9 @@ const desktopApi: DesktopApi = {
 			overwriteConflicts,
 			...(targetDirectory ? { targetDirectory } : {}),
 		}),
-	prompt: (input: DesktopPromptInput) => ipcRenderer.invoke("pi-desktop:prompt", input) as Promise<DesktopSnapshot>,
-	abort: () => ipcRenderer.invoke("pi-desktop:abort") as Promise<DesktopSnapshot>,
-	clearQueue: () => ipcRenderer.invoke("pi-desktop:clear-queue") as Promise<DesktopSnapshot>,
+	prompt: (input: DesktopPromptInput) => ipcRenderer.invoke("pi-desktop:prompt", input) as Promise<DesktopPromptReceipt>,
+	abort: (input: DesktopSessionTargetInput) => ipcRenderer.invoke("pi-desktop:abort", input) as Promise<DesktopSnapshot>,
+	clearQueue: (input: DesktopSessionTargetInput) => ipcRenderer.invoke("pi-desktop:clear-queue", input) as Promise<DesktopQueueReceipt>,
 	openSession: (input: DesktopOpenSessionInput) =>
 		ipcRenderer.invoke("pi-desktop:open-session", input) as Promise<DesktopSnapshot>,
 	newSession: () => ipcRenderer.invoke("pi-desktop:new-session") as Promise<DesktopSnapshot>,
@@ -147,7 +150,7 @@ const desktopApi: DesktopApi = {
 	openWorkspaceWith: (input: DesktopOpenWithInput) =>
 		ipcRenderer.invoke("pi-desktop:open-workspace-with", input) as Promise<void>,
 	setPermissionMode: (input: DesktopPermissionModeInput) =>
-		ipcRenderer.invoke("pi-desktop:set-permission-mode", input) as Promise<void>,
+		ipcRenderer.invoke("pi-desktop:set-permission-mode", input) as Promise<DesktopSnapshot>,
 	createTerminal: (input: DesktopTerminalCreateInput) =>
 		ipcRenderer.invoke("pi-desktop:terminal-create", input) as Promise<DesktopTerminalSession>,
 	writeTerminal: (input: DesktopTerminalWriteInput) =>

@@ -4,6 +4,7 @@ import {
 	isDesktopDiscoverModelsInput,
 	isDesktopModelSelectionInput,
 	isDesktopModelTestInput,
+	isDesktopPermissionModeInput,
 	isDesktopPluginSourceInput,
 	isDesktopProjectTrustInput,
 	isDesktopPromptInput,
@@ -11,6 +12,7 @@ import {
 	isDesktopRemoveWorktreeInput,
 	isDesktopRevealProjectPathInput,
 	isDesktopSaveModelsConfigInput,
+	isDesktopSessionTargetInput,
 	isDesktopToolApprovalDecisionInput,
 	isDesktopWorkspaceFileInput,
 } from "../src/shared/contracts.ts";
@@ -31,20 +33,59 @@ describe("isDesktopPluginSourceInput", () => {
 
 describe("isDesktopPromptInput", () => {
 	it("accepts text with optional selected image ids", () => {
-		expect(isDesktopPromptInput({ text: "Inspect this project" })).toBe(true);
-		expect(isDesktopPromptInput({ text: "", attachmentIds: ["image-1"] })).toBe(true);
-		expect(isDesktopPromptInput({ text: "Use this constraint", streamingBehavior: "steer" })).toBe(true);
-		expect(isDesktopPromptInput({ text: "Then summarize", streamingBehavior: "followUp" })).toBe(true);
+		expect(
+			isDesktopPromptInput({ sessionId: "session-a", requestId: "request-a", text: "Inspect this project" }),
+		).toBe(true);
+		expect(
+			isDesktopPromptInput({ sessionId: "session-a", requestId: "request-a", text: "", attachmentIds: ["image-1"] }),
+		).toBe(true);
+		expect(
+			isDesktopPromptInput({
+				sessionId: "session-a",
+				requestId: "request-a",
+				text: "Use this constraint",
+				streamingBehavior: "steer",
+			}),
+		).toBe(true);
+		expect(
+			isDesktopPromptInput({
+				sessionId: "session-a",
+				requestId: "request-a",
+				text: "Then summarize",
+				streamingBehavior: "followUp",
+			}),
+		).toBe(true);
 	});
 
 	it("rejects extra or invalid fields", () => {
-		expect(isDesktopPromptInput({ text: "Inspect this project", cwd: "/tmp" })).toBe(false);
-		expect(isDesktopPromptInput({ text: "Inspect", attachmentIds: [42] })).toBe(false);
-		expect(isDesktopPromptInput({ text: "Inspect", attachmentIds: Array.from({ length: 11 }, () => "image") })).toBe(
-			false,
-		);
-		expect(isDesktopPromptInput({ text: "Inspect", streamingBehavior: "queue" })).toBe(false);
-		expect(isDesktopPromptInput({ text: 42 })).toBe(false);
+		expect(
+			isDesktopPromptInput({
+				sessionId: "session-a",
+				requestId: "request-a",
+				text: "Inspect this project",
+				cwd: "/tmp",
+			}),
+		).toBe(false);
+		expect(
+			isDesktopPromptInput({ sessionId: "session-a", requestId: "request-a", text: "Inspect", attachmentIds: [42] }),
+		).toBe(false);
+		expect(
+			isDesktopPromptInput({
+				sessionId: "session-a",
+				requestId: "request-a",
+				text: "Inspect",
+				attachmentIds: Array.from({ length: 11 }, () => "image"),
+			}),
+		).toBe(false);
+		expect(
+			isDesktopPromptInput({
+				sessionId: "session-a",
+				requestId: "request-a",
+				text: "Inspect",
+				streamingBehavior: "queue",
+			}),
+		).toBe(false);
+		expect(isDesktopPromptInput({ sessionId: "session-a", requestId: "request-a", text: 42 })).toBe(false);
 		expect(isDesktopPromptInput(null)).toBe(false);
 	});
 });
@@ -198,5 +239,23 @@ describe("isDesktopWorkspaceFileInput", () => {
 		expect(isDesktopWorkspaceFileInput({ path: "../private/file" })).toBe(false);
 		expect(isDesktopWorkspaceFileInput({ path: "src\\main.ts" })).toBe(false);
 		expect(isDesktopWorkspaceFileInput({ path: "src/main.ts", extra: true })).toBe(false);
+	});
+});
+
+describe("session-scoped commands", () => {
+	it("rejects prompts and permissions without an explicit session", () => {
+		expect(isDesktopPromptInput({ text: "go" })).toBe(false);
+		expect(isDesktopPromptInput({ text: "go", sessionId: "", requestId: "request" })).toBe(false);
+		expect(isDesktopPromptInput({ text: "go", sessionId: "a", requestId: "" })).toBe(false);
+		expect(isDesktopPermissionModeInput({ mode: "full" })).toBe(false);
+		expect(isDesktopPermissionModeInput({ sessionId: "a", mode: "full" })).toBe(true);
+		expect(isDesktopPermissionModeInput({ sessionId: "a", mode: "full", allSessions: true })).toBe(false);
+	});
+
+	it("requires bounded exact targets for stopping and retrieving queued input", () => {
+		expect(isDesktopSessionTargetInput({ sessionId: "session-a" })).toBe(true);
+		expect(isDesktopSessionTargetInput({ sessionId: "" })).toBe(false);
+		expect(isDesktopSessionTargetInput({ sessionId: "x".repeat(201) })).toBe(false);
+		expect(isDesktopSessionTargetInput({ sessionId: "session-a", cwd: "/tmp" })).toBe(false);
 	});
 });

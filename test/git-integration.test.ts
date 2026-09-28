@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { getGitDiff, listGitChanges } from "../src/main/git-integration.ts";
+import { getGitDiff, listGitChanges, listGitWorktrees } from "../src/main/git-integration.ts";
 
 const execFileAsync = promisify(execFile);
 const cleanup: string[] = [];
@@ -26,6 +26,27 @@ afterEach(async () => {
 });
 
 describe("git integration", () => {
+	it("treats a plain folder as having no Git changes or worktrees", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "pi-desktop-plain-"));
+		cleanup.push(directory);
+		await expect(listGitChanges(directory)).resolves.toEqual([]);
+		await expect(listGitWorktrees(directory)).resolves.toEqual([]);
+	});
+
+	it("preserves listing failures when the folder is inaccessible", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "pi-desktop-missing-"));
+		cleanup.push(directory);
+		await expect(listGitChanges(join(directory, "missing"))).rejects.toThrow();
+		await expect(listGitWorktrees(join(directory, "missing"))).rejects.toThrow();
+	});
+
+	it("still lists the primary worktree in a repository", async () => {
+		const directory = await createRepository();
+		const worktrees = await listGitWorktrees(directory);
+		expect(worktrees).toHaveLength(1);
+		expect(worktrees[0]).toMatchObject({ isMain: true, branch: expect.stringMatching(/^refs\/heads\//u) });
+	});
+
 	it("includes staged and unstaged changes against HEAD", async () => {
 		const directory = await createRepository();
 		await writeFile(join(directory, "tracked.txt"), "staged\n");

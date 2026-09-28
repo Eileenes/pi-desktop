@@ -6,6 +6,7 @@ describe("ToolApprovalQueue", () => {
 		const onChange = vi.fn();
 		const queue = new ToolApprovalQueue({ createId: () => "approval-1", now: () => 42, onChange });
 		const decision = queue.request({
+			sessionId: "session-1",
 			toolCallId: "call-1",
 			toolName: "read",
 			input: { path: "README.md" },
@@ -14,10 +15,12 @@ describe("ToolApprovalQueue", () => {
 		expect(queue.getPendingApprovals()).toEqual([
 			{
 				id: "approval-1",
+				sessionId: "session-1",
 				toolCallId: "call-1",
 				toolName: "read",
 				input: { path: "README.md" },
 				requestedAt: 42,
+				expiresAt: 120_042,
 			},
 		]);
 		expect(queue.resolve("approval-1", true)).toBe(true);
@@ -28,7 +31,12 @@ describe("ToolApprovalQueue", () => {
 
 	it("rejects pending calls when a session is disposed", async () => {
 		const queue = new ToolApprovalQueue({ createId: () => "approval-2" });
-		const decision = queue.request({ toolCallId: "call-2", toolName: "bash", input: { command: "pwd" } });
+		const decision = queue.request({
+			sessionId: "session-1",
+			toolCallId: "call-2",
+			toolName: "bash",
+			input: { command: "pwd" },
+		});
 
 		queue.cancelAll();
 
@@ -39,8 +47,14 @@ describe("ToolApprovalQueue", () => {
 	it("cancels only approvals owned by the disposed background session", async () => {
 		let sequence = 0;
 		const queue = new ToolApprovalQueue({ createId: () => `approval-${++sequence}` });
-		const first = queue.request({ toolCallId: "call-1", toolName: "read", input: {} }, "session-1");
-		const second = queue.request({ toolCallId: "call-2", toolName: "write", input: {} }, "session-2");
+		const first = queue.request(
+			{ sessionId: "session-1", toolCallId: "call-1", toolName: "read", input: {} },
+			"session-1",
+		);
+		const second = queue.request(
+			{ sessionId: "session-2", toolCallId: "call-2", toolName: "write", input: {} },
+			"session-2",
+		);
 
 		queue.cancelGroup("session-1");
 
@@ -53,8 +67,18 @@ describe("ToolApprovalQueue", () => {
 	it("releases every waiting call when the policy stops asking", async () => {
 		let sequence = 0;
 		const queue = new ToolApprovalQueue({ createId: () => `approval-${++sequence}` });
-		const first = queue.request({ toolCallId: "call-1", toolName: "bash", input: { command: "pi install a" } });
-		const second = queue.request({ toolCallId: "call-2", toolName: "read", input: { path: "README.md" } });
+		const first = queue.request({
+			sessionId: "session-1",
+			toolCallId: "call-1",
+			toolName: "bash",
+			input: { command: "pi install a" },
+		});
+		const second = queue.request({
+			sessionId: "session-1",
+			toolCallId: "call-2",
+			toolName: "read",
+			input: { path: "README.md" },
+		});
 
 		expect(queue.resolveAll(true)).toBe(2);
 
@@ -67,7 +91,12 @@ describe("ToolApprovalQueue", () => {
 		vi.useFakeTimers();
 		try {
 			const queue = new ToolApprovalQueue({ createId: () => "approval-3", timeoutMs: 10 });
-			const decision = queue.request({ toolCallId: "call-3", toolName: "write", input: { path: "note.txt" } });
+			const decision = queue.request({
+				sessionId: "session-1",
+				toolCallId: "call-3",
+				toolName: "write",
+				input: { path: "note.txt" },
+			});
 
 			await vi.advanceTimersByTimeAsync(10);
 

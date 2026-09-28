@@ -247,6 +247,25 @@ function permissionNeededFor(action: PermissionAction): DesktopPermissionMode | 
 	return action === "edit" ? "autoEdit" : "full";
 }
 
+function describeAssistantError(
+	message: DesktopTranscriptMessage,
+	isStreaming: boolean | undefined,
+	hasContent: boolean,
+	t: I18n["t"],
+): string | undefined {
+	if (message.role !== "assistant") return undefined;
+	if (message.errorMessage) {
+		return message.stopReason && message.stopReason !== "stop"
+			? `${message.errorMessage}（${message.stopReason}）`
+			: message.errorMessage;
+	}
+	if (message.stopReason === "error") return t("modelAborted");
+	if (isStreaming || hasContent) return undefined;
+	return message.stopReason
+		? t("emptyModelResponseWithReason", { reason: message.stopReason })
+		: t("emptyModelResponse");
+}
+
 function lastDeniedTool(
 	messages: ReadonlyArray<{ role: string; text: string; toolName?: string }> | undefined,
 ): string | undefined {
@@ -318,6 +337,7 @@ type IconName =
 	| "sections"
 	| "send"
 	| "shield"
+	| "shieldAlert"
 	| "stop"
 	| "edit"
 	| "check"
@@ -525,10 +545,16 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 			</svg>
 		);
 	}
-	if (name === "shield") {
+	if (name === "shield" || name === "shieldAlert") {
 		return (
 			<svg {...shared} aria-hidden="true">
-				<path d="M12 3.5 5 6.4v5.1c0 4 3 7.4 7 8.9 4-1.5 7-4.9 7-8.9V6.4z" />
+				<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+				{name === "shieldAlert" ? (
+					<>
+						<path d="M12 8v5" />
+						<circle cx="12" cy="16.5" r="0.9" fill="currentColor" stroke="none" />
+					</>
+				) : null}
 			</svg>
 		);
 	}
@@ -1340,6 +1366,17 @@ const TranscriptMessage = memo(function TranscriptMessage({
 	const streamStartRef = useRef<number | undefined>(undefined);
 	const streamCharacterCountRef = useRef(0);
 	const isAssistant = message.role === "assistant";
+	const hasAssistantContent =
+		Boolean(message.text.trim()) ||
+		Boolean(
+			message.blocks?.some(
+				(block) =>
+					block.type === "toolCall" ||
+					block.type === "image" ||
+					((block.type === "text" || block.type === "thinking") && Boolean(block.text.trim())),
+			),
+		);
+	const assistantError = describeAssistantError(message, isStreaming, hasAssistantContent, t);
 	streamCharacterCountRef.current = message.blocks
 		? message.blocks.reduce(
 				(total, block) =>
@@ -1383,9 +1420,7 @@ const TranscriptMessage = memo(function TranscriptMessage({
 	}
 
 	return (
-		<article
-			className={`message message-${message.role}${message.isError || message.errorMessage ? " is-error" : ""}`}
-		>
+		<article className={`message message-${message.role}${message.isError || assistantError ? " is-error" : ""}`}>
 			{isAssistant ? (
 				<div className="assistant-label">
 					<span>{modelLabel ?? "Pi"}</span>
@@ -1399,17 +1434,17 @@ const TranscriptMessage = memo(function TranscriptMessage({
 				</div>
 			) : null}
 			<div className="message-content">
-				{isAssistant && (message.errorMessage || message.stopReason === "error") ? (
+				{assistantError ? (
 					<div className="message-provider-error" role="alert">
 						<strong>{t("providerError")}</strong>
-						<span>{message.errorMessage ?? t("modelAborted")}</span>
+						<span>{assistantError}</span>
 					</div>
 				) : null}
-				{isAssistant && message.blocks?.length ? (
+				{isAssistant && hasAssistantContent && message.blocks?.length ? (
 					message.blocks.map((block, index) => <TranscriptBlock key={`${block.type}:${index}`} block={block} />)
-				) : isAssistant ? (
-					<MarkdownBody text={message.text || ""} />
-				) : message.role === "custom" && message.customType === "compaction" ? (
+				) : isAssistant && hasAssistantContent ? (
+					<MarkdownBody text={message.text} />
+				) : isAssistant ? null : message.role === "custom" && message.customType === "compaction" ? (
 					<CompactionMessageBody message={message} />
 				) : message.role === "custom" ? (
 					<div className="message-custom-body">
@@ -6386,7 +6421,7 @@ export function App() {
 												setComposerMenu((current) => (current === "permission" ? undefined : "permission"))
 											}
 										>
-											<Icon name="shield" size={14} />
+											<Icon name={permissionMode === "full" ? "shieldAlert" : "shield"} size={14} />
 											<span>{t(PERMISSION_LABELS[permissionMode])}</span>
 										</button>
 										{composerMenu === "permission" ? (
@@ -6402,6 +6437,7 @@ export function App() {
 														}}
 													>
 														<span>{mode === permissionMode ? "✓" : ""}</span>
+														<Icon name={mode === "full" ? "shieldAlert" : "shield"} size={14} />
 														<span className="permission-option-copy">
 															<span>{t(PERMISSION_LABELS[mode])}</span>
 															<small>{t(PERMISSION_HINTS[mode])}</small>
@@ -6580,23 +6616,6 @@ export function App() {
 											onClick={() => void handleAbort()}
 										>
 											<Icon name="stop" size={14} />
-										</button>
-										<button
-											className="quiet-button"
-											type="button"
-											disabled={!canSubmit || attachments.length > 0}
-											title={canSubmit ? t("followUpShortcut") : t("composerRunningPlaceholder")}
-											onClick={() => void handleSubmit(undefined, "followUp")}
-										>
-											{t("queueFollowUp")}
-										</button>
-										<button
-											className="accent-button"
-											type="submit"
-											disabled={!canSubmit || attachments.length > 0}
-											title={canSubmit ? t("steerShortcut") : t("composerRunningPlaceholder")}
-										>
-											{t("steerNow")}
 										</button>
 									</div>
 								) : (

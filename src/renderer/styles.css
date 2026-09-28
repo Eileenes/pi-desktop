@@ -11237,6 +11237,19 @@ body.is-resizing-terminal {
 	line-height: 1.4;
 }
 
+.composer-permission-trigger svg,
+.permission-popover svg {
+	box-sizing: content-box;
+	flex: 0 0 14px;
+	width: 14px;
+	height: 14px;
+	overflow: visible;
+}
+
+.permission-popover svg {
+	margin-top: 2px;
+}
+
 .permission-option-copy {
 	display: grid;
 	gap: 2px;
@@ -11801,8 +11814,7 @@ body.is-resizing-terminal {
 
 
 
-/* Running input keeps stop, queue, and steer together. The text actions must
- * not shrink away or fade out, or the footer reads as stop-only. */
+/* Running input only exposes abort; steer/queue stay on keyboard shortcuts. */
 .composer-footer-right {
 	flex: 0 0 auto;
 	overflow: visible;
@@ -11812,56 +11824,12 @@ body.is-resizing-terminal {
 	display: flex;
 	flex: 0 0 auto;
 	align-items: center;
-	gap: 8px;
 }
 
 .composer-running-actions .stop-button {
 	width: 34px;
 	height: 34px;
 	min-width: 34px;
-}
-
-.composer-running-actions .quiet-button,
-.composer-running-actions .accent-button {
-	min-height: 34px;
-	padding: 0 14px;
-	border-radius: 12px;
-	font-size: 13px;
-	font-weight: 500;
-	line-height: 20px;
-	white-space: nowrap;
-	opacity: 1;
-}
-
-.composer-running-actions .quiet-button {
-	border: 0.5px solid var(--ds-border-strong);
-	background: var(--ds-bg-primary);
-	color: var(--ds-text-primary);
-}
-
-.composer-running-actions .quiet-button:hover:not(:disabled) {
-	background: var(--ds-bg-hover);
-}
-
-.composer-running-actions .accent-button {
-	background: var(--ds-accent);
-	color: var(--ds-on-accent);
-}
-
-.composer-running-actions button:disabled {
-	opacity: 1;
-	cursor: not-allowed;
-}
-
-.composer-running-actions .quiet-button:disabled {
-	color: var(--ds-text-muted);
-	border-color: var(--ds-border-default);
-	background: var(--ds-bg-hover);
-}
-
-.composer-running-actions .accent-button:disabled {
-	background: color-mix(in oklab, var(--ds-accent) 55%, var(--ds-bg-composer));
-	color: var(--ds-on-accent);
 }
 .approval-context {
 	display: grid;

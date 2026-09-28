@@ -1908,13 +1908,20 @@ export class DesktopAgentHost {
 					{ messages: [{ role: "user", content: "Reply with OK only.", timestamp: Date.now() }] },
 					{ maxTokens: 16, maxRetries: 0, signal: controller.signal },
 				);
-				if (message.stopReason === "error" || message.stopReason === "aborted")
-					return { ok: false, latencyMs: Date.now() - startedAt, error: message.errorMessage ?? "模型测试失败" };
 				const responseText = message.content
 					.filter((block) => block.type === "text")
 					.map((block) => block.text ?? "")
 					.join("")
 					.slice(0, 300);
+				const errorCode = message.rawStopReason ?? message.stopReason;
+				if (message.stopReason === "error" || message.stopReason === "aborted" || !responseText.trim()) {
+					const detail = message.errorMessage ?? (responseText.trim() ? "模型测试失败" : "模型没有返回内容");
+					return {
+						ok: false,
+						latencyMs: Date.now() - startedAt,
+						error: errorCode ? `${detail}（${errorCode}）` : detail,
+					};
+				}
 				return { ok: true, latencyMs: Date.now() - startedAt, responseText };
 			} finally {
 				clearTimeout(timeout);

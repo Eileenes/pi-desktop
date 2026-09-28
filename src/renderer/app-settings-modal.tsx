@@ -30,7 +30,19 @@ const PRODUCT_NAME = "Pi Desktop";
 const REPOSITORY = "Eileenes/pi-desktop";
 const RELEASES_URL = "https://github.com/Eileenes/pi-desktop/releases";
 
-export const APP_ACCENTS = ["mono", "blue", "indigo", "cyan", "green", "amber", "rose"] as const;
+export const APP_ACCENTS = [
+	"mono",
+	"blue",
+	"sky",
+	"indigo",
+	"violet",
+	"cyan",
+	"teal",
+	"green",
+	"amber",
+	"orange",
+	"rose",
+] as const;
 export type AppAccent = (typeof APP_ACCENTS)[number];
 
 export function isAppAccent(value: string | null): value is AppAccent {
@@ -40,10 +52,14 @@ export function isAppAccent(value: string | null): value is AppAccent {
 const ACCENT_OPTIONS = [
 	{ value: "mono", label: "accentMono" },
 	{ value: "blue", label: "accentBlue" },
+	{ value: "sky", label: "accentSky" },
 	{ value: "indigo", label: "accentIndigo" },
+	{ value: "violet", label: "accentViolet" },
 	{ value: "cyan", label: "accentCyan" },
+	{ value: "teal", label: "accentTeal" },
 	{ value: "green", label: "accentGreen" },
 	{ value: "amber", label: "accentAmber" },
+	{ value: "orange", label: "accentOrange" },
 	{ value: "rose", label: "accentRose" },
 ] as const;
 
@@ -270,7 +286,10 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 						</ChoiceButton>
 					</div>
 					<div className="accent-setting">
-						<span>{t("accentColor")}</span>
+						<span>
+							{t("accentColor")}
+							<em>{t(ACCENT_OPTIONS.find((option) => option.value === accent)?.label ?? "accentMono")}</em>
+						</span>
 						<div className="accent-swatch-row">
 							{ACCENT_OPTIONS.map((option) => (
 								<button
@@ -279,13 +298,14 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 									key={option.value}
 									aria-label={t(option.label)}
 									aria-pressed={accent === option.value}
+									title={t(option.label)}
 									onClick={() => onChangeAccent(option.value)}
 								>
 									<span className="accent-swatch-color" aria-hidden="true" />
-									{t(option.label)}
 								</button>
 							))}
 						</div>
+						<small>{t("accentColorHint")}</small>
 					</div>
 					<div className="custom-css-row">
 						<span>

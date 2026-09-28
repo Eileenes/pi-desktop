@@ -1,11 +1,10 @@
 /*
  * Design tokens — the single source of truth for the visual system.
  *
- * Palette and metrics mirror PI-Desktop (vastsa/PI-Desktop), which is itself
- * aligned to the Codex desktop (ChatGPT.app / electron-dark) token set: a
- * neutral gray ramp (gray-900 surfaces, gray-800 lifts, gray-1000 wells), a
- * monochrome accent so chrome and prose stay achromatic, an Apple-inspired
- * fixed radius ladder, and a fixed type ramp scaled by --font-scale.
+ * Surfaces stay on the neutral gray ramp. Theme color is a selectable accent
+ * (settings), not a second palette. Component geometry follows the Harness
+ * control grammar: 4/8/12/16/20 radii, 28px floating panels, 0.5px hairlines,
+ * and soft elevation. Type still scales with --font-scale.
  *
  * Dark is the default. :root[data-theme="light"] restates only the surface and
  * ink block; every component keeps consuming the legacy --bg / --surface-* /
@@ -116,9 +115,9 @@
 	/* Floating layers, scrims, and the composer lift. */
 	--ds-scrim: color-mix(in oklab, #000 45%, transparent);
 	--ds-modal-veil: color-mix(in oklab, var(--ds-bg-primary) 78%, transparent);
-	--ds-shadow-dialog: 0 16px 48px rgb(0 0 0 / 55%);
+	--ds-shadow-dialog: 0 3px 8px rgb(0 0 0 / 8%), 0 0 20px rgb(0 0 0 / 10%);
 	--ds-elevation-stroke: 0 0 0 0.5px color-mix(in oklab, var(--gray-0) 12%, transparent);
-	--ds-shadow-composer: 0 3px 7.5px #0000000a, 0 0 20px #0000000d;
+	--ds-shadow-composer: 0 4px 16px rgb(0 0 0 / 6%), 0 0 24px rgb(0 0 0 / 5%);
 
 	/* Switch track/knob and field wells. */
 	--ds-switch-track-off: color-mix(in oklab, var(--gray-0) 10%, transparent);
@@ -145,7 +144,8 @@
 	--ds-window-controls-width: 120px;
 	--ds-composer-max-width: 760px;
 	--ds-prose-max-width: 720px;
-	--ds-composer-radius: var(--radius-xl);
+	--ds-composer-radius: 28px;
+	--ds-panel-radius: 28px;
 	--ds-traffic-light-gap: 12px;
 
 	/* Motion (design-system §8). */
@@ -164,22 +164,23 @@
 	 * tracking, and radii.
 	 * ------------------------------------------------------------------ */
 
-	/* Apple-inspired fixed-radius ladder for dense desktop UI. Compact
-	 * controls stay rounded rectangles; capsules use --radius-full. */
+	/* Harness radius ladder. Capsules use --radius-full and opt out of the
+	 * superellipse so circles stay circles. */
 	--radius-3xs: 4px;
-	--radius-2xs: 6px;
+	--radius-2xs: 4px;
 	--radius-xs: 8px;
-	--radius-sm: 10px;
+	--radius-sm: 8px;
 	--radius-md: 12px;
-	--radius-md-plus: 14px;
+	--radius-md-plus: 12px;
 	--radius-lg: 16px;
-	--radius-lg-plus: 18px;
+	--radius-lg-plus: 20px;
 	--radius-xl: 20px;
-	--radius-2xl: 24px;
+	--radius-2xl: 28px;
 	--radius-full: 9999px;
 	--radius-round: 50%;
 
-	--font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+	--font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+		"Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
 	--font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
 	/*
@@ -307,8 +308,22 @@
 	color-scheme: dark;
 }
 
-/* Accent presets. "mono" is the shipped default and is exactly the neutral
- * system above; the chromatic presets only move the accent ramp. */
+/* Theme colors. "mono" keeps the neutral ramp above. Each other preset only
+ * moves the accent used by send, links, focus, and selection. */
+:root[data-accent="blue"] {
+	--ds-accent: #7aaaff;
+	--ds-accent-hover: #9bbcff;
+	--ds-accent-soft: #9bbcff;
+	--ds-on-accent: #0d1b33;
+}
+
+:root[data-accent="sky"] {
+	--ds-accent: #38bdf8;
+	--ds-accent-hover: #7dd3fc;
+	--ds-accent-soft: #7dd3fc;
+	--ds-on-accent: #042433;
+}
+
 :root[data-accent="indigo"] {
 	--ds-accent: #818cf8;
 	--ds-accent-hover: #a5b4fc;
@@ -316,11 +331,25 @@
 	--ds-on-accent: #0e0d2e;
 }
 
+:root[data-accent="violet"] {
+	--ds-accent: #a78bfa;
+	--ds-accent-hover: #c4b5fd;
+	--ds-accent-soft: #c4b5fd;
+	--ds-on-accent: #1e1033;
+}
+
 :root[data-accent="cyan"] {
 	--ds-accent: #22d3ee;
 	--ds-accent-hover: #67e8f9;
 	--ds-accent-soft: #67e8f9;
 	--ds-on-accent: #04222a;
+}
+
+:root[data-accent="teal"] {
+	--ds-accent: #2dd4bf;
+	--ds-accent-hover: #5eead4;
+	--ds-accent-soft: #5eead4;
+	--ds-on-accent: #042f2e;
 }
 
 :root[data-accent="green"] {
@@ -335,6 +364,13 @@
 	--ds-accent-hover: #fcd34d;
 	--ds-accent-soft: #fcd34d;
 	--ds-on-accent: #2b1a02;
+}
+
+:root[data-accent="orange"] {
+	--ds-accent: #fb923c;
+	--ds-accent-hover: #fdba74;
+	--ds-accent-soft: #fdba74;
+	--ds-on-accent: #2a1204;
 }
 
 :root[data-accent="rose"] {
@@ -419,7 +455,7 @@
 
 	--ds-scrim: color-mix(in oklab, #1a1c1f 28%, transparent);
 	--ds-modal-veil: color-mix(in oklab, #1a1c1f 32%, transparent);
-	--ds-shadow-dialog: 0 16px 48px rgb(0 0 0 / 12%);
+	--ds-shadow-dialog: 0 3px 8px rgb(0 0 0 / 4%), 0 0 20px rgb(0 0 0 / 5%);
 	--ds-elevation-stroke: 0 0 0 0.5px color-mix(in oklab, #1a1c1f 12%, transparent);
 
 	--ds-switch-track-off: color-mix(in oklab, #1a1c1f 10%, transparent);
@@ -439,6 +475,20 @@
 	--surface-3: var(--gray-100);
 }
 
+:root[data-theme="light"][data-accent="blue"] {
+	--ds-accent: #4176e6;
+	--ds-accent-hover: #365fbe;
+	--ds-accent-soft: #365fbe;
+	--ds-on-accent: #fff;
+}
+
+:root[data-theme="light"][data-accent="sky"] {
+	--ds-accent: #0284c7;
+	--ds-accent-hover: #0369a1;
+	--ds-accent-soft: #0369a1;
+	--ds-on-accent: #fff;
+}
+
 :root[data-theme="light"][data-accent="indigo"] {
 	--ds-accent: #4f46e5;
 	--ds-accent-hover: #4338ca;
@@ -446,10 +496,24 @@
 	--ds-on-accent: #fff;
 }
 
+:root[data-theme="light"][data-accent="violet"] {
+	--ds-accent: #6d28d9;
+	--ds-accent-hover: #5b21b6;
+	--ds-accent-soft: #5b21b6;
+	--ds-on-accent: #fff;
+}
+
 :root[data-theme="light"][data-accent="cyan"] {
 	--ds-accent: #0e7490;
 	--ds-accent-hover: #155e75;
 	--ds-accent-soft: #155e75;
+	--ds-on-accent: #fff;
+}
+
+:root[data-theme="light"][data-accent="teal"] {
+	--ds-accent: #0f766e;
+	--ds-accent-hover: #115e59;
+	--ds-accent-soft: #115e59;
 	--ds-on-accent: #fff;
 }
 
@@ -464,6 +528,13 @@
 	--ds-accent: #b45309;
 	--ds-accent-hover: #92400e;
 	--ds-accent-soft: #92400e;
+	--ds-on-accent: #fff;
+}
+
+:root[data-theme="light"][data-accent="orange"] {
+	--ds-accent: #c2410c;
+	--ds-accent-hover: #9a3412;
+	--ds-accent-soft: #9a3412;
 	--ds-on-accent: #fff;
 }
 
@@ -7045,19 +7116,27 @@ html {
 	background: var(--swatch-color);
 }
 
-.accent-swatch.is-blue { --swatch-color: #60a5fa; }
+.accent-swatch.is-blue { --swatch-color: #7aaaff; }
+.accent-swatch.is-sky { --swatch-color: #38bdf8; }
 .accent-swatch.is-indigo { --swatch-color: #818cf8; }
+.accent-swatch.is-violet { --swatch-color: #a78bfa; }
 .accent-swatch.is-cyan { --swatch-color: #22d3ee; }
+.accent-swatch.is-teal { --swatch-color: #2dd4bf; }
 .accent-swatch.is-green { --swatch-color: #4ade80; }
 .accent-swatch.is-amber { --swatch-color: #fbbf24; }
+.accent-swatch.is-orange { --swatch-color: #fb923c; }
 .accent-swatch.is-rose { --swatch-color: #fb7185; }
 .accent-swatch.is-mono { --swatch-color: #fff; }
 
-:root[data-theme="light"] .accent-swatch { --swatch-color: #1a1c1f; }
+:root[data-theme="light"] .accent-swatch.is-blue { --swatch-color: #4176e6; }
+:root[data-theme="light"] .accent-swatch.is-sky { --swatch-color: #0284c7; }
 :root[data-theme="light"] .accent-swatch.is-indigo { --swatch-color: #4f46e5; }
+:root[data-theme="light"] .accent-swatch.is-violet { --swatch-color: #6d28d9; }
 :root[data-theme="light"] .accent-swatch.is-cyan { --swatch-color: #0e7490; }
+:root[data-theme="light"] .accent-swatch.is-teal { --swatch-color: #0f766e; }
 :root[data-theme="light"] .accent-swatch.is-green { --swatch-color: #15803d; }
 :root[data-theme="light"] .accent-swatch.is-amber { --swatch-color: #b45309; }
+:root[data-theme="light"] .accent-swatch.is-orange { --swatch-color: #c2410c; }
 :root[data-theme="light"] .accent-swatch.is-rose { --swatch-color: #be123c; }
 :root[data-theme="light"] .accent-swatch.is-mono { --swatch-color: #1a1c1f; }
 
@@ -11645,16 +11724,67 @@ body.is-resizing-terminal {
 
 
 
-/* Running input stays available alongside the stop control. */
+/* Running input keeps stop, queue, and steer together. The text actions must
+ * not shrink away or fade out, or the footer reads as stop-only. */
+.composer-footer-right {
+	flex: 0 0 auto;
+	overflow: visible;
+}
+
 .composer-running-actions {
 	display: flex;
+	flex: 0 0 auto;
 	align-items: center;
-	gap: 6px;
+	gap: 8px;
 }
-.composer-running-actions button {
+
+.composer-running-actions .stop-button {
+	width: 34px;
+	height: 34px;
+	min-width: 34px;
+}
+
+.composer-running-actions .quiet-button,
+.composer-running-actions .accent-button {
+	min-height: 34px;
+	padding: 0 14px;
+	border-radius: 12px;
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 20px;
 	white-space: nowrap;
-	padding: 6px 10px;
-	font-size: 12px;
+	opacity: 1;
+}
+
+.composer-running-actions .quiet-button {
+	border: 0.5px solid var(--ds-border-strong);
+	background: var(--ds-bg-primary);
+	color: var(--ds-text-primary);
+}
+
+.composer-running-actions .quiet-button:hover:not(:disabled) {
+	background: var(--ds-bg-hover);
+}
+
+.composer-running-actions .accent-button {
+	background: var(--ds-accent);
+	color: var(--ds-on-accent);
+}
+
+.composer-running-actions button:disabled {
+	opacity: 1;
+	cursor: not-allowed;
+}
+
+.composer-running-actions .quiet-button:disabled {
+	color: var(--ds-text-muted);
+	border-color: var(--ds-border-default);
+	background: var(--ds-bg-hover);
+}
+
+.composer-running-actions .accent-button:disabled {
+	background: color-mix(in oklab, var(--ds-accent) 55%, var(--ds-bg-composer));
+	color: var(--ds-on-accent);
 }
 .approval-context {
 	display: grid;
@@ -11668,4 +11798,481 @@ body.is-resizing-terminal {
 }
 .approval-context small {
 	color: var(--text-muted);
+}
+
+/*
+ * Shared component grammar. Later rules in this sheet used to keep Codex
+ * geometry (1px strokes, 18px dialogs, tailed bubbles, opaque menus). These
+ * overrides put every shared control on one Harness-like system. Theme color
+ * only moves --ds-accent.
+ */
+.accent-button,
+.outline-button,
+.quiet-button,
+.danger-button,
+.retry-startup-button,
+.composer-action-button {
+	min-height: 32px;
+	padding: 0 12px;
+	border-radius: var(--radius-md);
+	font-size: var(--text-md);
+	font-weight: 500;
+	line-height: 20px;
+}
+
+.outline-button,
+.quiet-button,
+.retry-startup-button,
+.composer-action-button {
+	border: 0.5px solid var(--ds-border-strong);
+}
+
+.accent-button,
+.send-button {
+	border: 0;
+}
+
+.icon-button {
+	border-radius: var(--radius-sm);
+}
+
+.icon-button:hover,
+.outline-button:hover:not(:disabled),
+.quiet-button:hover:not(:disabled),
+.retry-startup-button:hover:not(:disabled),
+.composer-action-button:hover:not(:disabled),
+.choice-button:hover {
+	background: var(--ds-bg-hover);
+}
+
+.send-button,
+.composer-send-button,
+.stop-button {
+	width: 34px;
+	height: 34px;
+	min-width: 34px;
+	flex-basis: 34px;
+	border-radius: 999px;
+	corner-shape: round;
+}
+
+.new-chat-button {
+	height: 38px;
+	border-radius: var(--radius-md);
+	background: var(--ds-raised);
+	box-shadow: 0 0 0 0.5px var(--ds-border-subtle);
+	font-size: var(--text-base);
+	font-weight: 500;
+}
+
+.new-chat-button:hover:not(:disabled) {
+	background: var(--ds-bg-hover);
+}
+
+.choice-button {
+	min-height: 32px;
+	border-radius: var(--radius-md);
+}
+
+.toggle-switch {
+	width: 36px;
+	height: 20px;
+	padding: 2px;
+	border-radius: 999px;
+	corner-shape: round;
+	background: var(--ds-border-strong);
+}
+
+.toggle-knob {
+	top: 2px;
+	left: 2px;
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	corner-shape: round;
+	background: var(--ds-bg-primary);
+}
+
+.toggle-switch.is-on .toggle-knob {
+	transform: translateX(16px);
+	background: var(--ds-on-accent);
+}
+
+.modal-panel,
+.models-modal,
+.plugin-config-modal,
+.skill-config-modal,
+.resource-config-modal,
+.search-dialog,
+.trust-dialog,
+.models-discard-dialog,
+.extension-custom-panel {
+	border: 0;
+	border-radius: var(--ds-panel-radius);
+	box-shadow:
+		0 0 0 0.5px var(--ds-border-default),
+		var(--ds-shadow-dialog);
+}
+
+.modal-header {
+	border-bottom: 0.5px solid var(--ds-border-subtle);
+	padding: 20px 14px 12px 24px;
+}
+
+.modal-body {
+	padding: 8px 24px 24px;
+}
+
+.permission-risk-actions,
+.trust-dialog-actions {
+	border-top: 0.5px solid var(--ds-border-subtle);
+}
+
+.app-menu,
+.composer-popover,
+.slash-menu,
+.prompt-history-menu,
+.footer-menu {
+	border: 0.5px solid var(--ds-border-default);
+	border-radius: var(--radius-lg);
+	background: color-mix(in oklab, var(--ds-bg-elevated-opaque) 82%, transparent);
+	backdrop-filter: blur(18px) saturate(1.25);
+	box-shadow:
+		0 0 0 0.5px var(--ds-border-subtle),
+		var(--ds-shadow-dialog);
+}
+
+.app-menu .app-menu-item {
+	min-height: 34px;
+	gap: 6px;
+	padding: 6px 8px;
+	border-radius: var(--radius-md);
+	font-size: var(--text-md);
+	line-height: 20px;
+}
+
+.app-menu .app-menu-divider {
+	height: 0.5px;
+	margin: 4px 8px;
+	background: var(--ds-border-default);
+}
+
+.composer-inner {
+	border-radius: var(--ds-composer-radius);
+	box-shadow:
+		0 0 0 0.5px var(--ds-border-default),
+		var(--ds-shadow-composer);
+}
+
+.composer-inner:focus-within {
+	box-shadow:
+		0 0 0 0.5px color-mix(in oklab, var(--ds-accent) 72%, transparent),
+		0 4px 16px rgb(0 0 0 / 6%);
+}
+
+.message-user .message-content {
+	max-width: min(82%, 560px);
+	padding: 10px 16px;
+	border-radius: var(--radius-xl);
+	border-bottom-right-radius: var(--radius-xl);
+	background: color-mix(in oklab, var(--ds-accent) 16%, transparent);
+	font-size: var(--text-base);
+	line-height: 1.57;
+}
+
+:root[data-accent="mono"] .message-user .message-content,
+:root:not([data-accent]) .message-user .message-content {
+	background: color-mix(in oklab, var(--ds-text-primary) 8%, transparent);
+}
+
+.session-row-wrap.is-current,
+.file-entry.is-selected,
+.change-row.is-selected {
+	background: color-mix(in oklab, var(--ds-accent) 14%, transparent);
+}
+
+:root[data-accent="mono"] .session-row-wrap.is-current,
+:root[data-accent="mono"] .file-entry.is-selected,
+:root[data-accent="mono"] .change-row.is-selected {
+	background: var(--hover-strong);
+}
+
+.code-block,
+.approval-card,
+.app-settings-card,
+.settings-modal-sections .settings-group {
+	border: 0.5px solid var(--ds-border-subtle);
+	border-radius: var(--radius-lg);
+}
+
+.provider-form select,
+.settings-group > select,
+.authentication-card select,
+.authentication-card input,
+.resource-add-panel input,
+.resource-add-panel select,
+.secret-input,
+.extension-dialog-editor,
+.directory-picker-path-row input,
+.search-input-row {
+	border-radius: var(--radius-md);
+}
+
+.provider-form select,
+.settings-group > select,
+.authentication-card select,
+.authentication-card input,
+.resource-add-panel input,
+.resource-add-panel select {
+	min-height: 32px;
+	border-width: 0.5px;
+}
+
+.provider-form select:focus,
+.settings-group > select:focus,
+.authentication-card select:focus,
+.authentication-card input:focus,
+.resource-add-panel input:focus,
+.resource-add-panel select:focus {
+	border-color: var(--ds-accent);
+	box-shadow: none;
+}
+
+.accent-setting > span {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.accent-setting > span em {
+	color: var(--text-primary);
+	font-style: normal;
+	font-weight: 500;
+}
+
+.accent-setting > small {
+	color: var(--ds-text-muted);
+	font-size: var(--text-xs);
+	line-height: 1.45;
+}
+
+.accent-swatch-row {
+	gap: 8px;
+}
+
+.accent-swatch {
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	min-height: 28px;
+	padding: 0;
+	border: 2px solid transparent;
+	border-radius: 999px;
+	corner-shape: round;
+	background: transparent;
+}
+
+.accent-swatch-color {
+	width: 18px;
+	height: 18px;
+	border: 0;
+	border-radius: 50%;
+	corner-shape: round;
+	box-shadow: inset 0 0 0 0.5px color-mix(in oklab, var(--ds-text-primary) 18%, transparent);
+}
+
+.accent-swatch.is-active {
+	border-color: var(--swatch-color);
+	background: transparent;
+}
+
+.accent-swatch:hover {
+	background: var(--ds-bg-hover);
+}
+
+.settings-meta-chip,
+.attachment-chip,
+.coming-soon {
+	border-radius: 999px;
+	corner-shape: round;
+}
+
+@supports (corner-shape: superellipse(1.5)) {
+	.modal-panel,
+	.models-modal,
+	.plugin-config-modal,
+	.skill-config-modal,
+	.resource-config-modal,
+	.search-dialog,
+	.trust-dialog,
+	.app-menu,
+	.composer-popover,
+	.slash-menu,
+	.prompt-history-menu,
+	.composer-inner,
+	.new-chat-button,
+	.accent-button,
+	.outline-button,
+	.quiet-button,
+	.danger-button,
+	.choice-button,
+	.message-user .message-content,
+	.code-block,
+	.approval-card,
+	.app-settings-card {
+		corner-shape: superellipse(1.5);
+	}
+}
+
+@media (width <= 640px) {
+	.modal-panel,
+	.search-dialog,
+	.trust-dialog {
+		border-radius: var(--radius-lg);
+	}
+
+	.message-user .message-content {
+		max-width: 92%;
+	}
+}
+
+/*
+ * Context hints are quiet rows, not tinted alert cards. A green border with the
+ * label sitting on a second plate read as two boxes. Harness keeps these as a
+ * 24px disclosure line: mark, title, dot, summary.
+ */
+.compaction-banner,
+.retry-banner,
+.notice,
+.queued-panel,
+.agent-running-status {
+	border: 0;
+	border-radius: var(--radius-md);
+	background: var(--ds-bg-hover);
+	box-shadow: none;
+	color: var(--ds-text-secondary);
+}
+
+.compaction-banner {
+	display: flex;
+	align-items: center;
+	min-height: 28px;
+	margin: 0 0 8px;
+	padding: 2px 10px;
+	font-size: var(--text-sm);
+	line-height: 20px;
+}
+
+.context-hint-mark {
+	display: inline-grid;
+	flex: 0 0 auto;
+	width: 16px;
+	height: 16px;
+	margin-right: 6px;
+	place-items: center;
+	color: var(--ds-text-muted);
+}
+
+.compaction-banner-title,
+.compaction-message > header strong {
+	flex: 0 0 auto;
+	color: var(--ds-text-secondary);
+	font-size: var(--text-sm);
+	font-weight: 500;
+	line-height: 20px;
+}
+
+.context-hint-sep {
+	flex: 0 0 auto;
+	width: 2px;
+	height: 2px;
+	margin: 0 8px;
+	border-radius: 1px;
+	background: var(--ds-text-faint);
+}
+
+.compaction-banner-summary,
+.compaction-message > header > span:not(.context-hint-mark):not(.context-hint-sep) {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--ds-text-muted);
+	font-size: var(--text-sm);
+	line-height: 20px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.compaction-message {
+	margin: 4px 0 12px;
+	overflow: visible;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+}
+
+.compaction-message > header {
+	display: flex;
+	align-items: center;
+	min-height: 28px;
+	gap: 0;
+	padding: 2px 2px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--ds-text-secondary);
+}
+
+.compaction-message > header time {
+	margin-left: auto;
+	padding-left: 8px;
+	color: var(--ds-text-faint);
+	font-family: var(--font-sans);
+	font-size: var(--text-xs);
+}
+
+.compaction-message-body {
+	margin-top: 4px;
+	padding: 10px 12px 12px;
+	border-radius: var(--radius-md);
+	background: var(--ds-bg-hover);
+}
+
+.compaction-message-body > p {
+	margin: 0 0 8px;
+}
+
+.retry-banner {
+	gap: 2px;
+	margin: 0 0 8px;
+	padding: 8px 12px;
+	background: color-mix(in oklab, var(--ds-warning) 10%, transparent);
+}
+
+.retry-banner-title {
+	color: var(--ds-warning);
+	font-size: var(--text-sm);
+	font-weight: 500;
+}
+
+.notice {
+	padding: 8px 12px;
+	border-width: 0;
+}
+
+.notice-error {
+	border: 0;
+	background: color-mix(in oklab, var(--ds-error) 10%, transparent);
+}
+
+.queued-panel {
+	max-width: min(76%, 560px);
+	padding: 8px 10px;
+	border-style: none;
+}
+
+.agent-running-status {
+	padding: 4px 10px;
+	border-width: 0;
+	background: color-mix(in oklab, var(--ds-accent) 10%, transparent);
 }

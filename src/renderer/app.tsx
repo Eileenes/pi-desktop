@@ -1277,12 +1277,15 @@ const CompactionMessageBody = memo(function CompactionMessageBody({ message }: {
 	return (
 		<section className="compaction-message">
 			<header>
-				<code>compaction</code>
+				<span className="context-hint-mark" aria-hidden="true">
+					<Icon name="archiveBox" size={14} />
+				</span>
+				<strong>{t("compactionHintTitle")}</strong>
+				<span className="context-hint-sep" aria-hidden="true" />
+				<span>{t("compactionDescription")}</span>
 				{message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
 			</header>
 			<div className="compaction-message-body">
-				<strong>{t("conversationCompacted")}</strong>
-				<p>{t("compactionDescription")}</p>
 				{body ? <MarkdownBody text={body} /> : <span className="compaction-empty">{t("noSummary")}</span>}
 				{contextCount ? (
 					<details className="compaction-file-details">
@@ -2894,20 +2897,17 @@ export function App() {
 		? (snapshot.workspacePath.split(/[\\/]/u).filter(Boolean).at(-1) ?? snapshot.workspacePath)
 		: (snapshot.userHomeName ?? "Pi");
 	const stats = snapshot.sessionStats;
-	const compactionBanner = (() => {
+	const compactionHint = (() => {
 		const compaction = session?.lastCompaction;
 		if (!compaction) return undefined;
 		const saved = compaction.tokensAfter !== undefined ? compaction.tokensBefore - compaction.tokensAfter : undefined;
-		const after =
+		const tokens =
 			compaction.tokensAfter !== undefined
-				? t("compactionAfter", { after: formatCompact(compaction.tokensAfter) })
-				: "";
-		return t("compactionBanner", {
-			reason: compaction.reason,
-			before: formatCompact(compaction.tokensBefore),
-			after,
-			saved: saved !== undefined && saved > 0 ? t("compactionSaved", { saved: formatCompact(saved) }) : "",
-		});
+				? `${formatCompact(compaction.tokensBefore)}k → ${formatCompact(compaction.tokensAfter)}k`
+				: `${formatCompact(compaction.tokensBefore)}k`;
+		const savedLabel =
+			saved !== undefined && saved > 0 ? t("compactionSavedShort", { saved: formatCompact(saved) }) : "";
+		return [compaction.reason, tokens, savedLabel].filter(Boolean).join(" · ");
 	})();
 	const filteredModels = (() => {
 		const query = modelFilter.trim().toLocaleLowerCase();
@@ -5954,7 +5954,16 @@ export function App() {
 									<span className="retry-banner-error">{session.autoRetry.errorMessage}</span>
 								</div>
 							) : null}
-							{compactionBanner ? <div className="compaction-banner">{compactionBanner}</div> : null}
+							{compactionHint ? (
+								<output className="compaction-banner">
+									<span className="context-hint-mark" aria-hidden="true">
+										<Icon name="archiveBox" size={14} />
+									</span>
+									<span className="compaction-banner-title">{t("compactionHintTitle")}</span>
+									<span className="context-hint-sep" aria-hidden="true" />
+									<span className="compaction-banner-summary">{compactionHint}</span>
+								</output>
+							) : null}
 						</div>
 					</div>
 				</div>
@@ -6532,18 +6541,6 @@ export function App() {
 								</div>
 							</div>
 							<div className="composer-footer-right composer-controls-slot">
-								{session?.phase === "running" ? (
-									<button
-										className="stop-button"
-										type="button"
-										disabled={aborting}
-										aria-label={aborting ? t("stopping") : t("stop")}
-										title={aborting ? t("stopping") : t("stop")}
-										onClick={() => void handleAbort()}
-									>
-										<Icon name="stop" size={16} />
-									</button>
-								) : null}
 								{compactComposerControls && !composerControlsOpen ? (
 									<button
 										className="composer-control-button composer-more-controls"
@@ -6575,10 +6572,20 @@ export function App() {
 								{session?.phase === "running" ? (
 									<div className="composer-running-actions">
 										<button
+											className="stop-button"
+											type="button"
+											disabled={aborting}
+											aria-label={aborting ? t("stopping") : t("stop")}
+											title={aborting ? t("stopping") : t("stop")}
+											onClick={() => void handleAbort()}
+										>
+											<Icon name="stop" size={14} />
+										</button>
+										<button
 											className="quiet-button"
 											type="button"
 											disabled={!canSubmit || attachments.length > 0}
-											title={t("followUpShortcut")}
+											title={canSubmit ? t("followUpShortcut") : t("composerRunningPlaceholder")}
 											onClick={() => void handleSubmit(undefined, "followUp")}
 										>
 											{t("queueFollowUp")}
@@ -6587,7 +6594,7 @@ export function App() {
 											className="accent-button"
 											type="submit"
 											disabled={!canSubmit || attachments.length > 0}
-											title={t("steerShortcut")}
+											title={canSubmit ? t("steerShortcut") : t("composerRunningPlaceholder")}
 										>
 											{t("steerNow")}
 										</button>

@@ -1,6 +1,7 @@
 import { memo, useState } from "react";
 import type { DesktopSessionStats } from "../shared/contracts.ts";
 import { useI18n } from "./i18n.ts";
+import { Button } from "./ui/button.tsx";
 
 const RING_SIZE = 14;
 const RING_STROKE = 2;
@@ -145,9 +146,9 @@ export const SessionStatsPanel = memo(function SessionStatsPanel({
 		<div className="session-info-popover" role="dialog" aria-label={t("sessionStats")}>
 			<div className="session-info-header">
 				<strong>{t("sessionStats")}</strong>
-				<button className="icon-button compact" type="button" aria-label={t("close")} onClick={onClose}>
+				<Button size="icon" className="compact" type="button" aria-label={t("close")} onClick={onClose}>
 					×
-				</button>
+				</Button>
 			</div>
 			{!stats ? (
 				<p className="stats-empty">{t("loadingSessionStats")}</p>

@@ -2,6 +2,7 @@ import mermaid from "mermaid";
 import { memo, useEffect, useId, useState } from "react";
 import { useI18n } from "./i18n.ts";
 import { HighlightedCode } from "./syntax-highlight.tsx";
+import { Button } from "./ui/button.tsx";
 
 let initialized = false;
 
@@ -59,9 +60,9 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
 			<div className="code-block mermaid-source">
 				<div className="code-block-toolbar">
 					<span>mermaid</span>
-					<button type="button" onClick={() => setPreview(true)}>
+					<Button size="sm" type="button" onClick={() => setPreview(true)}>
 						{t("preview")}
-					</button>
+					</Button>
 				</div>
 				<pre>
 					<HighlightedCode code={code} language="mermaid" />
@@ -75,13 +76,13 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
 			<div className={`mermaid-block ${error ? "is-error" : ""}`}>
 				<div className="code-block-toolbar">
 					<span>Mermaid</span>
-					<button type="button" onClick={() => setPreview(false)}>
+					<Button size="sm" type="button" onClick={() => setPreview(false)}>
 						{t("source")}
-					</button>
+					</Button>
 					{svg ? (
-						<button type="button" onClick={() => setZoomed(true)}>
+						<Button size="sm" type="button" onClick={() => setZoomed(true)}>
 							{t("zoom")}
-						</button>
+						</Button>
 					) : null}
 				</div>
 				{error ? (
@@ -96,28 +97,30 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
 			{zoomed && svg ? (
 				<div className="mermaid-zoom-backdrop" role="dialog" aria-modal="true" aria-label={t("mermaidViewer")}>
 					<div className="mermaid-zoom-toolbar">
-						<button
+						<Button
+							size="sm"
 							type="button"
 							disabled={zoomPercent <= 50}
 							onClick={() => setZoomPercent((current) => Math.max(50, current - 25))}
 						>
 							−
-						</button>
+						</Button>
 						<output>{zoomPercent}%</output>
-						<button
+						<Button
+							size="sm"
 							type="button"
 							disabled={zoomPercent >= 300}
 							onClick={() => setZoomPercent((current) => Math.min(300, current + 25))}
 						>
 							+
-						</button>
-						<button type="button" onClick={() => setZoomPercent(100)}>
+						</Button>
+						<Button size="sm" type="button" onClick={() => setZoomPercent(100)}>
 							{t("reset")}
-						</button>
+						</Button>
 					</div>
-					<button type="button" className="mermaid-zoom-close" onClick={() => setZoomed(false)}>
+					<Button type="button" className="mermaid-zoom-close" size="sm" onClick={() => setZoomed(false)}>
 						{t("close")}
-					</button>
+					</Button>
 					<div className="mermaid-zoom-canvas">
 						{/* biome-ignore lint/security/noDangerouslySetInnerHtml: Mermaid uses strict security mode before producing this SVG. */}
 						<div style={{ width: `${zoomPercent}%` }} dangerouslySetInnerHTML={{ __html: svg }} />

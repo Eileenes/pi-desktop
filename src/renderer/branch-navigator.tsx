@@ -3,6 +3,7 @@ import { type BranchNode, buildBranchTree } from "../shared/branch-tree.ts";
 import type { DesktopSessionTreeNode } from "../shared/contracts.ts";
 import { useI18n } from "./i18n.ts";
 import { Icon } from "./icons.tsx";
+import { Button } from "./ui/button.tsx";
 
 interface BranchNavigatorProps {
 	tree: DesktopSessionTreeNode[];
@@ -163,9 +164,9 @@ export const BranchNavigator = memo(function BranchNavigator({
 						)}
 					</div>
 					<div className="branch-popover-footer">
-						<button type="button" onClick={onFork}>
+						<Button size="sm" variant="outline" type="button" onClick={onFork}>
 							{t("forkAsSession")}
-						</button>
+						</Button>
 					</div>
 				</div>
 			) : null}

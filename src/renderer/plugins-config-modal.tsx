@@ -11,6 +11,7 @@ import {
 } from "./desktop-store.ts";
 import { type I18n, type TranslationKey, useI18n } from "./i18n.ts";
 import { Modal } from "./modal.tsx";
+import { Button } from "./ui/button.tsx";
 
 interface PluginsConfigModalProps {
 	plugins: DesktopPlugin[];
@@ -289,9 +290,9 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 					<strong>{t("projectNotTrustedTitle")}</strong>
 					<span>{t("projectNotTrustedHint")}</span>
 					{onTrustProject ? (
-						<button className="outline-button" type="button" onClick={onTrustProject}>
+						<Button variant="outline" type="button" onClick={onTrustProject}>
 							{t("trustProject")}
-						</button>
+						</Button>
 					) : null}
 				</output>
 			) : null}
@@ -370,8 +371,8 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 											}
 										}}
 									/>
-									<button
-										className="outline-button"
+									<Button
+										variant="outline"
 										type="button"
 										disabled={busy}
 										onClick={() =>
@@ -385,7 +386,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 										}
 									>
 										{t("browse")}
-									</button>
+									</Button>
 								</div>
 							</label>
 							<div className="plugin-install-actions">
@@ -409,14 +410,14 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 										{t("project")}
 									</button>
 								</fieldset>
-								<button
-									className="accent-button"
+								<Button
+									variant="primary"
 									type="button"
 									disabled={!normalizeInstallSource(installSource) || busy}
 									onClick={() => void handleInstall()}
 								>
 									{busyAction === "install" ? t("installing") : t("installPluginAction")}
-								</button>
+								</Button>
 							</div>
 							<div className="plugin-example-list">
 								<span>{t("examplesLabel")}</span>
@@ -466,8 +467,8 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 									<code title={selected.source}>{selected.source}</code>
 								</div>
 								<div className="resource-detail-actions">
-									<button
-										className="outline-button"
+									<Button
+										variant="outline"
 										type="button"
 										disabled={busy || (selected.scope === "project" && !projectResourcesLoaded)}
 										onClick={() =>
@@ -479,9 +480,9 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 										}
 									>
 										{busyAction === "update" ? t("updatingPlugin") : t("update")}
-									</button>
-									<button
-										className="outline-button"
+									</Button>
+									<Button
+										variant="outline"
 										type="button"
 										disabled={busy || !hasActiveSession}
 										title={!hasActiveSession ? t("openSessionToReload") : undefined}
@@ -497,9 +498,9 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 										}
 									>
 										{busyAction === "reload" ? t("reloadingSession") : t("reloadSessionButton")}
-									</button>
-									<button
-										className="danger-button"
+									</Button>
+									<Button
+										variant="danger"
 										type="button"
 										disabled={busy || (selected.scope === "project" && !projectResourcesLoaded)}
 										onClick={() => {
@@ -522,7 +523,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 											: removeArmed
 												? t("clickAgainToRemove")
 												: t("remove")}
-									</button>
+									</Button>
 								</div>
 							</div>
 							<div className="resource-meta-grid plugin-meta-grid">
@@ -605,12 +606,12 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 						<span>{`${resourceTotals.extensions} ext · ${resourceTotals.skills} skills · ${resourceTotals.prompts} prompts · ${resourceTotals.themes} themes`}</span>
 					)}
 				</div>
-				<button className="outline-button" type="button" disabled={loading || busy} onClick={() => void load()}>
+				<Button variant="outline" type="button" disabled={loading || busy} onClick={() => void load()}>
 					{t("refresh")}
-				</button>
-				<button className="outline-button" type="button" onClick={onClose}>
+				</Button>
+				<Button variant="outline" type="button" onClick={onClose}>
 					{t("close")}
-				</button>
+				</Button>
 			</footer>
 		</Modal>
 	);

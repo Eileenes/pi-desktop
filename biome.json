@@ -31,7 +31,8 @@
 			"scripts/**/*.mjs",
 			"*.json",
 			"!**/node_modules/**/*",
-			"!**/dist/**/*"
+			"!**/dist/**/*",
+			"!skills-lock.json"
 		]
 	}
 }

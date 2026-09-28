@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { DesktopGitChange } from "../shared/contracts.ts";
 import { getGitDiff, listGitChanges } from "./desktop-store.ts";
 import { useI18n } from "./i18n.ts";
+import { Button } from "./ui/button.tsx";
 
 const STATUS_LABELS: Record<DesktopGitChange["status"], string> = {
 	added: "A",
@@ -98,14 +99,15 @@ export const SourceControl = memo(function SourceControl() {
 		<div className="source-control">
 			<div className="sidebar-section-title">
 				<span>{t("changesWithCount", { count: changes.length })}</span>
-				<button
-					className="icon-button compact"
+				<Button
+					size="icon"
+					className="compact"
 					type="button"
 					aria-label={t("refreshChanges")}
 					onClick={() => void load()}
 				>
 					↻
-				</button>
+				</Button>
 			</div>
 			{error ? <p className="sidebar-error">{error}</p> : null}
 			{loading ? <p className="sidebar-loading">{t("loadingGitStatus")}</p> : null}

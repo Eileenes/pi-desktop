@@ -4,6 +4,7 @@ import { browseDirectories } from "./desktop-store.ts";
 import { useI18n } from "./i18n.ts";
 import { Icon } from "./icons.tsx";
 import { Modal } from "./modal.tsx";
+import { Button } from "./ui/button.tsx";
 
 interface DirectoryPickerProps {
 	onClose: () => void;
@@ -91,15 +92,16 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 						if (pathInput.trim()) void navigateTo(pathInput.trim());
 					}}
 				>
-					<button
-						className="outline-button directory-picker-back"
+					<Button
+						variant="outline"
+						className="directory-picker-back"
 						type="button"
 						disabled={loading || busy || !canNavigateUp}
 						title={t("goUp")}
 						onClick={() => void navigateTo(parentPath ?? undefined)}
 					>
 						↑
-					</button>
+					</Button>
 					<input
 						className="mono"
 						value={pathInput}
@@ -113,9 +115,9 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 							setError(undefined);
 						}}
 					/>
-					<button className="outline-button" type="submit" disabled={loading || busy || !pathInput.trim()}>
+					<Button variant="outline" type="submit" disabled={loading || busy || !pathInput.trim()}>
 						{t("open")}
-					</button>
+					</Button>
 				</form>
 				<div className="directory-picker-list" aria-live="polite">
 					{loading ? <p className="modal-empty">{t("loadingDirectories")}</p> : null}
@@ -142,18 +144,18 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 						: null}
 				</div>
 				<footer className="directory-picker-footer">
-					<button className="outline-button" type="button" disabled={busy} onClick={onClose}>
+					<Button variant="outline" type="button" disabled={busy} onClick={onClose}>
 						{t("cancel")}
-					</button>
-					<button
-						className="accent-button"
+					</Button>
+					<Button
+						variant="primary"
 						type="button"
 						disabled={!canSelect}
 						title={hasUncommittedPath ? t("openFirstHint") : undefined}
 						onClick={() => onSelect(currentPath)}
 					>
 						{busy ? t("opening") : t("selectThisFolder")}
-					</button>
+					</Button>
 				</footer>
 			</div>
 		</Modal>

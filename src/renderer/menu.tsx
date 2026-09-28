@@ -1,4 +1,4 @@
-import { type MouseEvent, memo, type ReactNode } from "react";
+import { type KeyboardEvent, type MouseEvent, memo, type ReactNode } from "react";
 
 /*
  * One dropdown grammar for every menu in the app.
@@ -95,17 +95,24 @@ export const MenuFilter = memo(function MenuFilter({
 	onChange,
 	placeholder,
 	ariaLabel,
+	autoFocus = false,
+	onKeyDown,
 }: {
 	value: string;
 	onChange: (value: string) => void;
 	placeholder: string;
 	ariaLabel: string;
+	autoFocus?: boolean;
+	onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
 }) {
 	return (
 		<input
 			className="app-menu-filter"
 			value={value}
+			// biome-ignore lint/a11y/noAutofocus: 打开菜单即筛选，参考项目行为
+			autoFocus={autoFocus}
 			onChange={(event) => onChange(event.target.value)}
+			onKeyDown={onKeyDown}
 			placeholder={placeholder}
 			aria-label={ariaLabel}
 		/>

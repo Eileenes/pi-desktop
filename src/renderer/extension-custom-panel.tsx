@@ -3,6 +3,7 @@ import type { DesktopExtensionWidget } from "../shared/contracts.ts";
 import { normalizeCustomPanelLines, parseAnsiLine } from "./ansi.ts";
 import { useI18n } from "./i18n.ts";
 import { asBracketedPaste, toTerminalKeyData } from "./terminal-input.ts";
+import { Button } from "./ui/button.tsx";
 
 interface ExtensionCustomPanelProps {
 	id: string;
@@ -75,9 +76,9 @@ export const ExtensionCustomPanel = memo(function ExtensionCustomPanel({
 				<header className="extension-custom-header">
 					<strong>{t("extensionPanel")}</strong>
 					<span>{t("extensionPanelHint")}</span>
-					<button type="button" onClick={() => onInput(id, "\x03")}>
+					<Button size="sm" type="button" onClick={() => onInput(id, "\x03")}>
 						{t("close")}
-					</button>
+					</Button>
 				</header>
 				<pre className="extension-custom-terminal" aria-live="polite">
 					{displayLines.map((line, lineIndex) => (

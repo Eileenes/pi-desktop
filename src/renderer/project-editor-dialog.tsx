@@ -1,6 +1,8 @@
 import { type FormEvent, memo, useEffect, useState } from "react";
 import { useI18n } from "./i18n.ts";
 import { Icon } from "./icons.tsx";
+import { Modal } from "./modal.tsx";
+import { Button } from "./ui/button.tsx";
 
 interface ProjectEditorDialogProps {
 	/** The project's own root folder: always first, always the primary folder. */
@@ -71,98 +73,83 @@ export const ProjectEditorDialog = memo(function ProjectEditorDialog({
 	}
 
 	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions: 点击遮罩关闭对话框是标准交互
-		<div
-			className="modal-backdrop"
-			onMouseDown={(event) => {
-				if (event.target === event.currentTarget) onClose();
-			}}
-		>
-			<form
-				className="modal-panel project-editor-dialog"
-				aria-labelledby="project-editor-title"
-				onSubmit={handleSubmit}
-			>
-				<header className="modal-header">
-					<h2 className="modal-title" id="project-editor-title">
-						{t("editProject")}
-					</h2>
-					<button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}>
-						×
-					</button>
-				</header>
-				<div className="modal-body project-editor-body">
-					<div className="project-editor-field">
-						<span className="project-editor-field-icon" aria-hidden="true">
-							<Icon name="folder" size={15} />
-						</span>
-						<input
-							value={name}
-							onChange={(event) => setName(event.target.value)}
-							placeholder={t("projectNamePlaceholder")}
-							aria-label={t("projectNameLabel")}
-							maxLength={120}
-						/>
-					</div>
-					<p className="project-editor-label">{t("sourceFolders")}</p>
-					<div className="project-editor-folders">
-						{folders.map((folder, index) => (
-							<div className="project-editor-folder" key={folder}>
-								<Icon name="folder" size={15} />
-								<span className="project-editor-folder-name" title={folder}>
-									{folderLabel(folder)}
-								</span>
-								{index === 0 ? (
-									<>
-										<span className="project-editor-badge">{t("primaryFolder")}</span>
-										<button
-											className="project-editor-folder-remove"
-											type="button"
-											disabled
-											title={t("removePrimaryFolderHint")}
-											aria-label={t("removePrimaryFolderHint")}
-										>
-											<Icon name="close" size={12} />
-										</button>
-									</>
-								) : (
-									<button
-										className="project-editor-folder-remove"
-										type="button"
-										aria-label={t("removeAria", { name: folderLabel(folder) })}
-										title={t("remove")}
-										onClick={() => setFolders((current) => current.filter((item) => item !== folder))}
-									>
-										<Icon name="close" size={12} />
-									</button>
-								)}
-							</div>
-						))}
-						<button
-							className="project-editor-folder project-editor-add"
-							type="button"
-							disabled={busy || picking}
-							onClick={() => void handleAddFolder()}
-						>
-							<Icon name="folderPlus" size={15} />
-							<span>{t("addFolder")}</span>
-						</button>
-					</div>
-					{error ? <p className="project-editor-error">{error}</p> : null}
-				</div>
-				<footer className="project-editor-actions">
+		<Modal
+			title={t("editProject")}
+			className="project-editor-dialog"
+			onClose={onClose}
+			onSubmit={handleSubmit}
+			footer={
+				<>
 					<button className="project-editor-remove" type="button" disabled={busy} onClick={onRemoveProject}>
 						{t("removeLocalProject")}
 					</button>
 					<span className="project-editor-actions-spacer" />
-					<button className="quiet-button" type="button" disabled={busy} onClick={onClose}>
+					<Button variant="outline" type="button" disabled={busy} onClick={onClose}>
 						{t("cancel")}
-					</button>
-					<button className="accent-button" type="submit" disabled={busy}>
+					</Button>
+					<Button variant="primary" type="submit" disabled={busy}>
 						{busy ? t("saving") : t("save")}
-					</button>
-				</footer>
-			</form>
-		</div>
+					</Button>
+				</>
+			}
+		>
+			<div className="project-editor-field">
+				<span className="project-editor-field-icon" aria-hidden="true">
+					<Icon name="folder" size={15} />
+				</span>
+				<input
+					value={name}
+					onChange={(event) => setName(event.target.value)}
+					placeholder={t("projectNamePlaceholder")}
+					aria-label={t("projectNameLabel")}
+					maxLength={120}
+				/>
+			</div>
+			<p className="project-editor-label">{t("sourceFolders")}</p>
+			<div className="project-editor-folders">
+				{folders.map((folder, index) => (
+					<div className="project-editor-folder" key={folder}>
+						<Icon name="folder" size={15} />
+						<span className="project-editor-folder-name" title={folder}>
+							{folderLabel(folder)}
+						</span>
+						{index === 0 ? (
+							<>
+								<span className="project-editor-badge">{t("primaryFolder")}</span>
+								<button
+									className="project-editor-folder-remove"
+									type="button"
+									disabled
+									title={t("removePrimaryFolderHint")}
+									aria-label={t("removePrimaryFolderHint")}
+								>
+									<Icon name="close" size={12} />
+								</button>
+							</>
+						) : (
+							<button
+								className="project-editor-folder-remove"
+								type="button"
+								aria-label={t("removeAria", { name: folderLabel(folder) })}
+								title={t("remove")}
+								onClick={() => setFolders((current) => current.filter((item) => item !== folder))}
+							>
+								<Icon name="close" size={12} />
+							</button>
+						)}
+					</div>
+				))}
+				<button
+					className="project-editor-folder project-editor-add"
+					type="button"
+					disabled={busy || picking}
+					onClick={() => void handleAddFolder()}
+				>
+					<Icon name="folderPlus" size={15} />
+					<span>{t("addFolder")}</span>
+				</button>
+			</div>
+			{error ? <p className="project-editor-error">{error}</p> : null}
+		</Modal>
 	);
 });

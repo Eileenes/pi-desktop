@@ -1,5 +1,5 @@
 import type { CSSProperties, FormEvent, ReactNode } from "react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import type {
 	DesktopAuthenticationPrompt,
@@ -102,6 +102,7 @@ import { type I18n, type TranslationKey, useI18n } from "./i18n.ts";
 import { appShortcutFor, isComposingInput } from "./keyboard-shortcuts.ts";
 import { MarkdownBody } from "./markdown.tsx";
 import { Menu, MenuDivider, MenuEmpty, MenuFilter, MenuHeading, MenuItem } from "./menu.tsx";
+import { Modal } from "./modal.tsx";
 import { ModelsConfigModal } from "./models-config-modal.tsx";
 import { PermissionRiskDialog } from "./permission-risk-dialog.tsx";
 import { PluginsConfigModal } from "./plugins-config-modal.tsx";
@@ -115,6 +116,7 @@ import { getLanguageForPath, HighlightedCode } from "./syntax-highlight.tsx";
 import { TerminalPanel } from "./terminal-panel.tsx";
 import { TokenActivityModal } from "./token-activity-modal.tsx";
 import { buildConversationTurns, partitionTranscript } from "./transcript-group.ts";
+import { Button } from "./ui/button.tsx";
 import { UpdateButton } from "./update-button.tsx";
 
 import { WorktreeSection } from "./worktree-selector.tsx";
@@ -998,30 +1000,30 @@ const ToolApprovalCard = memo(function ToolApprovalCard({
 				<span className="card-id">{approval.toolCallId.slice(0, 8)}</span>
 			</div>
 			<div className="approval-context">
-				<button type="button" className="quiet-button" onClick={() => onOpenSession(approval.sessionId)}>
+				<Button variant="outline" type="button" onClick={() => onOpenSession(approval.sessionId)}>
 					{approval.sessionName ?? approval.sessionId}
-				</button>
+				</Button>
 				{approval.workspacePath ? <code>{approval.workspacePath}</code> : null}
 				<small>{t("approvalExpires", { seconds })}</small>
 			</div>
 			<pre>{inputText}</pre>
 			<div className="card-actions">
-				<button
+				<Button
+					variant="outline"
 					type="button"
-					className="quiet-button"
 					disabled={resolving || seconds === 0}
 					onClick={() => void onDecide(approval.id, false)}
 				>
 					{t("reject")}
-				</button>
-				<button
+				</Button>
+				<Button
+					variant="primary"
 					type="button"
-					className="accent-button"
 					disabled={resolving || seconds === 0}
 					onClick={() => void onDecide(approval.id, true)}
 				>
 					{resolving ? t("processing") : t("allowOnce")}
-				</button>
+				</Button>
 			</div>
 		</article>
 	);
@@ -1685,9 +1687,9 @@ const AuthenticationPromptCard = memo(function AuthenticationPromptCard({
 					onChange={(event) => onChange(event.target.value)}
 				/>
 			)}
-			<button className="accent-button" type="submit" disabled={resolving}>
+			<Button variant="primary" type="submit" disabled={resolving}>
 				{resolving ? t("processing") : t("continue")}
-			</button>
+			</Button>
 		</form>
 	);
 });
@@ -2070,9 +2072,9 @@ function Explorer({
 				<Icon name="folder" size={22} />
 				<strong>{t("openProject")}</strong>
 				<p>{t("openProjectHint")}</p>
-				<button className="outline-button" type="button" onClick={onChooseWorkspace}>
+				<Button variant="outline" type="button" onClick={onChooseWorkspace}>
 					{t("chooseFolder")}
-				</button>
+				</Button>
 			</div>
 		);
 	if (!isTrusted)
@@ -2081,9 +2083,9 @@ function Explorer({
 				<span className="lock-mark">⌁</span>
 				<strong>{t("fileBrowsingLocked")}</strong>
 				<p>{t("trustToBrowse")}</p>
-				<button className="outline-button" type="button" onClick={onTrustProject}>
+				<Button variant="outline" type="button" onClick={onTrustProject}>
 					{t("trustProject")}
-				</button>
+				</Button>
 			</div>
 		);
 	return (
@@ -2117,9 +2119,9 @@ function Explorer({
 				>
 					{uploadDirectory || t("rootDirectory")}
 				</button>
-				<button className="icon-button compact" type="button" aria-label={t("refreshFiles")} onClick={onRefresh}>
+				<Button size="icon" className="compact" type="button" aria-label={t("refreshFiles")} onClick={onRefresh}>
 					↻
-				</button>
+				</Button>
 			</div>
 			<label className="file-search">
 				<Icon name="search" size={13} />
@@ -2385,69 +2387,70 @@ function Inspector({
 						</div>
 					) : null}
 					{preview && !isImage && !isAudio && !isPdf && !isDocx ? (
-						<button
-							className={`icon-button ${wrapLines ? "is-active" : ""}`}
+						<Button
+							size="icon"
+							className={wrapLines ? "is-active" : ""}
 							type="button"
 							aria-label={wrapLines ? t("disableWrap") : t("enableWrap")}
 							aria-pressed={wrapLines}
 							onClick={() => setWrapLines((current) => !current)}
 						>
 							<Icon name="wrap" size={16} />
-						</button>
+						</Button>
 					) : null}
 					{preview ? (
-						<button
-							className="icon-button"
+						<Button
+							size="icon"
 							type="button"
 							aria-label={t("copyPathAria")}
 							onClick={() => onCopyPath(preview.path)}
 						>
 							<Icon name="copy" size={16} />
-						</button>
+						</Button>
 					) : null}
 					{preview?.content ? (
-						<button
-							className="icon-button"
+						<Button
+							size="icon"
 							type="button"
 							aria-label={t("copyContentAria")}
 							onClick={() => onCopyContent(preview.content)}
 						>
 							<Icon name="copy" size={16} />
-						</button>
+						</Button>
 					) : null}
 					{preview ? (
-						<button
-							className="icon-button"
+						<Button
+							size="icon"
 							type="button"
 							aria-label={t("downloadFileAria")}
 							onClick={() => onDownload(preview.path)}
 						>
 							<Icon name="doc" size={16} />
-						</button>
+						</Button>
 					) : null}
 					{preview ? (
-						<button
-							className="icon-button"
+						<Button
+							size="icon"
 							type="button"
 							aria-label={t("openWithDefaultAria")}
 							onClick={() => onOpenFile(preview.path)}
 						>
 							<Icon name="external" size={16} />
-						</button>
+						</Button>
 					) : null}
 					{preview ? (
-						<button
-							className="icon-button"
+						<Button
+							size="icon"
 							type="button"
 							aria-label={t("revealInFinderAria")}
 							onClick={() => onRevealFile(preview.path)}
 						>
 							<Icon name="folder" size={16} />
-						</button>
+						</Button>
 					) : null}
-					<button className="icon-button" type="button" aria-label={t("closePreviewAria")} onClick={onClose}>
+					<Button size="icon" type="button" aria-label={t("closePreviewAria")} onClick={onClose}>
 						<Icon name="close" size={16} />
-					</button>
+					</Button>
 				</div>
 			</div>
 			{preview && !isImage && !isAudio && !isPdf && mode === "source" ? (
@@ -2509,9 +2512,9 @@ function Inspector({
 					) : diffError ? (
 						<div className="inspector-diff-empty" role="alert">
 							<p>{t("diffLoadFailed", { message: diffError })}</p>
-							<button type="button" className="quiet-button" onClick={() => setDiffRetry((value) => value + 1)}>
+							<Button variant="outline" type="button" onClick={() => setDiffRetry((value) => value + 1)}>
 								{t("retry")}
-							</button>
+							</Button>
 						</div>
 					) : diffText ? (
 						<div className="file-preview-source is-diff-view">
@@ -4778,24 +4781,26 @@ export function App() {
 				<div className="sidebar-projects-header project-menu-root">
 					<span>{t("projects")}</span>
 					<div className="sidebar-projects-actions">
-						<button
-							className="icon-button compact"
+						<Button
+							size="icon"
+							className="compact"
 							type="button"
 							aria-label={t("projectActions")}
 							aria-expanded={projectMenuOpen}
 							onClick={() => setProjectMenuOpen((open) => !open)}
 						>
 							<Icon name="more" size={14} />
-						</button>
-						<button
-							className="icon-button compact"
+						</Button>
+						<Button
+							size="icon"
+							className="compact"
 							type="button"
 							aria-label={t("openProject")}
 							disabled={!canChooseWorkspace}
 							onClick={() => void handleChooseWorkspace()}
 						>
 							<Icon name="plus" size={14} />
-						</button>
+						</Button>
 					</div>
 					{projectMenuOpen ? renderProjectMenu() : null}
 				</div>
@@ -5704,26 +5709,27 @@ export function App() {
 								</Menu>
 							) : null}
 						</div>
-						<button
-							className="icon-button"
+						<Button
+							size="icon"
 							type="button"
 							aria-label={t("openPreview")}
 							onClick={() => setInspectorOpen((isOpen) => !isOpen)}
 						>
 							<Icon name="panel" size={16} />
-						</button>
+						</Button>
 						{topPanel === "system" ? (
 							<div className="session-info-popover" role="dialog" aria-label={t("systemPrompt")}>
 								<div className="session-info-header">
 									<strong>{t("systemPrompt")}</strong>
-									<button
-										className="icon-button compact"
+									<Button
+										size="icon"
+										className="compact"
 										type="button"
 										aria-label={t("close")}
 										onClick={() => setTopPanel(undefined)}
 									>
 										×
-									</button>
+									</Button>
 								</div>
 								{session?.systemPrompt ? (
 									<pre className="system-prompt-body">{session.systemPrompt}</pre>
@@ -5769,9 +5775,9 @@ export function App() {
 					/>
 					<div className="chat-column">
 						{startupError ? (
-							<button className="retry-startup-button" type="button" onClick={() => void startDesktopStore()}>
+							<Button variant="outline" type="button" onClick={() => void startDesktopStore()}>
 								{t("retryInit")}
-							</button>
+							</Button>
 						) : null}
 						{actionError ? <output className="notice notice-error">{actionError}</output> : null}
 						{notices.length ? (
@@ -6070,7 +6076,7 @@ export function App() {
 									<span>{formatGitBranch(composerBranch)}</span>
 								</button>
 								{branchMenuOpen ? (
-									<div className="project-menu composer-branch-menu" role="menu">
+									<Menu className="composer-branch-menu">
 										<WorktreeSection
 											workspacePath={snapshot.workspacePath}
 											projectTrusted={snapshot.projectTrusted}
@@ -6079,7 +6085,7 @@ export function App() {
 												void handleSwitchWorkspacePath(path);
 											}}
 										/>
-									</div>
+									</Menu>
 								) : null}
 							</div>
 						</div>
@@ -6398,20 +6404,19 @@ export function App() {
 						>
 							<div className="composer-footer-left">
 								<div className="composer-control-group">
-									<button
-										className="composer-control-button"
-										type="button"
+									<Button
+										size="icon"
 										disabled={attachments.length >= MAX_IMAGE_ATTACHMENTS || session?.phase === "running"}
 										aria-label={t("addImage")}
 										title={t("addImage")}
 										onClick={() => void handleChooseImages()}
 									>
 										<Icon name="image" size={15} />
-									</button>
+									</Button>
 									<div className="composer-control-anchor">
-										<button
-											className={`composer-control-button composer-permission-trigger is-${permissionMode}`}
-											type="button"
+										<Button
+											size="sm"
+											className={`composer-permission-trigger is-${permissionMode}`}
 											disabled={!session}
 											aria-label={t("permissionLabel")}
 											aria-expanded={composerMenu === "permission"}
@@ -6423,34 +6428,28 @@ export function App() {
 										>
 											<Icon name={permissionMode === "full" ? "shieldAlert" : "shield"} size={14} />
 											<span>{t(PERMISSION_LABELS[permissionMode])}</span>
-										</button>
+										</Button>
 										{composerMenu === "permission" ? (
-											<div className="composer-popover permission-popover" role="menu">
+											<Menu>
 												{PERMISSION_MODES.map((mode) => (
-													<button
+													<MenuItem
 														key={mode}
-														type="button"
-														className={mode === permissionMode ? "is-current" : ""}
-														onClick={() => {
+														icon={<Icon name={mode === "full" ? "shieldAlert" : "shield"} size={14} />}
+														label={t(PERMISSION_LABELS[mode])}
+														hint={t(PERMISSION_HINTS[mode])}
+														current={mode === permissionMode}
+														onSelect={() => {
 															setComposerMenu(undefined);
 															void handlePermissionChange(mode);
 														}}
-													>
-														<span>{mode === permissionMode ? "✓" : ""}</span>
-														<Icon name={mode === "full" ? "shieldAlert" : "shield"} size={14} />
-														<span className="permission-option-copy">
-															<span>{t(PERMISSION_LABELS[mode])}</span>
-															<small>{t(PERMISSION_HINTS[mode])}</small>
-														</span>
-													</button>
+													/>
 												))}
-											</div>
+											</Menu>
 										) : null}
 									</div>
 									<div className="composer-control-anchor">
-										<button
-											className="composer-control-button"
-											type="button"
+										<Button
+											size="sm"
 											disabled={!canSetModel || settingModel}
 											aria-label={t("changeModelAria")}
 											aria-expanded={composerMenu === "model"}
@@ -6465,17 +6464,16 @@ export function App() {
 												{getModelDisplayName(snapshot.availableModels, session?.model) ??
 													t("modelButtonLabel")}
 											</span>
-										</button>
+										</Button>
 										{composerMenu === "model" ? (
-											<div className="composer-popover" role="menu">
+											<Menu>
 												{snapshot.availableModels.length > 8 ? (
-													<input
-														// biome-ignore lint/a11y/noAutofocus: 打开菜单即筛选，参考项目行为
+													<MenuFilter
 														autoFocus
-														className="composer-popover-filter"
 														placeholder={t("filterModels")}
+														ariaLabel={t("filterModels")}
 														value={modelFilter}
-														onChange={(event) => setModelFilter(event.target.value)}
+														onChange={setModelFilter}
 														onKeyDown={(event) => {
 															if (event.key === "Escape") {
 																event.stopPropagation();
@@ -6486,42 +6484,38 @@ export function App() {
 													/>
 												) : null}
 												{filteredModels.length === 0 ? (
-													<p className="composer-popover-empty">{t("noMatchingModels")}</p>
+													<MenuEmpty>{t("noMatchingModels")}</MenuEmpty>
 												) : (
 													filteredModelsByProvider.map(([provider, models]) => (
-														<div className="composer-model-group" key={provider}>
+														<Fragment key={provider}>
 															{filteredModelsByProvider.length > 1 ? (
-																<span className="composer-model-group-label">{provider}</span>
+																<MenuHeading>{provider}</MenuHeading>
 															) : null}
 															{models.map((model) => {
 																const current =
 																	session?.model?.id === model.id &&
 																	session?.model?.provider === model.provider;
 																return (
-																	<button
+																	<MenuItem
 																		key={getModelKey(model.provider, model.id)}
-																		type="button"
-																		className={current ? "is-current" : ""}
-																		onClick={() => {
+																		label={model.name}
+																		current={current}
+																		onSelect={() => {
 																			setComposerMenu(undefined);
 																			void handleChangeModel(getModelKey(model.provider, model.id));
 																		}}
-																	>
-																		<span>{model.name}</span>
-																		{current ? <span className="composer-model-check">✓</span> : null}
-																	</button>
+																	/>
 																);
 															})}
-														</div>
+														</Fragment>
 													))
 												)}
-											</div>
+											</Menu>
 										) : null}
 									</div>
 									<div className="composer-control-anchor is-right">
-										<button
-											className="composer-control-button"
-											type="button"
+										<Button
+											size="sm"
 											disabled={!session}
 											aria-label={t("changeThinkingAria")}
 											aria-expanded={composerMenu === "thinking"}
@@ -6542,27 +6536,19 @@ export function App() {
 													? t("scopeSuffix")
 													: ""}
 											</span>
-										</button>
+										</Button>
 										{composerMenu === "thinking" ? (
-											<div className="composer-popover thinking-composer-popover" role="menu">
-												{thinkingLevels.map((level) => {
-													const current = level === selectedThinkingLevel;
-													return (
-														<button
-															key={level}
-															type="button"
-															className={current ? "is-current" : ""}
-															onClick={() => void handleChangeThinking(level)}
-														>
-															<span>{current ? "✓" : ""}</span>
-															<span>
-																{getThinkingDisplayLabel(level, activeModel?.thinkingLevelMap)}
-															</span>
-															<small>{t(THINKING_LEVEL_DESCRIPTION_KEYS[level])}</small>
-														</button>
-													);
-												})}
-											</div>
+											<Menu>
+												{thinkingLevels.map((level) => (
+													<MenuItem
+														key={level}
+														label={getThinkingDisplayLabel(level, activeModel?.thinkingLevelMap)}
+														hint={t(THINKING_LEVEL_DESCRIPTION_KEYS[level])}
+														current={level === selectedThinkingLevel}
+														onSelect={() => void handleChangeThinking(level)}
+													/>
+												))}
+											</Menu>
 										) : null}
 									</div>
 									{extensionStatusLine ? (
@@ -6578,15 +6564,15 @@ export function App() {
 							</div>
 							<div className="composer-footer-right composer-controls-slot">
 								{compactComposerControls && !composerControlsOpen ? (
-									<button
-										className="composer-control-button composer-more-controls"
-										type="button"
+									<Button
+										size="sm"
+										className="composer-more-controls"
 										aria-expanded={composerControlsOpen}
 										onClick={() => setComposerControlsOpen(true)}
 									>
 										<Icon name="more" size={14} />
 										<span>{t("moreComposerControls")}</span>
-									</button>
+									</Button>
 								) : null}
 								<div
 									className={`composer-secondary-controls${
@@ -6594,29 +6580,29 @@ export function App() {
 									}`}
 								>
 									{compactComposerControls ? (
-										<button
-											className="composer-control-button composer-close-controls"
-											type="button"
+										<Button
+											size="icon"
+											className="composer-close-controls"
 											aria-label={t("collapseComposerControls")}
 											title={t("collapseComposerControls")}
 											onClick={() => setComposerControlsOpen(false)}
 										>
 											<Icon name="close" size={14} />
-										</button>
+										</Button>
 									) : null}
 								</div>
 								{session?.phase === "running" ? (
 									<div className="composer-running-actions">
-										<button
-											className="stop-button"
-											type="button"
+										<Button
+											variant="danger"
+											size="icon"
 											disabled={aborting}
 											aria-label={aborting ? t("stopping") : t("stop")}
 											title={aborting ? t("stopping") : t("stop")}
 											onClick={() => void handleAbort()}
 										>
 											<Icon name="stop" size={14} />
-										</button>
+										</Button>
 									</div>
 								) : (
 									<>
@@ -6626,15 +6612,16 @@ export function App() {
 												setTopPanel((current) => (current === "session" ? undefined : "session"))
 											}
 										/>
-										<button
-											className="send-button composer-send-button"
+										<Button
+											variant="primary"
+											size="icon"
 											type="submit"
 											disabled={!canSubmit}
 											aria-label={submitting ? t("sending") : t("send")}
 											title={submitting ? t("sending") : t("send")}
 										>
 											<Icon name="send" size={15} />
-										</button>
+										</Button>
 									</>
 								)}
 							</div>
@@ -6720,21 +6707,22 @@ export function App() {
 						</div>
 						<div className="file-workbench-actions">
 							<div className="file-actions-menu-anchor">
-								<button
-									className={`icon-button ${fileActionsMenuOpen ? "is-active" : ""}`}
+								<Button
+									size="icon"
+									className={fileActionsMenuOpen ? "is-active" : ""}
 									type="button"
 									aria-label={t("more")}
 									aria-expanded={fileActionsMenuOpen}
 									onClick={() => setFileActionsMenuOpen((open) => !open)}
 								>
 									<Icon name="more" size={15} />
-								</button>
+								</Button>
 								{fileActionsMenuOpen ? (
-									<div className="file-actions-menu" role="menu">
-										<button
-											type="button"
+									<Menu className="file-actions-menu">
+										<MenuItem
 											disabled={!activeFileTab}
-											onClick={() => {
+											label={t("fileActionCopyPath")}
+											onSelect={() => {
 												if (activeFileTab) {
 													void navigator.clipboard.writeText(activeFileTab.path).then(
 														() => pushNotice("success", t("pathCopied")),
@@ -6743,13 +6731,11 @@ export function App() {
 												}
 												setFileActionsMenuOpen(false);
 											}}
-										>
-											{t("fileActionCopyPath")}
-										</button>
-										<button
-											type="button"
+										/>
+										<MenuItem
 											disabled={!activeFileTab}
-											onClick={() => {
+											label={t("fileActionCopyContent")}
+											onSelect={() => {
 												if (activeFileTab) {
 													void navigator.clipboard.writeText(activeFileTab.preview.content).then(
 														() => pushNotice("success", t("contentCopied")),
@@ -6758,38 +6744,35 @@ export function App() {
 												}
 												setFileActionsMenuOpen(false);
 											}}
-										>
-											{t("fileActionCopyContent")}
-										</button>
-										<button
-											type="button"
+										/>
+										<MenuItem
 											disabled={!activeFileTab}
-											onClick={() => {
+											label={t("fileActionWrap")}
+											onSelect={() => {
 												window.dispatchEvent(new Event("pi:file-toggle-wrap"));
 												setFileActionsMenuOpen(false);
 											}}
-										>
-											{t("fileActionWrap")}
-										</button>
-									</div>
+										/>
+									</Menu>
 								) : null}
 							</div>
-							<button
-								className={`icon-button ${fileTreeOpen ? "is-active" : ""}`}
+							<Button
+								size="icon"
+								className={fileTreeOpen ? "is-active" : ""}
 								type="button"
 								aria-label={fileTreeOpen ? t("hideFileTree") : t("showFileTree")}
 								onClick={() => setFileTreeOpen((open) => !open)}
 							>
 								<Icon name="files" size={15} />
-							</button>
-							<button
-								className="icon-button"
+							</Button>
+							<Button
+								size="icon"
 								type="button"
 								aria-label={t("closeRightPanel")}
 								onClick={() => setInspectorOpen(false)}
 							>
 								<Icon name="close" size={16} />
-							</button>
+							</Button>
 						</div>
 					</header>
 					<div className="right-panel-body">
@@ -6984,59 +6967,54 @@ export function App() {
 				/>
 			) : null}
 			{deleteSessionPath ? (
-				<div className="modal-backdrop">
-					<div
-						className="models-discard-dialog"
-						role="alertdialog"
-						aria-modal="true"
-						aria-label={t("deleteSessionTitle")}
-					>
-						<strong>{t("deleteSessionTitle")}</strong>
-						<p>{t("deleteSessionHint")}</p>
-						<div>
-							<button className="outline-button" type="button" onClick={() => setDeleteSessionPath(undefined)}>
+				<Modal
+					title={t("deleteSessionTitle")}
+					className="confirm-dialog"
+					footerClassName="is-end"
+					onClose={() => setDeleteSessionPath(undefined)}
+					footer={
+						<>
+							<Button variant="outline" type="button" onClick={() => setDeleteSessionPath(undefined)}>
 								{t("cancel")}
-							</button>
-							<button
-								className="danger-button"
+							</Button>
+							<Button
+								variant="danger"
 								type="button"
 								onClick={() => void handleDeleteSession(deleteSessionPath, true)}
 							>
 								{t("deleteSession")}
-							</button>
-						</div>
-					</div>
-				</div>
+							</Button>
+						</>
+					}
+				>
+					<p>{t("deleteSessionHint")}</p>
+				</Modal>
 			) : null}
 			{pendingFileConflicts ? (
-				<div className="modal-backdrop">
-					<div className="models-discard-dialog" role="dialog" aria-modal="true" aria-label={t("conflictAria")}>
-						<strong>{t("conflictTitle")}</strong>
-						<p>
-							{pendingFileConflicts.names.slice(0, 4).join("、")}
-							{pendingFileConflicts.names.length > 4
-								? t("conflictNamesSuffix", { count: pendingFileConflicts.names.length })
-								: ""}
-						</p>
-						<p>{t("conflictHint")}</p>
-						<div>
-							<button
-								className="outline-button"
-								type="button"
-								onClick={() => void handleFileConflictDecision(false)}
-							>
+				<Modal
+					title={t("conflictTitle")}
+					className="confirm-dialog"
+					footerClassName="is-end"
+					onClose={() => void handleFileConflictDecision(false)}
+					footer={
+						<>
+							<Button variant="outline" type="button" onClick={() => void handleFileConflictDecision(false)}>
 								{t("skipAll")}
-							</button>
-							<button
-								className="accent-button"
-								type="button"
-								onClick={() => void handleFileConflictDecision(true)}
-							>
+							</Button>
+							<Button variant="primary" type="button" onClick={() => void handleFileConflictDecision(true)}>
 								{t("replaceAll")}
-							</button>
-						</div>
-					</div>
-				</div>
+							</Button>
+						</>
+					}
+				>
+					<p>
+						{pendingFileConflicts.names.slice(0, 4).join("、")}
+						{pendingFileConflicts.names.length > 4
+							? t("conflictNamesSuffix", { count: pendingFileConflicts.names.length })
+							: ""}
+					</p>
+					<p>{t("conflictHint")}</p>
+				</Modal>
 			) : null}
 		</main>
 	);

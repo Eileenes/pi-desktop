@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { DesktopSessionInfo } from "../shared/contracts.ts";
 import { useI18n } from "./i18n.ts";
 import { Icon } from "./icons.tsx";
+import { Button } from "./ui/button.tsx";
 
 /*
  * Session search, as a dialog rather than a field in the sidebar.
@@ -126,9 +127,9 @@ export const SearchDialog = memo(function SearchDialog({
 							}
 						}}
 					/>
-					<button className="search-close" type="button" aria-label={t("close")} onClick={onClose}>
+					<Button className="search-close" size="sm" type="button" aria-label={t("close")} onClick={onClose}>
 						Esc
-					</button>
+					</Button>
 				</div>
 				<div className="search-results">
 					{groups.length ? (

@@ -11,6 +11,7 @@ import {
 } from "./desktop-store.ts";
 import { useI18n } from "./i18n.ts";
 import { Modal } from "./modal.tsx";
+import { Button } from "./ui/button.tsx";
 
 interface SkillsConfigModalProps {
 	workspacePath?: string;
@@ -294,14 +295,14 @@ function AddSkillPanel({
 							if (event.key === "Enter") void search(query);
 						}}
 					/>
-					<button
-						className="accent-button"
+					<Button
+						variant="primary"
 						type="button"
 						disabled={searching || !query.trim()}
 						onClick={() => void search(query)}
 					>
 						{searching ? t("searching") : t("search")}
-					</button>
+					</Button>
 				</div>
 				<div className="skill-add-scope-row">
 					<div className="skill-add-scope" role="tablist" aria-label={t("installScopeAria")}>
@@ -653,9 +654,9 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 							<strong>{t("skillProjectNotTrustedTitle")}</strong>
 							<span>{t("skillProjectNotTrustedHint")}</span>
 							{onTrustProject ? (
-								<button className="outline-button" type="button" onClick={onTrustProject}>
+								<Button variant="outline" type="button" onClick={onTrustProject}>
 									{t("trustProject")}
-								</button>
+								</Button>
 							) : null}
 						</div>
 					) : null}
@@ -689,22 +690,22 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 			<footer className="models-footer">
 				<div className="models-footer-left">
 					{skills.some((skill) => skill.install) ? (
-						<button
-							className="outline-button"
+						<Button
+							variant="outline"
 							type="button"
 							disabled={checkingAll || updatingKey !== undefined}
 							onClick={() => void checkForUpdates()}
 						>
 							{checkingAll ? t("checking") : t("checkUpdates")}
-						</button>
+						</Button>
 					) : null}
 					{availableUpdateCount > 0 ? (
 						<span className="skill-updates-count">{t("availableUpdates", { count: availableUpdateCount })}</span>
 					) : null}
 				</div>
-				<button className="outline-button" type="button" onClick={onClose}>
+				<Button variant="outline" type="button" onClick={onClose}>
 					{t("close")}
-				</button>
+				</Button>
 			</footer>
 		</Modal>
 	);

@@ -1,5 +1,6 @@
-import { memo, type ReactNode, useEffect, useRef } from "react";
+import { type FormEvent, memo, type ReactNode, useEffect, useRef } from "react";
 import { useI18n } from "./i18n.ts";
+import { Button } from "./ui/button.tsx";
 
 const FOCUSABLE_SELECTOR =
 	'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
@@ -10,20 +11,42 @@ interface ModalProps {
 	title: string;
 	subtitle?: string;
 	className?: string;
+	/** Action row under the body (cancel / save / confirm). */
+	footer?: ReactNode;
+	footerClassName?: string;
 	onClose: () => void;
+	/** When set, body + footer wrap in a form so a submit button in the footer works. */
+	onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
+	/** Blocks backdrop click, Escape, and the header close control. */
+	closeDisabled?: boolean;
 	children: ReactNode;
 }
 
-export const Modal = memo(function Modal({ title, subtitle, className, onClose, children }: ModalProps) {
+export const Modal = memo(function Modal({
+	title,
+	subtitle,
+	className,
+	footer,
+	footerClassName,
+	onClose,
+	onSubmit,
+	closeDisabled = false,
+	children,
+}: ModalProps) {
 	const { t } = useI18n();
 	const panelRef = useRef<HTMLDivElement>(null);
 	const modalIdRef = useRef<string | undefined>(undefined);
 	if (!modalIdRef.current) modalIdRef.current = `modal-${++modalSequence}`;
 	const onCloseRef = useRef(onClose);
+	const closeDisabledRef = useRef(closeDisabled);
 
 	useEffect(() => {
 		onCloseRef.current = onClose;
 	}, [onClose]);
+
+	useEffect(() => {
+		closeDisabledRef.current = closeDisabled;
+	}, [closeDisabled]);
 
 	useEffect(() => {
 		const modalId = modalIdRef.current;
@@ -40,7 +63,7 @@ export const Modal = memo(function Modal({ title, subtitle, className, onClose, 
 			if (event.key === "Escape") {
 				event.preventDefault();
 				event.stopImmediatePropagation();
-				onCloseRef.current();
+				if (!closeDisabledRef.current) onCloseRef.current();
 				return;
 			}
 			if (event.key !== "Tab") return;
@@ -77,7 +100,7 @@ export const Modal = memo(function Modal({ title, subtitle, className, onClose, 
 		<div
 			className="modal-backdrop"
 			onMouseDown={(event) => {
-				if (event.target === event.currentTarget) onClose();
+				if (!closeDisabled && event.target === event.currentTarget) onClose();
 			}}
 		>
 			<div
@@ -93,11 +116,25 @@ export const Modal = memo(function Modal({ title, subtitle, className, onClose, 
 						<h2 className="modal-title">{title}</h2>
 						{subtitle ? <code className="modal-subtitle">{subtitle}</code> : null}
 					</div>
-					<button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}>
+					<Button size="icon" type="button" aria-label={t("close")} disabled={closeDisabled} onClick={onClose}>
 						×
-					</button>
+					</Button>
 				</header>
-				<div className="modal-body">{children}</div>
+				{onSubmit ? (
+					<form className="modal-form" onSubmit={onSubmit}>
+						<div className="modal-body">{children}</div>
+						{footer ? (
+							<footer className={`modal-footer${footerClassName ? ` ${footerClassName}` : ""}`}>{footer}</footer>
+						) : null}
+					</form>
+				) : (
+					<>
+						<div className="modal-body">{children}</div>
+						{footer ? (
+							<footer className={`modal-footer${footerClassName ? ` ${footerClassName}` : ""}`}>{footer}</footer>
+						) : null}
+					</>
+				)}
 			</div>
 		</div>
 	);

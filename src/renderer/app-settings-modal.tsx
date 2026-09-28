@@ -3,6 +3,7 @@ import type { DesktopUpdateInfo } from "../shared/contracts.ts";
 import { checkForUpdates, openCustomCss, openExternalUrl, quitApp, setCloseQuits } from "./desktop-store.ts";
 import { useI18n } from "./i18n.ts";
 import { Modal } from "./modal.tsx";
+import { Button } from "./ui/button.tsx";
 import { UpdateButton } from "./update-button.tsx";
 
 interface AppSettingsModalProps {
@@ -208,8 +209,8 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 							<strong>{t("customCss")}</strong>
 							<small>{t("customCssHint")}</small>
 						</span>
-						<button
-							className="outline-button"
+						<Button
+							variant="outline"
 							type="button"
 							disabled={cssBusy}
 							onClick={() => {
@@ -223,7 +224,7 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 							}}
 						>
 							{cssBusy ? t("opening") : t("openCustomCss")}
-						</button>
+						</Button>
 					</div>
 					{cssError ? <p className="sidebar-error">{cssError}</p> : null}
 				</section>
@@ -254,9 +255,9 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 								</small>
 							</span>
 						</div>
-						<button className="outline-button settings-quit" type="button" onClick={() => void quitApp()}>
+						<Button variant="outline" className="settings-quit" type="button" onClick={() => void quitApp()}>
 							{t("quitPi")}
-						</button>
+						</Button>
 					</div>
 				</section>
 			</div>

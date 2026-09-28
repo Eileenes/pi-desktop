@@ -1,14 +1,12 @@
 /*
- * Design tokens — the single source of truth for the visual system.
+ * Design tokens — workshop paper on a cool well.
  *
- * Surfaces stay on the neutral gray ramp. Theme color is a selectable accent
- * (settings), not a second palette. Component geometry follows the Harness
- * control grammar: 4/8/12/16/20 radii, 28px floating panels, 0.5px hairlines,
- * and soft elevation. Type still scales with --font-scale.
+ * Codex/DSH taught the grammar: near-black canvas, tonal elevation, one lit
+ * composer, assistant as prose not bubbles. Pi spends its difference on warm
+ * paper ink (#f3f1ec) instead of cold white, so the transcript reads like a
+ * printed page over graphite tools.
  *
- * Dark is the default. :root[data-theme="light"] restates only the surface and
- * ink block; every component keeps consuming the legacy --bg / --surface-* /
- * --text-* / --accent names below, which are aliases onto the --ds-* tokens.
+ * Accent remains user-selectable. Chrome stays monochrome. Dark is default.
  */
 :root {
 	/* Gray ramp (Codex gray-0..1000). */
@@ -23,8 +21,8 @@
 	--gray-700: #303030;
 	--gray-750: #282828;
 	--gray-800: #212121;
-	--gray-900: #181818;
-	--gray-1000: #0d0d0d;
+	--gray-900: #141414;
+	--gray-1000: #0a0a0a;
 
 	/* Surfaces. Hierarchy comes from quiet tonal steps, not strokes. */
 	--ds-bg-primary: var(--gray-900);
@@ -74,7 +72,7 @@
 
 	/* Ink. One alpha ramp covers the secondary/muted/faint tier so each step
 	 * keeps its contrast over hover and elevated fills too. */
-	--ds-text-primary: var(--gray-0);
+	--ds-text-primary: #f3f1ec;
 	--ds-text-secondary: color-mix(in oklab, var(--gray-0) 70%, transparent);
 	--ds-text-muted: color-mix(in oklab, var(--gray-0) 52%, transparent);
 	--ds-text-faint: color-mix(in oklab, var(--gray-0) 38%, transparent);
@@ -142,9 +140,9 @@
 	--ds-sidebar-width-default: 275px;
 	--ds-settings-nav-width: 275px;
 	--ds-window-controls-width: 120px;
-	--ds-composer-max-width: 760px;
-	--ds-prose-max-width: 720px;
-	--ds-composer-radius: 28px;
+	--ds-composer-max-width: 720px;
+	--ds-prose-max-width: 680px;
+	--ds-composer-radius: 32px;
 	--ds-panel-radius: 28px;
 	--ds-traffic-light-gap: 12px;
 
@@ -157,7 +155,7 @@
 	--motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
 
 	/* Global type scale; every --text-* step is multiplied by this. */
-	--font-scale: 1.1;
+	--font-scale: 1;
 
 	/* ------------------------------------------------------------------ *
 	 * Token scales — the only allowed values for type, weight, leading,
@@ -197,9 +195,9 @@
 	--text-sm-plus: calc(12.5px * var(--font-scale));
 	--text-md: calc(13px * var(--font-scale));
 	--text-md-plus: calc(13.5px * var(--font-scale));
-	--text-base: calc(14px * var(--font-scale));
-	--text-lg: calc(14px * var(--font-scale));
-	--text-base-plus: calc(15px * var(--font-scale));
+	--text-base: calc(15px * var(--font-scale));
+	--text-lg: calc(15px * var(--font-scale));
+	--text-base-plus: calc(16px * var(--font-scale));
 	--text-xl: calc(16px * var(--font-scale));
 	--text-lg-plus: calc(18px * var(--font-scale));
 	--text-2xl: calc(20px * var(--font-scale));
@@ -221,7 +219,7 @@
 	--leading-body: 1.45;
 	--leading-relaxed: 1.5;
 	--leading-chat: 1.55;
-	--leading-prose: 1.6;
+	--leading-prose: 1.65;
 	--leading-row: calc(18px * var(--font-scale));
 
 	--tracking-tighter: -0.03em;
@@ -3790,12 +3788,12 @@ html {
 .message {
 	max-width: 100%;
 	margin: 0;
-	padding: 12px 0;
+	padding: 16px 0;
 }
 
 .message-assistant {
-	padding-top: 6px;
-	padding-bottom: 14px;
+	padding-top: 8px;
+	padding-bottom: 22px;
 }
 
 .assistant-label {
@@ -3854,7 +3852,7 @@ html {
 
 .message-content > p {
 	margin: 0;
-	color: var(--text-dim);
+	color: color-mix(in oklab, var(--ds-text-primary) 92%, transparent);
 	font-size: var(--text-base);
 	line-height: 1.72;
 	white-space: pre-wrap;
@@ -3915,17 +3913,13 @@ html {
 	align-items: flex-end;
 }
 
-/*
- * User bubble: an 18px plate with one squared corner, which is what reads as
- * a tail without drawing one.
- */
+/* User chip: a compact graphite pill. Codex drops tails; we keep a full round. */
 .message-user .message-content {
-	max-width: min(82%, 600px);
-	padding: 10px 15px;
+	max-width: min(72%, 520px);
+	padding: 10px 16px;
 	border: 0;
-	border-radius: var(--radius-lg-plus);
-	border-bottom-right-radius: var(--radius-xs);
-	background: color-mix(in oklab, var(--ds-text-primary) 8%, transparent);
+	border-radius: 20px;
+	background: color-mix(in oklab, var(--ds-text-primary) 10%, transparent);
 	color: var(--text-primary);
 	font-size: var(--text-base);
 	line-height: var(--leading-chat);
@@ -4283,8 +4277,8 @@ html {
 }
 
 .markdown-body p {
-	margin: 0 0 12px;
-	color: var(--text-dim);
+	margin: 0 0 14px;
+	color: color-mix(in oklab, var(--ds-text-primary) 92%, transparent);
 	white-space: pre-wrap;
 }
 
@@ -4351,9 +4345,9 @@ html {
 	flex-direction: column;
 	margin: 0 0 14px;
 	overflow: hidden;
-	border: 1px solid var(--border-subtle);
-	border-radius: var(--radius-s);
-	background: var(--surface-recessed);
+	border: 0;
+	border-radius: 12px;
+	background: color-mix(in oklab, var(--ds-text-primary) 4.5%, transparent);
 }
 
 .code-block pre,
@@ -4368,10 +4362,10 @@ html {
 	flex: 0 0 auto;
 	align-items: center;
 	gap: 6px;
-	height: 30px;
-	padding: 0 7px 0 11px;
-	border-bottom: 1px solid var(--border-subtle);
-	background: var(--surface-1);
+	height: 32px;
+	padding: 0 8px 0 12px;
+	border-bottom: 0;
+	background: color-mix(in oklab, var(--ds-text-primary) 3%, transparent);
 }
 
 .code-block-toolbar span {
@@ -4901,20 +4895,18 @@ html {
 	pointer-events: none;
 }
 
-/*
- * The composer lifts by shadow alone — the hairline stroke is gone, which is
- * what keeps it reading as a sheet floating over the transcript rather than a
- * bordered box.
- */
+/* The composer is the one lit object: a workbench sheet, not a bordered box. */
 .composer-inner {
 	position: relative;
 	width: min(var(--ds-composer-max-width), 100%);
 	margin: 0 auto;
-	padding: 10px 12px 8px;
+	padding: 14px 16px 10px;
 	border: 0;
 	border-radius: var(--ds-composer-radius);
 	background: var(--ds-bg-composer);
-	box-shadow: var(--ds-shadow-composer);
+	box-shadow:
+		inset 0 0.5px 0 color-mix(in oklab, var(--gray-0) 14%, transparent),
+		var(--ds-shadow-composer);
 	transition:
 		background var(--motion-duration-fast) var(--motion-ease-out),
 		box-shadow var(--motion-duration-normal) var(--motion-ease-out);
@@ -5015,17 +5007,17 @@ html {
 	min-width: 0;
 	width: 100%;
 	flex: 1;
-	min-height: 24px;
-	max-height: 200px;
+	min-height: 28px;
+	max-height: 220px;
 	resize: none;
 	overflow-y: auto;
-	padding: 4px 0;
+	padding: 6px 2px;
 	border: 0;
 	outline: 0;
 	color: var(--text);
 	background: transparent;
 	font-size: var(--text-base);
-	line-height: 1.6;
+	line-height: 1.65;
 }
 
 .composer textarea::placeholder {
@@ -5231,40 +5223,25 @@ html {
 .composer-control-group { display: flex; align-items: center; gap: 2px; position: relative; }
 .composer-control-group-right { margin-left: auto; }
 .composer-control-anchor { position: relative; display: inline-flex; }
-.composer-control-anchor.is-right .composer-popover { right: 0; left: auto; }
-.composer-control-button { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 4px 7px; border: 0; border-radius: var(--radius-2xs); color: var(--text-dim); background: transparent; font-size: var(--text-sm); white-space: nowrap; }
-.composer-control-button:hover:not(:disabled) { color: var(--text); background: var(--hover); }
-.composer-control-button:disabled { opacity: .45; }
-.composer-popover { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 40; display: grid; min-width: 200px; max-height: 320px; overflow: auto; padding: 5px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-1); box-shadow: var(--shadow-float); }
-.composer-popover button { padding: 8px 10px; border: 0; border-radius: var(--radius-2xs); color: var(--text); background: transparent; text-align: left; font-size: var(--text-sm); white-space: nowrap; }
-.composer-popover button:hover { background: var(--hover-strong); }
-.composer-popover button.is-current { color: var(--text); font-weight: 600; }
-.composer-popover .tool-preset-option { display: grid; grid-template-columns: 12px auto 1fr; align-items: center; gap: 7px; min-width: 210px; }
-.composer-popover .tool-preset-option > span:first-child { color: var(--accent); text-align: center; }
-.composer-popover .tool-preset-option small { color: var(--muted); font-size: var(--text-xs); text-align: right; font-weight: 400; }
-.composer-popover.thinking-composer-popover button { display: grid; grid-template-columns: 12px auto 1fr; align-items: center; gap: 7px; min-width: 230px; }
-.composer-popover.thinking-composer-popover button > span:first-child { color: var(--accent); text-align: center; }
-.composer-popover.thinking-composer-popover small { color: var(--muted); font-size: var(--text-xs); text-align: right; font-weight: 400; }
-.composer-popover-filter {
-	margin: 2px 2px 6px;
-	padding: 6px 9px;
-	border: 1px solid var(--border-subtle);
-	border-radius: var(--radius-2xs);
-	color: var(--text);
-	background: var(--surface-recessed);
-	font-size: var(--text-sm);
+.composer-control-anchor > .app-menu {
+	position: absolute;
+	left: 0;
+	bottom: calc(100% + 6px);
+	z-index: 40;
+	display: grid;
+	min-width: 220px;
+	max-width: min(320px, 80vw);
+	max-height: 320px;
+	overflow: auto;
 }
-.composer-popover-empty {
-	margin: 0;
-	padding: 10px;
-	color: var(--muted);
-	font-size: var(--text-sm);
+.composer-control-anchor.is-right > .app-menu {
+	left: auto;
+	right: 0;
 }
-.project-composer-popover { min-width: 230px; }
-.project-composer-popover button { display: flex; align-items: center; gap: 7px; }
-.project-menu-filter { width: calc(100% - 16px); margin: 4px 8px 6px; padding: 6px 8px; border: 1px solid var(--border-subtle); border-radius: var(--radius-2xs); background: var(--surface-2); color: var(--text); font: var(--text-xs) var(--font-mono); outline: none; }
-.project-menu-filter:focus { border-color: var(--accent); }
-.project-menu-empty { margin: 4px 10px 8px; color: var(--muted); font-size: var(--text-xs); }
+.composer-control-anchor > .app-menu .app-menu-copy,
+.composer-control-anchor > .app-menu .app-menu-hint {
+	white-space: normal;
+}
 .message-image-thumbnail { display: block; max-width: min(240px, 100%); max-height: 240px; border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent); border-radius: var(--radius-xs); object-fit: contain; }
 
 .compaction-message {
@@ -5600,10 +5577,10 @@ html {
 .send-button,
 .composer-send-button {
 	display: inline-flex;
-	width: var(--ds-control-size);
-	height: var(--ds-control-size);
-	min-width: var(--ds-control-size);
-	flex: 0 0 var(--ds-control-size);
+	width: 32px;
+	height: 32px;
+	min-width: 32px;
+	flex: 0 0 32px;
 	align-items: center;
 	justify-content: center;
 	padding: 0;
@@ -5683,6 +5660,11 @@ html {
 	width: min(420px, 100%);
 }
 
+.extension-dialog.is-editor {
+	width: min(720px, 100%);
+}
+
+.extension-dialog input,
 .extension-dialog > input {
 	width: 100%;
 	margin-top: 10px;
@@ -5728,13 +5710,6 @@ html {
 	border-color: var(--accent-strong);
 	color: var(--text);
 	font-weight: 500;
-}
-
-.extension-dialog-actions {
-	display: flex;
-	justify-content: flex-end;
-	gap: 8px;
-	margin-top: 14px;
 }
 
 .extension-dialog-editor {
@@ -6286,32 +6261,14 @@ html {
 
 .file-actions-menu-anchor { position: relative; }
 
-.file-actions-menu {
+.file-actions-menu-anchor > .app-menu {
 	position: absolute;
 	top: calc(100% + 5px);
 	right: 0;
+	left: auto;
 	z-index: 70;
-	display: grid;
-	min-width: 148px;
-	padding: 4px;
-	border: 1px solid var(--border-subtle);
-	border-radius: var(--radius-xs);
-	background: var(--surface-1);
-	box-shadow: var(--shadow-float);
+	min-width: 168px;
 }
-
-.file-actions-menu button {
-	padding: 7px 9px;
-	border: 0;
-	border-radius: var(--radius-2xs);
-	color: var(--text-dim);
-	background: transparent;
-	font-size: var(--text-sm);
-	text-align: left;
-}
-
-.file-actions-menu button:hover:not(:disabled) { color: var(--text); background: var(--hover-strong); }
-.file-actions-menu button:disabled { opacity: 0.45; }
 
 .inspector {
 	display: flex;
@@ -6514,31 +6471,6 @@ html {
 .mention-selected-lines:hover {
 	color: var(--text);
 	background: var(--hover);
-}
-
-.composer-model-group + .composer-model-group {
-	border-top: 1px solid var(--border-subtle);
-}
-
-.composer-model-group-label {
-	display: block;
-	padding: 6px 12px 4px;
-	color: var(--muted);
-	font-size: var(--text-2xs);
-	font-weight: 600;
-	letter-spacing: 0.07em;
-	text-transform: uppercase;
-}
-
-.composer-popover .composer-model-group button {
-	display: flex;
-	justify-content: space-between;
-	gap: 12px;
-}
-
-.composer-model-check {
-	margin-left: auto;
-	color: var(--accent-strong);
 }
 
 .file-preview-source {
@@ -6766,6 +6698,26 @@ html {
 	flex: 1 1 auto;
 	min-height: 0;
 	padding: 18px;
+}
+
+.modal-form {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.modal-footer {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 8px;
+	padding: 12px 18px;
+	border-top: 1px solid var(--ds-border-subtle);
+}
+
+.modal-footer.is-end {
+	justify-content: flex-end;
 }
 
 .settings-modal-sections {
@@ -8068,30 +8020,20 @@ html {
 	font-size: var(--text-2xs);
 }
 
-.models-discard-dialog {
-	width: min(360px, 100%);
-	padding: 16px 18px;
-	border: 1px solid var(--border-subtle);
-	border-radius: var(--radius-sm);
-	background: var(--bg);
-	box-shadow: 0 12px 32px rgb(0 0 0 / 25%);
+.confirm-dialog {
+	width: min(420px, 100%);
+	max-height: none;
 }
 
-.models-discard-dialog > strong {
-	font-size: var(--text-base);
-}
-
-.models-discard-dialog p {
-	margin: 6px 0 14px;
+.confirm-dialog .modal-body p {
+	margin: 0 0 8px;
 	color: var(--muted);
 	font-size: var(--text-sm);
 	line-height: 1.55;
 }
 
-.models-discard-dialog > div {
-	display: flex;
-	justify-content: flex-end;
-	gap: 8px;
+.confirm-dialog .modal-body p:last-child {
+	margin-bottom: 0;
 }
 
 .resource-config-modal {
@@ -9187,16 +9129,12 @@ summary:focus-visible {
 	align-items: flex-end;
 }
 
-.composer-control-button,
-.composer-popover button,
-.composer-model-select,
 .composer-footer,
 .slash-command,
 .prompt-history-list button {
 	font-size: var(--text-sm-plus);
 }
 
-.composer-control-button,
 .native-toolbar-button,
 .icon-button,
 .composer-icon-button {
@@ -9220,14 +9158,12 @@ summary:focus-visible {
 	border-radius: var(--radius-md);
 }
 
-.composer-icon-button,
-.composer-control-button {
+.composer-icon-button {
 	padding-inline: 8px;
 	border-radius: var(--radius-full);
 }
 
 /* Menus float on an opaque raised plate with a real edge. */
-.composer-popover,
 .slash-menu,
 .prompt-history-menu {
 	border: 1px solid var(--ds-border-subtle);
@@ -10143,7 +10079,6 @@ summary:focus-visible {
 .session-more-menu,
 .stats-popover,
 .branch-popover,
-.composer-popover,
 .slash-menu,
 .prompt-history-menu {
 	padding: 5px;
@@ -10236,11 +10171,7 @@ summary:focus-visible {
 	letter-spacing: var(--tracking-wide);
 }
 
-/* Destructive actions read in the error ink, in both themes. */
-.models-discard-dialog > div > .accent-button {
-	background: var(--ds-error);
-	color: var(--gray-0);
-}
+
 
 
 /*
@@ -10395,7 +10326,7 @@ summary:focus-visible {
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	gap: 12px;
+	gap: 16px;
 	width: 100%;
 	min-height: 0;
 	/* The reference keeps one 16px gap between the hero and the composer. */
@@ -10439,10 +10370,10 @@ summary:focus-visible {
 
 .empty-hero-hint {
 	margin: 0;
-	max-width: min(100%, 42rem);
+	max-width: min(100%, 36rem);
 	color: var(--ds-text-muted);
-	font-size: var(--text-md);
-	line-height: var(--leading-body);
+	font-size: var(--text-base);
+	line-height: var(--leading-relaxed);
 }
 
 /*
@@ -11204,62 +11135,32 @@ body.is-resizing-terminal {
 	color: var(--ds-text-primary);
 }
 
-.composer-project-anchor .project-menu {
-	position: fixed;
-	bottom: auto;
-	left: auto;
+.composer-project-anchor .project-menu,
+.composer-project-anchor > .app-menu {
+	position: absolute;
+	top: calc(100% + 6px);
+	left: 0;
 	z-index: 80;
-	right: auto;
 	width: max-content;
 	min-width: 220px;
-	height: max-content;
 	max-height: min(360px, 46vh);
 	overflow: auto;
 }
 
 /* The workspace clips overflow, so the project row's menus have to escape it. */
-.chat-workspace:has(.composer-project-anchor .project-menu) {
+.chat-workspace:has(.composer-project-anchor .project-menu),
+.chat-workspace:has(.composer-project-anchor > .app-menu) {
 	overflow: visible;
 }
 
 
 
-.permission-popover button {
-	display: flex;
-	align-items: flex-start;
-	gap: 8px;
-	white-space: normal;
-}
-
-.permission-popover button > span:first-child {
-	width: 12px;
-	flex: 0 0 12px;
-	line-height: 1.4;
-}
-
-.composer-permission-trigger svg,
-.permission-popover svg {
+.composer-permission-trigger svg {
 	box-sizing: content-box;
 	flex: 0 0 14px;
 	width: 14px;
 	height: 14px;
 	overflow: visible;
-}
-
-.permission-popover svg {
-	margin-top: 2px;
-}
-
-.permission-option-copy {
-	display: grid;
-	gap: 2px;
-	min-width: 0;
-}
-
-.permission-option-copy small {
-	color: var(--ds-text-muted);
-	font-size: var(--text-xs);
-	line-height: 1.4;
 }
 /*
  * ---------------------------------------------------------------------------
@@ -11522,7 +11423,7 @@ body.is-resizing-terminal {
 	width: min(520px, 100%);
 }
 
-.project-editor-body {
+.project-editor-dialog .modal-body {
 	display: grid;
 	gap: 12px;
 	overflow: visible;
@@ -11654,15 +11555,6 @@ body.is-resizing-terminal {
 	font-size: var(--text-xs);
 }
 
-.project-editor-actions {
-	display: flex;
-	flex: 0 0 auto;
-	align-items: center;
-	gap: 8px;
-	padding: 12px 18px;
-	border-top: 1px solid var(--ds-border-subtle);
-}
-
 .project-editor-actions-spacer {
 	flex: 1;
 }
@@ -11687,7 +11579,7 @@ body.is-resizing-terminal {
 	width: min(460px, 100%);
 }
 
-.permission-risk-body {
+.permission-risk-dialog .modal-body {
 	display: grid;
 	gap: 14px;
 	overflow: visible;
@@ -11737,26 +11629,8 @@ body.is-resizing-terminal {
 	border-top: 1px solid var(--ds-border-subtle);
 }
 
-/* The trust prompt predates the dialog grammar and had no plate at all. */
-.trust-dialog-backdrop {
-	position: fixed;
-	inset: 0;
-	z-index: 300;
-	display: grid;
-	place-items: center;
-	padding: 24px;
-	background: var(--ds-scrim);
-}
-
 .trust-dialog {
-	display: grid;
 	width: min(460px, 100%);
-	gap: 16px;
-	padding: 18px;
-	border: 1px solid var(--ds-border-default);
-	border-radius: var(--radius-lg-plus);
-	background: var(--ds-bg-elevated-opaque);
-	box-shadow: var(--ds-shadow-dialog);
 }
 
 .trust-dialog-body {
@@ -11789,12 +11663,6 @@ body.is-resizing-terminal {
 
 .trust-dialog-error {
 	color: var(--ds-error);
-}
-
-.trust-dialog-actions {
-	display: flex;
-	justify-content: flex-end;
-	gap: 8px;
 }
 
 /*
@@ -11950,7 +11818,7 @@ body.is-resizing-terminal {
 .resource-config-modal,
 .search-dialog,
 .trust-dialog,
-.models-discard-dialog,
+.confirm-dialog,
 .extension-custom-panel {
 	border: 0;
 	border-radius: var(--ds-panel-radius);
@@ -11968,13 +11836,12 @@ body.is-resizing-terminal {
 	padding: 8px 24px 24px;
 }
 
-.permission-risk-actions,
-.trust-dialog-actions {
+.modal-footer,
+.permission-risk-actions {
 	border-top: 0.5px solid var(--ds-border-subtle);
 }
 
 .app-menu,
-.composer-popover,
 .slash-menu,
 .prompt-history-menu,
 .footer-menu {
@@ -12152,7 +12019,6 @@ body.is-resizing-terminal {
 	.search-dialog,
 	.trust-dialog,
 	.app-menu,
-	.composer-popover,
 	.slash-menu,
 	.prompt-history-menu,
 	.composer-inner,

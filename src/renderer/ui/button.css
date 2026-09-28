@@ -1,0 +1,138 @@
+/* Shared control primitive. Feature screens compose these instead of new button classes. */
+.ui-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	border: 0;
+	font-family: inherit;
+	font-weight: 500;
+	line-height: 1;
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		background var(--motion-duration-fast) var(--motion-ease-out),
+		color var(--motion-duration-fast) var(--motion-ease-out),
+		opacity var(--motion-duration-fast) var(--motion-ease-out),
+		transform var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.ui-button:disabled {
+	cursor: not-allowed;
+	opacity: 0.45;
+}
+
+.ui-button-sm {
+	min-height: 28px;
+	padding: 4px 8px;
+	border-radius: 8px;
+	font-size: var(--text-sm);
+}
+
+.ui-button-md {
+	min-height: 32px;
+	padding: 7px 12px;
+	border-radius: 8px;
+	font-size: var(--text-sm);
+}
+
+.ui-button-icon {
+	width: 28px;
+	height: 28px;
+	min-width: 28px;
+	padding: 0;
+	border-radius: 8px;
+}
+
+.ui-button-ghost {
+	color: var(--ds-text-muted);
+	background: transparent;
+}
+
+.ui-button-ghost:hover:not(:disabled) {
+	color: var(--ds-text-primary);
+	background: var(--ds-bg-hover);
+}
+
+.ui-button-outline {
+	padding: 7px 12px;
+	border: 0.5px solid var(--ds-border-default);
+	color: var(--ds-text-secondary);
+	background: transparent;
+}
+
+.ui-button-outline:hover:not(:disabled) {
+	color: var(--ds-text-primary);
+	background: var(--ds-bg-hover);
+}
+
+.ui-button-primary {
+	background: var(--ds-accent);
+	color: var(--ds-on-accent);
+}
+
+.ui-button-primary:hover:not(:disabled) {
+	background: var(--ds-accent-hover);
+}
+
+.ui-button-primary:disabled {
+	opacity: 1;
+	background: var(--ds-send-disabled-bg);
+	color: var(--ds-send-disabled-fg);
+}
+
+.ui-button-primary.ui-button-icon {
+	width: 32px;
+	height: 32px;
+	min-width: 32px;
+	border-radius: var(--radius-full);
+}
+
+.ui-button-danger {
+	color: #fff;
+	background: var(--ds-error);
+}
+
+.ui-button-danger:hover:not(:disabled) {
+	background: color-mix(in oklab, var(--ds-error) 82%, #000);
+}
+
+.ui-button-danger.ui-button-icon {
+	width: 34px;
+	height: 34px;
+	min-width: 34px;
+	border-radius: var(--radius-full);
+}
+
+.ui-button-danger:disabled {
+	opacity: 1;
+	background: color-mix(in oklab, var(--ds-error) 45%, transparent);
+}
+
+.ui-button:active:not(:disabled) {
+	transform: scale(0.96);
+}
+
+.ui-button-icon.compact {
+	width: 24px;
+	height: 24px;
+	min-width: 24px;
+}
+
+.ui-button.is-active {
+	color: var(--accent-strong);
+	background: var(--overlay-7);
+}
+
+.ui-button-ghost.danger-text-button {
+	min-height: 0;
+	padding: 3px 5px;
+	color: var(--danger);
+	font-size: var(--text-xs);
+	opacity: 1;
+}
+
+.ui-button-ghost.danger-text-button:hover:not(:disabled) {
+	color: var(--danger);
+	background: color-mix(in oklab, var(--danger) 12%, transparent);
+}

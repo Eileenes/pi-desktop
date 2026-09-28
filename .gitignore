@@ -15,6 +15,8 @@ coverage/
 *~
 .npm/
 .pi_config/
+.agents/
+skills-lock.json
 
 # Electron packaging
 release/

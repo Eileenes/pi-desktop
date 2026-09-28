@@ -20,6 +20,7 @@ import {
 import { useI18n } from "./i18n.ts";
 import { Modal } from "./modal.tsx";
 import { ProviderIconMark } from "./provider-icons.tsx";
+import { Button } from "./ui/button.tsx";
 
 interface ModelsConfigModalProps {
 	providers: DesktopApiKeyProvider[];
@@ -649,8 +650,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 						))}
 						{!loading && config.length === 0 ? <p className="modal-empty">{t("noCustomProviders")}</p> : null}
 					</div>
-					<button
-						className="outline-button models-add-provider"
+					<Button
+						variant="outline"
+						className="models-add-provider"
 						type="button"
 						onClick={() => {
 							setProviderPickerQuery("");
@@ -658,7 +660,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 						}}
 					>
 						{t("addProvider")}
-					</button>
+					</Button>
 				</aside>
 
 				<section className="models-detail">
@@ -687,8 +689,8 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								</output>
 							) : null}
 							{modelScopeError ? <p className="sidebar-error">{modelScopeError}</p> : null}
-							<button
-								className="accent-button"
+							<Button
+								variant="primary"
 								type="button"
 								disabled={
 									!hasModelScopeChanges || modelScopeSaving || providerSetupInProgress || settingUpProvider
@@ -696,7 +698,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								onClick={() => void handleSaveModelScope()}
 							>
 								{modelScopeSaving ? t("saving") : t("saveModelScope")}
-							</button>
+							</Button>
 						</div>
 					) : managedProvider ? (
 						<div className="models-detail-form">
@@ -709,16 +711,12 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							<p className="models-managed-description">{t("connectedProviderDescription")}</p>
 							<div className="models-managed-actions">
 								{managedProvider.supportsApiKey && managedProvider.supportsOAuth ? (
-									<button
-										className="outline-button"
-										type="button"
-										onClick={() => setAuthProvider(managedProvider)}
-									>
+									<Button variant="outline" type="button" onClick={() => setAuthProvider(managedProvider)}>
 										{t("switchAuthMethod")}
-									</button>
+									</Button>
 								) : null}
-								<button
-									className="outline-button"
+								<Button
+									variant="outline"
 									type="button"
 									disabled={providerSetupInProgress || settingUpProvider}
 									onClick={() =>
@@ -729,11 +727,11 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									}
 								>
 									{managedProvider.credentialType === "oauth" ? t("relogin") : t("updateApiKey")}
-								</button>
+								</Button>
 								{confirmDisconnectProviderId === managedProvider.id ? (
 									<>
-										<button
-											className="danger-button"
+										<Button
+											variant="danger"
 											type="button"
 											onClick={() => {
 												setSaveError(undefined);
@@ -745,23 +743,23 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 											}}
 										>
 											{t("confirmDisconnect")}
-										</button>
-										<button
+										</Button>
+										<Button
+											variant="outline"
 											type="button"
-											className="outline-button"
 											onClick={() => setConfirmDisconnectProviderId(undefined)}
 										>
 											{t("cancel")}
-										</button>
+										</Button>
 									</>
 								) : (
-									<button
-										className="danger-button"
+									<Button
+										variant="danger"
 										type="button"
 										onClick={() => setConfirmDisconnectProviderId(managedProvider.id)}
 									>
 										{t("disconnect")}
-									</button>
+									</Button>
 								)}
 							</div>
 						</div>
@@ -769,9 +767,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 						<div className="models-detail-form">
 							<div className="models-detail-heading">
 								<span>{t("provider")}</span>
-								<button className="danger-text-button" type="button" onClick={removeProvider}>
+								<Button size="sm" type="button" onClick={removeProvider}>
 									{t("delete")}
-								</button>
+								</Button>
 							</div>
 							<label>
 								{t("providerName")}
@@ -856,14 +854,14 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</label>
 							<div className="models-discovery">
 								{discovery.phase !== "success" ? (
-									<button
-										className="outline-button"
+									<Button
+										variant="outline"
 										type="button"
 										disabled={!selectedProvider.baseUrl?.trim() || discovery.phase === "loading"}
 										onClick={() => void handleDiscover()}
 									>
 										{discovery.phase === "loading" ? t("fetchingModels") : t("fetchModelsFromProvider")}
-									</button>
+									</Button>
 								) : null}
 								{discovery.phase === "error" ? <p className="sidebar-error">{discovery.message}</p> : null}
 								{discovery.phase === "success" ? (
@@ -907,8 +905,8 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 										</div>
 										<div className="discovery-footer">
 											<span>{t("fetchedModelsCount", { count: discovery.models.length })}</span>
-											<button
-												className="accent-button"
+											<Button
+												variant="primary"
 												type="button"
 												disabled={selectedDiscovered.length === 0}
 												onClick={addDiscoveredModels}
@@ -916,31 +914,31 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 												{selectedDiscovered.length
 													? t("addSelectedCount", { count: selectedDiscovered.length })
 													: t("addSelected")}
-											</button>
+											</Button>
 										</div>
 									</>
 								) : null}
 							</div>
-							<button className="outline-button" type="button" onClick={addModel}>
+							<Button variant="outline" type="button" onClick={addModel}>
 								{t("addModelManually")}
-							</button>
+							</Button>
 						</div>
 					) : selectedProvider && selectedModel ? (
 						<div className="models-detail-form">
 							<div className="models-detail-heading">
 								<span>{t("models")}</span>
 								<div className="models-heading-actions">
-									<button
-										className="outline-button"
+									<Button
+										variant="outline"
 										type="button"
 										disabled={modelTest.phase === "loading" || !selectedModel.id.trim()}
 										onClick={() => void handleModelTest()}
 									>
 										{modelTest.phase === "loading" ? t("testing") : t("testConnection")}
-									</button>
-									<button className="danger-text-button" type="button" onClick={removeModel}>
+									</Button>
+									<Button size="sm" type="button" onClick={removeModel}>
 										{t("remove")}
-									</button>
+									</Button>
 								</div>
 							</div>
 							{modelTest.phase !== "idle" && modelTest.phase !== "loading" ? (
@@ -1122,9 +1120,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 						<div className="models-empty-detail">
 							<strong>{t("setupProvidersTitle")}</strong>
 							<p>{t("setupProvidersHint")}</p>
-							<button className="accent-button" type="button" onClick={addProvider}>
+							<Button variant="primary" type="button" onClick={addProvider}>
 								{t("addProvider")}
-							</button>
+							</Button>
 						</div>
 					)}
 				</section>
@@ -1187,9 +1185,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 										onChange={(event) => onChangeAuthenticationResponse(event.target.value)}
 									/>
 								)}
-								<button className="accent-button" type="submit" disabled={authenticationResolving}>
+								<Button variant="primary" type="submit" disabled={authenticationResolving}>
 									{authenticationResolving ? t("processingDots") : t("continue")}
-								</button>
+								</Button>
 							</form>
 						) : (
 							<div className="models-auth-waiting">
@@ -1211,9 +1209,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								) : null}
 							</div>
 						)}
-						<button className="outline-button" type="button" onClick={onCancelProviderSetup}>
+						<Button variant="outline" type="button" onClick={onCancelProviderSetup}>
 							{t("cancelConnect")}
-						</button>
+						</Button>
 					</div>
 				</div>
 			) : null}
@@ -1224,22 +1222,22 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 				) : (
 					<span>{hasChanges ? t("unsavedChanges") : t("configSaved")}</span>
 				)}
-				<button
-					className="outline-button"
+				<Button
+					variant="outline"
 					type="button"
 					disabled={providerSetupInProgress || settingUpProvider}
 					onClick={requestClose}
 				>
 					{t("cancel")}
-				</button>
-				<button
-					className="accent-button"
+				</Button>
+				<Button
+					variant="primary"
 					type="button"
 					disabled={!hasChanges || saving || providerSetupInProgress || settingUpProvider}
 					onClick={() => void handleSave()}
 				>
 					{saving ? t("saving") : t("saveChanges")}
-				</button>
+				</Button>
 			</footer>
 			{providerPickerOpen ? (
 				// biome-ignore lint/a11y/noStaticElementInteractions: 点击遮罩关闭嵌套对话框
@@ -1320,41 +1318,18 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 				</div>
 			) : null}
 			{authProvider ? (
-				// biome-ignore lint/a11y/noStaticElementInteractions: nested dialog captures Escape
-				<div
-					className="models-nested-backdrop"
-					onKeyDown={(event) => {
-						if (event.key === "Escape") {
-							event.preventDefault();
-							event.stopPropagation();
-							setAuthProvider(undefined);
-						}
-					}}
-					tabIndex={-1}
-					onMouseDown={(event) => {
-						if (event.target === event.currentTarget) setAuthProvider(undefined);
-					}}
-				>
-					<div
-						className="models-discard-dialog"
-						role="dialog"
-						aria-modal="true"
-						aria-label={t("chooseAuthMethodAria")}
-					>
-						<strong>{t("connectAuthTitle", { name: authProvider.name })}</strong>
-						<p>{t("chooseAuthMethod")}</p>
-						<div>
-							<button
-								// biome-ignore lint/a11y/noAutofocus: 嵌套认证对话框打开后应立即聚焦可取消操作
-								autoFocus
-								className="outline-button"
-								type="button"
-								onClick={() => setAuthProvider(undefined)}
-							>
+				<Modal
+					title={t("connectAuthTitle", { name: authProvider.name })}
+					className="confirm-dialog"
+					footerClassName="is-end"
+					onClose={() => setAuthProvider(undefined)}
+					footer={
+						<>
+							<Button variant="outline" autoFocus type="button" onClick={() => setAuthProvider(undefined)}>
 								{t("cancel")}
-							</button>
-							<button
-								className="outline-button"
+							</Button>
+							<Button
+								variant="outline"
 								type="button"
 								onClick={() => {
 									const provider = authProvider;
@@ -1363,9 +1338,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								}}
 							>
 								API Key
-							</button>
-							<button
-								className="accent-button"
+							</Button>
+							<Button
+								variant="primary"
 								type="button"
 								onClick={() => {
 									const provider = authProvider;
@@ -1374,46 +1349,32 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								}}
 							>
 								{authProvider.oauthName ?? "OAuth"}
-							</button>
-						</div>
-					</div>
-				</div>
+							</Button>
+						</>
+					}
+				>
+					<p>{t("chooseAuthMethod")}</p>
+				</Modal>
 			) : null}
 			{confirmDiscard ? (
-				// biome-ignore lint/a11y/noStaticElementInteractions: 点击遮罩关闭确认框
-				<div
-					className="models-nested-backdrop"
-					onKeyDown={(event) => {
-						if (event.key === "Escape") {
-							event.preventDefault();
-							event.stopPropagation();
-							setConfirmDiscard(false);
-						}
-					}}
-					tabIndex={-1}
-					onMouseDown={(event) => {
-						if (event.target === event.currentTarget) setConfirmDiscard(false);
-					}}
-				>
-					<div className="models-discard-dialog" role="alertdialog" aria-modal="true">
-						<strong>{t("discardChangesTitle")}</strong>
-						<p>{t("discardChangesHint")}</p>
-						<div>
-							<button
-								// biome-ignore lint/a11y/noAutofocus: 确认弹窗打开后先聚焦安全的继续编辑操作
-								autoFocus
-								className="outline-button"
-								type="button"
-								onClick={() => setConfirmDiscard(false)}
-							>
+				<Modal
+					title={t("discardChangesTitle")}
+					className="confirm-dialog"
+					footerClassName="is-end"
+					onClose={() => setConfirmDiscard(false)}
+					footer={
+						<>
+							<Button variant="outline" autoFocus type="button" onClick={() => setConfirmDiscard(false)}>
 								{t("keepEditing")}
-							</button>
-							<button className="danger-button" type="button" onClick={onClose}>
+							</Button>
+							<Button variant="danger" type="button" onClick={onClose}>
 								{t("discardChanges")}
-							</button>
-						</div>
-					</div>
-				</div>
+							</Button>
+						</>
+					}
+				>
+					<p>{t("discardChangesHint")}</p>
+				</Modal>
 			) : null}
 		</Modal>
 	);

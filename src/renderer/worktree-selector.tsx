@@ -10,6 +10,7 @@ import {
 } from "./desktop-store.ts";
 import { useI18n } from "./i18n.ts";
 import { MenuHeading } from "./menu.tsx";
+import { Button } from "./ui/button.tsx";
 
 interface WorktreeSectionProps {
 	workspacePath: string;
@@ -196,15 +197,19 @@ export const WorktreeSection = memo(function WorktreeSection({
 						{!tree.isMain ? (
 							confirmRemovePath === tree.path ? (
 								<div className="worktree-confirm-remove">
-									<button
+									<Button
+										size="sm"
+										variant="danger"
 										type="button"
 										disabled={busy || !projectTrusted}
 										title={!projectTrusted ? t("trustProjectFirst") : undefined}
 										onClick={() => void handleRemove(tree.path, forceRemovePath === tree.path)}
 									>
 										{forceRemovePath === tree.path ? t("forceRemove") : t("confirm")}
-									</button>
-									<button
+									</Button>
+									<Button
+										size="sm"
+										variant="outline"
 										type="button"
 										onClick={() => {
 											setConfirmRemovePath(undefined);
@@ -212,7 +217,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 										}}
 									>
 										{t("cancel")}
-									</button>
+									</Button>
 								</div>
 							) : (
 								<button
@@ -246,14 +251,16 @@ export const WorktreeSection = memo(function WorktreeSection({
 						}
 					}}
 				/>
-				<button
+				<Button
+					size="sm"
+					variant="outline"
 					type="button"
 					disabled={!branchDraft.trim() || busy || !projectTrusted}
 					title={!projectTrusted ? t("trustProjectFirst") : undefined}
 					onClick={() => void handleAdd()}
 				>
 					{busy ? t("creating") : t("create")}
-				</button>
+				</Button>
 			</div>
 			{branches.local.length || branches.remote.length ? (
 				<label className="worktree-branch-switcher">
@@ -285,15 +292,16 @@ export const WorktreeSection = memo(function WorktreeSection({
 								</optgroup>
 							) : null}
 						</select>
-						<button
-							className="outline-button worktree-fetch"
+						<Button
+							variant="outline"
+							className="worktree-fetch"
 							type="button"
 							disabled={busy || fetchingBranches || !projectTrusted}
 							title={!projectTrusted ? t("trustProjectFirst") : t("fetchLatestRemoteHint")}
 							onClick={() => void handleFetchBranches()}
 						>
 							{fetchingBranches ? t("refreshing") : t("refresh")}
-						</button>
+						</Button>
 					</div>
 				</label>
 			) : null}

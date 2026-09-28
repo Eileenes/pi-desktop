@@ -117,4 +117,14 @@ describe("TrustedWorkspaceBrowser", () => {
 			{ path: "needle-not-in-first-page.txt", name: "needle-not-in-first-page.txt", type: "file", depth: 0 },
 		]);
 	});
+
+	it("keeps searching after a symlink that sorts first in the directory", async () => {
+		const { workspacePath, outsideFilePath } = await createWorkspace();
+		await symlink(outsideFilePath, join(workspacePath, "aaa-link.txt"));
+		await writeFile(join(workspacePath, "zzz-needle.txt"), "found\n");
+
+		await expect(new TrustedWorkspaceBrowser(workspacePath).search("needle")).resolves.toEqual([
+			{ path: "zzz-needle.txt", name: "zzz-needle.txt", type: "file", depth: 0 },
+		]);
+	});
 });

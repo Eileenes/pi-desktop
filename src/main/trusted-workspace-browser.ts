@@ -120,7 +120,8 @@ export class TrustedWorkspaceBrowser {
 			const directoryEntries = await readdir(directoryPath, { withFileTypes: true });
 			directoryEntries.sort((left, right) => left.name.localeCompare(right.name));
 			for (const entry of directoryEntries) {
-				if (entries.length >= MAX_SEARCH_ENTRIES || entry.isSymbolicLink()) break;
+				if (entries.length >= MAX_SEARCH_ENTRIES) break;
+				if (entry.isSymbolicLink()) continue;
 				const entryPath = relativeDirectoryPath ? `${relativeDirectoryPath}/${entry.name}` : entry.name;
 				if (isIgnoredPath(entryPath)) continue;
 				if (entry.isDirectory()) {

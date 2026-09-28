@@ -1504,6 +1504,7 @@ export class DesktopAgentHost {
 	}
 
 	async executeBashCommand(command: string, excludeFromContext: boolean): Promise<string> {
+		this.requireTrustedWorkspace("再执行命令");
 		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
 		const result = await this.session.executeBash(command, undefined, { excludeFromContext });
 		if (result.exitCode !== 0 && !result.output) {

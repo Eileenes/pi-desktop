@@ -196,6 +196,22 @@ function assertMainWindowSender(event: IpcMainInvokeEvent): void {
 	}
 }
 
+async function confirmPluginMutation(kind: "install" | "update", source: string, local: boolean): Promise<boolean> {
+	if (!mainWindow || mainWindow.isDestroyed()) return false;
+	const scope = local ? "项目" : "全局";
+	const confirmation = await dialog.showMessageBox(mainWindow, {
+		type: "warning",
+		title: kind === "install" ? "确认安装插件" : "确认更新插件",
+		message: kind === "install" ? `安装${scope}插件？` : `更新${scope}插件？`,
+		detail: source,
+		buttons: ["取消", kind === "install" ? "安装" : "更新"],
+		defaultId: 0,
+		cancelId: 0,
+		noLink: true,
+	});
+	return confirmation.response === 1;
+}
+
 function isExactRecord(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
 	const actualKeys = Object.keys(value);
@@ -1171,7 +1187,9 @@ function registerIpc(): void {
 			if (value.local && !host.getSnapshot().projectTrusted) {
 				throw new Error("请先信任当前项目，再安装项目插件。");
 			}
-			// The renderer confirms in its own dialog; main only validates and acts.
+			if (!(await confirmPluginMutation("install", value.source, value.local))) {
+				return { snapshot: host.getSnapshot(), performed: false };
+			}
 			return { snapshot: await host.installPlugin(value.source, value.local), performed: true };
 		},
 	);
@@ -1185,6 +1203,9 @@ function registerIpc(): void {
 			const host = getHost();
 			if (value.local && !host.getSnapshot().projectTrusted) {
 				throw new Error("请先信任当前项目，再更新项目插件。");
+			}
+			if (!(await confirmPluginMutation("update", value.source, value.local))) {
+				return { snapshot: host.getSnapshot(), performed: false };
 			}
 			return { snapshot: await host.updatePlugin(value.source, value.local), performed: true };
 		},

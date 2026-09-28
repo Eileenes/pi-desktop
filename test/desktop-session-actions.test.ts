@@ -35,6 +35,7 @@ function managedSession(id: string) {
 			}),
 			abort: vi.fn(async () => {}),
 			clearQueue: vi.fn(() => ({ steering: ["Use TypeScript"], followUp: ["Check the result"] })),
+			executeBash: vi.fn(async () => ({ exitCode: 0, output: "" })),
 		},
 	};
 }
@@ -201,6 +202,23 @@ describe("desktop session action boundaries", () => {
 		expect(queue.getPendingApprovals().map((approval) => approval.toolName)).toEqual(["read", "bash"]);
 		queue.cancelAll();
 		await expect(Promise.all(decisions)).resolves.toEqual([true, false, false]);
+	});
+
+	it("refuses composer shell commands until a trusted project is selected", async () => {
+		const { host, second } = await fixture();
+		second.session.executeBash = vi.fn();
+		await expect(host.executeBashCommand("ls", false)).rejects.toThrow("请先选择项目");
+		Object.assign(host, { workspacePath: "/workspace", projectTrusted: false });
+		await expect(host.executeBashCommand("ls", false)).rejects.toThrow("请先信任该项目");
+		expect(second.session.executeBash).not.toHaveBeenCalled();
+	});
+
+	it("runs composer shell commands only inside a trusted project", async () => {
+		const { host, second } = await fixture();
+		second.session.executeBash = vi.fn(async () => ({ exitCode: 0, output: "ok" }));
+		Object.assign(host, { workspacePath: "/workspace", projectTrusted: true });
+		await expect(host.executeBashCommand("ls", true)).resolves.toBe("ok");
+		expect(second.session.executeBash).toHaveBeenCalledWith("ls", undefined, { excludeFromContext: true });
 	});
 
 	it("stops and retrieves the specified task even after the active task changes", async () => {

@@ -113,15 +113,15 @@ export const SourceControl = memo(function SourceControl() {
 			{loading ? <p className="sidebar-loading">{t("loadingGitStatus")}</p> : null}
 			<div className="change-list">
 				{changes.map((change) => (
-					<button
+					<Button
+						variant="bare"
 						key={change.path}
 						className={`change-row ${activePath === change.path ? "is-selected" : ""}`}
-						type="button"
 						onClick={() => void openDiff(change.path)}
 					>
 						<span className={`change-status ${statusClass(change.status)}`}>{STATUS_LABELS[change.status]}</span>
 						<span>{change.path}</span>
-					</button>
+					</Button>
 				))}
 				{!loading && !error && changes.length === 0 ? (
 					<p className="sidebar-loading">{t("noUncommittedChanges")}</p>
@@ -132,21 +132,22 @@ export const SourceControl = memo(function SourceControl() {
 					<div className="diff-tabs" role="tablist" aria-label={t("diffFiles")}>
 						{tabs.map((tab) => (
 							<div className={`diff-tab ${activePath === tab.path ? "is-active" : ""}`} key={tab.path}>
-								<button
-									type="button"
+								<Button
+									variant="bare"
 									role="tab"
 									aria-selected={activePath === tab.path}
 									onClick={() => setActivePath(tab.path)}
 								>
 									{tab.path.split("/").at(-1)}
-								</button>
-								<button
-									type="button"
+								</Button>
+								<Button
+									size="icon"
+									className="compact"
 									aria-label={t("closeDiffAria", { path: tab.path })}
 									onClick={() => closeTab(tab.path)}
 								>
 									×
-								</button>
+								</Button>
 							</div>
 						))}
 					</div>

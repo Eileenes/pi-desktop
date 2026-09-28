@@ -13,6 +13,14 @@
 				"noExplicitAny": "off",
 				"noControlCharactersInRegex": "off",
 				"noEmptyInterface": "off"
+			},
+			"a11y": {
+				"noLabelWithoutControl": {
+					"level": "error",
+					"options": {
+						"inputComponents": ["Field"]
+					}
+				}
 			}
 		}
 	},

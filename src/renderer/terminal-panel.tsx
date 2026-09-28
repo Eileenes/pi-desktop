@@ -1,6 +1,7 @@
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "./i18n.ts";
 import { TerminalSession, type TerminalSessionHandle } from "./terminal-session.tsx";
+import { Button } from "./ui/button.tsx";
 
 const HEIGHT_STORAGE_KEY = "pi-desktop-terminal-height";
 const MIN_HEIGHT = 140;
@@ -147,38 +148,38 @@ export function TerminalPanel({ open, onOpenChange }: TerminalPanelProps) {
 				<div className="terminal-tabs" role="tablist" aria-label={t("terminalTabsAria")}>
 					{tabs.map((tab, index) => (
 						<span key={tab.key} className={`terminal-tab ${tab.key === activeTab?.key ? "is-active" : ""}`}>
-							<button
+							<Button
+								variant="bare"
 								className="terminal-tab-label"
-								type="button"
 								role="tab"
 								aria-selected={tab.key === activeTab?.key}
 								onClick={() => setActiveKey(tab.key)}
 							>
 								{t("terminalTabLabel", { index: index + 1 })}
-							</button>
-							<button
-								className="terminal-tab-close"
-								type="button"
+							</Button>
+							<Button
+								size="icon"
+								className="terminal-tab-close compact"
 								aria-label={t("terminalCloseTab", { index: index + 1 })}
 								onClick={() => closeTab(tab.key)}
 							>
 								×
-							</button>
+							</Button>
 						</span>
 					))}
 				</div>
 				<div className="terminal-panel-actions">
-					<button type="button" aria-label={t("terminalNew")} title={t("terminalNew")} onClick={addTab}>
+					<Button size="icon" aria-label={t("terminalNew")} title={t("terminalNew")} onClick={addTab}>
 						+
-					</button>
-					<button
-						type="button"
+					</Button>
+					<Button
+						size="icon"
 						aria-label={t("terminalClose")}
 						title={t("terminalClose")}
 						onClick={() => onOpenChange(false)}
 					>
 						×
-					</button>
+					</Button>
 				</div>
 			</header>
 			<div className="terminal-panel-body">

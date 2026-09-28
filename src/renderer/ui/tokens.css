@@ -1,0 +1,665 @@
+/* Design tokens and global resets. Loaded before the workbench sheet. */
+
+/*
+ * Design tokens — workshop paper on a cool well.
+ *
+ * Codex/DSH taught the grammar: near-black canvas, tonal elevation, one lit
+ * composer, assistant as prose not bubbles. Pi spends its difference on warm
+ * paper ink (#f3f1ec) instead of cold white, so the transcript reads like a
+ * printed page over graphite tools.
+ *
+ * How CSS is added (same as Codex/DSH):
+ * 1. Tokens live here in :root. Screens consume tokens, they do not invent colours.
+ * 2. Shared controls live in src/renderer/ui/.
+ * 3. Workbench layout is styles.css. Settings/dialogs are pages.css.
+ *
+ * Accent remains user-selectable. Chrome stays monochrome. Dark is default.
+ */
+:root{
+	--gray-0: #fff;
+	--gray-50: #f9f9f9;
+	--gray-75: #f3f3f3;
+	--gray-100: #ededed;
+	--gray-300: #afafaf;
+	--gray-500: #5d5d5d;
+	--gray-550: #4f4f4f;
+	--gray-600: #414141;
+	--gray-700: #303030;
+	--gray-750: #282828;
+	--gray-800: #212121;
+	--gray-900: #141414;
+	--gray-1000: #0a0a0a;
+	--ds-bg-primary: var(--gray-900);
+	--ds-bg-secondary: var(--gray-800);
+	--ds-bg-tertiary: var(--gray-750);
+	--ds-bg-inset: var(--gray-1000);
+	--ds-bg-under: #000;
+	--ds-bg-sidebar: var(--ds-bg-under);
+	--ds-sidebar-glass-sheen-top: color-mix(in oklab, var(--gray-0) 15%, transparent);
+	--ds-sidebar-glass-sheen-bottom: color-mix(in oklab, var(--gray-0) 10%, transparent);
+	--ds-bg-dock: var(--ds-bg-secondary);
+	--ds-bg-elevated: color-mix(in oklab, var(--gray-800) 96%, transparent);
+	--ds-bg-elevated-opaque: var(--gray-750);
+	--ds-bg-hover: color-mix(in oklab, var(--gray-0) 6%, transparent);
+	--ds-bg-active: color-mix(in oklab, var(--gray-0) 10%, transparent);
+	--ds-bg-composer: color-mix(in oklab, var(--gray-800) 96%, transparent);
+	--ds-bg-chip: color-mix(in oklab, var(--gray-0) 6%, transparent);
+	--ds-terminal-bg: #0d0d0d;
+	--ds-terminal-fg: #e5e5e5;
+	--ds-terminal-cursor: #e5e5e5;
+	--ds-terminal-cursor-accent: #0d0d0d;
+	--ds-terminal-selection: rgba(125, 125, 125, 0.3);
+	--ds-terminal-black: #1f2937;
+	--ds-terminal-red: #ef4444;
+	--ds-terminal-green: #22c55e;
+	--ds-terminal-yellow: #eab308;
+	--ds-terminal-blue: #3b82f6;
+	--ds-terminal-magenta: #a855f7;
+	--ds-terminal-cyan: #06b6d4;
+	--ds-terminal-white: #e5e7eb;
+	--ds-terminal-bright-black: #6b7280;
+	--ds-terminal-bright-red: #f87171;
+	--ds-terminal-bright-green: #4ade80;
+	--ds-terminal-bright-yellow: #facc15;
+	--ds-terminal-bright-blue: #60a5fa;
+	--ds-terminal-bright-magenta: #c084fc;
+	--ds-terminal-bright-cyan: #22d3ee;
+	--ds-terminal-bright-white: #f9fafb;
+	--ds-text-primary: #f3f1ec;
+	--ds-text-secondary: color-mix(in oklab, var(--gray-0) 70%, transparent);
+	--ds-text-muted: color-mix(in oklab, var(--gray-0) 52%, transparent);
+	--ds-text-faint: color-mix(in oklab, var(--gray-0) 38%, transparent);
+	--ds-placeholder-ink: color-mix(in oklab, var(--gray-0) 42%, transparent);
+	--ds-border-default: color-mix(in oklab, var(--gray-0) 8%, transparent);
+	--ds-border-subtle: color-mix(in oklab, var(--gray-0) 5%, transparent);
+	--ds-border-strong: color-mix(in oklab, var(--gray-0) 14%, transparent);
+	--ds-tile: color-mix(in oklab, var(--gray-0) 3.5%, transparent);
+	--ds-tile-hover: color-mix(in oklab, var(--gray-0) 6%, transparent);
+	--ds-tile-deep: color-mix(in oklab, var(--gray-0) 8%, transparent);
+	--ds-raised: var(--gray-750);
+	--ds-raised-shadow: 0 1px 2px rgb(0 0 0 / 35%);
+	--ds-accent: var(--gray-0);
+	--ds-accent-hover: var(--gray-100);
+	--ds-accent-soft: var(--gray-300);
+	--ds-on-accent: var(--gray-1000);
+	--ds-focus: var(--ds-accent);
+	--ds-brand-mark-top: var(--gray-0);
+	--ds-brand-mark-bottom: color-mix(in oklab, var(--gray-0) 62%, transparent);
+	--ds-success: #40c977;
+	--ds-warning: #ff8549;
+	--ds-error: #ff6764;
+	--ds-info: var(--gray-300);
+	--ds-purple: #c27aff;
+	--ds-scrim: color-mix(in oklab, #000 45%, transparent);
+	--ds-modal-veil: color-mix(in oklab, var(--ds-bg-primary) 78%, transparent);
+	--ds-shadow-dialog: 0 3px 8px rgb(0 0 0 / 8%), 0 0 20px rgb(0 0 0 / 10%);
+	--ds-elevation-stroke: 0 0 0 0.5px color-mix(in oklab, var(--gray-0) 12%, transparent);
+	--ds-shadow-composer: 0 4px 16px rgb(0 0 0 / 6%), 0 0 24px rgb(0 0 0 / 5%);
+	--ds-switch-track-off: color-mix(in oklab, var(--gray-0) 10%, transparent);
+	--ds-switch-track-off-hover: color-mix(in oklab, var(--gray-0) 18%, transparent);
+	--ds-switch-knob-off: var(--gray-300);
+	--ds-switch-knob-on: var(--gray-900);
+	--ds-field-inset-bg: color-mix(in oklab, var(--ds-text-primary) 5%, transparent);
+	--ds-field-inset-focus-bg: color-mix(in oklab, var(--ds-text-primary) 7%, transparent);
+	--ds-thinking-code-bg: color-mix(in oklab, var(--ds-text-primary) 4.5%, transparent);
+	--ds-heatmap-empty: color-mix(in oklab, var(--ds-text-primary) 11%, transparent);
+	--ds-code-head-bg: color-mix(in oklab, var(--gray-0) 4%, transparent);
+	--ds-code-hover-bg: color-mix(in oklab, var(--gray-0) 8%, transparent);
+	--ds-send-disabled-bg: color-mix(in oklab, var(--ds-text-primary) 18%, transparent);
+	--ds-send-disabled-fg: color-mix(in oklab, var(--gray-900) 70%, transparent);
+	--ds-toolbar-height: 46px;
+	--ds-control-size: 28px;
+	--ds-sidebar-width-default: 275px;
+	--ds-settings-nav-width: 275px;
+	--ds-window-controls-width: 120px;
+	--ds-composer-max-width: 720px;
+	--ds-prose-max-width: 680px;
+	--ds-composer-radius: 32px;
+	--ds-panel-radius: 28px;
+	--ds-traffic-light-gap: 12px;
+	--motion-duration-fast: 150ms;
+	--motion-duration-normal: 200ms;
+	--motion-duration-slow: 300ms;
+	--motion-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+	--motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
+	--motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+	--font-scale: 1;
+	--radius-3xs: 4px;
+	--radius-2xs: 4px;
+	--radius-xs: 8px;
+	--radius-sm: 8px;
+	--radius-md: 12px;
+	--radius-md-plus: 12px;
+	--radius-lg: 16px;
+	--radius-lg-plus: 20px;
+	--radius-xl: 20px;
+	--radius-2xl: 28px;
+	--radius-full: 9999px;
+	--radius-round: 50%;
+	--font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+		"Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+	--font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+	--text-2xs: calc(10.5px * var(--font-scale));
+	--text-xs: calc(11px * var(--font-scale));
+	--text-xs-plus: calc(11.5px * var(--font-scale));
+	--text-sm: calc(12px * var(--font-scale));
+	--text-sm-plus: calc(12.5px * var(--font-scale));
+	--text-md: calc(13px * var(--font-scale));
+	--text-md-plus: calc(13.5px * var(--font-scale));
+	--text-base: calc(15px * var(--font-scale));
+	--text-lg: calc(15px * var(--font-scale));
+	--text-base-plus: calc(16px * var(--font-scale));
+	--text-xl: calc(16px * var(--font-scale));
+	--text-lg-plus: calc(18px * var(--font-scale));
+	--text-2xl: calc(20px * var(--font-scale));
+	--text-display: calc(28px * var(--font-scale));
+	--font-weight-normal: 400;
+	--font-weight-medium: 500;
+	--font-weight-medium-plus: 520;
+	--font-weight-strong: 560;
+	--font-weight-semibold: 600;
+	--leading-none: 1;
+	--leading-heading: 1.15;
+	--leading-tighter: 1.2;
+	--leading-tight: 1.25;
+	--leading-compact: 1.3;
+	--leading-compact-plus: 1.35;
+	--leading-normal: 1.4;
+	--leading-body: 1.45;
+	--leading-relaxed: 1.5;
+	--leading-chat: 1.55;
+	--leading-prose: 1.65;
+	--leading-row: calc(18px * var(--font-scale));
+	--tracking-tighter: -0.03em;
+	--tracking-tight: -0.02em;
+	--tracking-normal: 0em;
+	--tracking-wide: 0.02em;
+	--bg: var(--ds-bg-primary);
+	--sidebar-bg: var(--ds-bg-sidebar);
+	--composer-bg: var(--ds-bg-composer);
+	--surface-recessed: var(--ds-bg-inset);
+	--surface-1: var(--ds-bg-secondary);
+	--surface-2: var(--ds-bg-tertiary);
+	--surface-3: var(--gray-700);
+	--border-subtle: var(--ds-border-default);
+	--border-strong: var(--ds-border-strong);
+	--text-primary: var(--ds-text-primary);
+	--text-secondary: var(--ds-text-secondary);
+	--text-tertiary: var(--ds-text-muted);
+	--text-faint: var(--ds-text-faint);
+	--text: var(--text-primary);
+	--text-dim: var(--text-secondary);
+	--muted: var(--text-tertiary);
+	--accent: var(--ds-accent);
+	--accent-strong: var(--ds-accent);
+	--accent-hover: var(--ds-accent-hover);
+	--accent-deep: var(--ds-accent-soft);
+	--on-accent: var(--ds-on-accent);
+	--danger: var(--ds-error);
+	--error-text: var(--ds-error);
+	--success: var(--ds-success);
+	--warning: var(--ds-warning);
+	--warning-overlay: color-mix(in oklab, var(--ds-warning) 10%, transparent);
+	--warning-border: color-mix(in oklab, var(--ds-warning) 28%, transparent);
+	--success-overlay: color-mix(in oklab, var(--ds-success) 10%, transparent);
+	--danger-overlay: color-mix(in oklab, var(--ds-error) 9%, transparent);
+	--danger-border: color-mix(in oklab, var(--ds-error) 20%, transparent);
+	--user-bg: var(--ds-tile-deep);
+	--hover: var(--ds-bg-hover);
+	--hover-strong: var(--ds-bg-active);
+	--overlay-3: color-mix(in oklab, var(--ds-text-primary) 3%, transparent);
+	--overlay-5: color-mix(in oklab, var(--ds-text-primary) 5%, transparent);
+	--overlay-7: color-mix(in oklab, var(--ds-text-primary) 7%, transparent);
+	--overlay-12: color-mix(in oklab, var(--ds-text-primary) 12%, transparent);
+	--overlay-14: color-mix(in oklab, var(--ds-text-primary) 14%, transparent);
+	--overlay-20: color-mix(in oklab, var(--ds-text-primary) 20%, transparent);
+	--placeholder: var(--ds-placeholder-ink);
+	--selection: color-mix(in oklab, var(--ds-text-primary) 18%, transparent);
+	--radius-s: var(--radius-2xs);
+	--radius-m: var(--radius-xs);
+	--radius-l: var(--radius-sm);
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-5: 24px;
+	--shadow-float: var(--ds-shadow-dialog);
+	--surface-0: var(--bg);
+	--border: var(--border-subtle);
+	--text-muted: var(--text-tertiary);
+	--accent-contrast: var(--on-accent);
+	--mono: var(--font-mono);
+	color: var(--text);
+	background: var(--bg);
+	font-family: var(--font-sans);
+	font-size: var(--text-md);
+	line-height: var(--leading-body);
+	font-synthesis: none;
+	color-scheme: dark;
+}
+
+/* Theme colors. "mono" keeps the neutral ramp above. Each other preset only
+ * moves the accent used by send, links, focus, and selection. */
+:root[data-accent="blue"]{
+	--ds-accent: #7aaaff;
+	--ds-accent-hover: #9bbcff;
+	--ds-accent-soft: #9bbcff;
+	--ds-on-accent: #0d1b33;
+}
+
+:root[data-accent="sky"]{
+	--ds-accent: #38bdf8;
+	--ds-accent-hover: #7dd3fc;
+	--ds-accent-soft: #7dd3fc;
+	--ds-on-accent: #042433;
+}
+
+:root[data-accent="indigo"]{
+	--ds-accent: #818cf8;
+	--ds-accent-hover: #a5b4fc;
+	--ds-accent-soft: #a5b4fc;
+	--ds-on-accent: #0e0d2e;
+}
+
+:root[data-accent="violet"]{
+	--ds-accent: #a78bfa;
+	--ds-accent-hover: #c4b5fd;
+	--ds-accent-soft: #c4b5fd;
+	--ds-on-accent: #1e1033;
+}
+
+:root[data-accent="cyan"]{
+	--ds-accent: #22d3ee;
+	--ds-accent-hover: #67e8f9;
+	--ds-accent-soft: #67e8f9;
+	--ds-on-accent: #04222a;
+}
+
+:root[data-accent="teal"]{
+	--ds-accent: #2dd4bf;
+	--ds-accent-hover: #5eead4;
+	--ds-accent-soft: #5eead4;
+	--ds-on-accent: #042f2e;
+}
+
+:root[data-accent="green"]{
+	--ds-accent: #4ade80;
+	--ds-accent-hover: #86efac;
+	--ds-accent-soft: #86efac;
+	--ds-on-accent: #052a18;
+}
+
+:root[data-accent="amber"]{
+	--ds-accent: #fbbf24;
+	--ds-accent-hover: #fcd34d;
+	--ds-accent-soft: #fcd34d;
+	--ds-on-accent: #2b1a02;
+}
+
+:root[data-accent="orange"]{
+	--ds-accent: #fb923c;
+	--ds-accent-hover: #fdba74;
+	--ds-accent-soft: #fdba74;
+	--ds-on-accent: #2a1204;
+}
+
+:root[data-accent="rose"]{
+	--ds-accent: #fb7185;
+	--ds-accent-hover: #fda4af;
+	--ds-accent-soft: #fda4af;
+	--ds-on-accent: #330a14;
+}
+
+:root[data-theme="light"]{
+	color-scheme: light;
+	--ds-bg-primary: #fff;
+	--ds-bg-secondary: var(--gray-50);
+	--ds-bg-tertiary: var(--gray-75);
+	--ds-bg-inset: var(--gray-100);
+	--ds-bg-under: var(--gray-50);
+	--ds-bg-sidebar: var(--gray-75);
+	--ds-sidebar-glass-sheen-top: color-mix(in oklab, #fff 45%, transparent);
+	--ds-sidebar-glass-sheen-bottom: color-mix(in oklab, #fff 30%, transparent);
+	--ds-bg-dock: #fafafa;
+	--ds-bg-elevated: color-mix(in oklab, #fff 70%, transparent);
+	--ds-bg-elevated-opaque: #fff;
+	--ds-bg-hover: color-mix(in oklab, #1a1c1f 5%, transparent);
+	--ds-bg-active: color-mix(in oklab, #1a1c1f 8%, transparent);
+	--ds-bg-composer: #fff;
+	--ds-bg-chip: color-mix(in oklab, #1a1c1f 4%, transparent);
+	--ds-terminal-bg: #fff;
+	--ds-terminal-fg: #1a1c1f;
+	--ds-terminal-cursor: #1a1c1f;
+	--ds-terminal-cursor-accent: #fff;
+	--ds-terminal-selection: rgba(26, 28, 31, 0.18);
+	--ds-terminal-black: #24292f;
+	--ds-terminal-red: #cf222e;
+	--ds-terminal-green: #1a7f37;
+	--ds-terminal-yellow: #9a6700;
+	--ds-terminal-blue: #0969da;
+	--ds-terminal-magenta: #8250df;
+	--ds-terminal-cyan: #1b7c83;
+	--ds-terminal-white: #6e7781;
+	--ds-terminal-bright-black: #57606a;
+	--ds-terminal-bright-red: #a40e26;
+	--ds-terminal-bright-green: #1a7f37;
+	--ds-terminal-bright-yellow: #7d4e00;
+	--ds-terminal-bright-blue: #0550ae;
+	--ds-terminal-bright-magenta: #6639ba;
+	--ds-terminal-bright-cyan: #0f6f74;
+	--ds-terminal-bright-white: #24292f;
+	--ds-text-primary: #1a1c1f;
+	--ds-text-secondary: color-mix(in oklab, #1a1c1f 74%, transparent);
+	--ds-text-muted: var(--gray-500);
+	--ds-text-faint: var(--gray-300);
+	--ds-placeholder-ink: #4a4c4f;
+	--ds-border-default: color-mix(in oklab, #1a1c1f 8%, transparent);
+	--ds-border-subtle: color-mix(in oklab, #1a1c1f 5%, transparent);
+	--ds-border-strong: color-mix(in oklab, #1a1c1f 12%, transparent);
+	--ds-tile: color-mix(in oklab, #1a1c1f 3.5%, transparent);
+	--ds-tile-hover: color-mix(in oklab, #1a1c1f 6%, transparent);
+	--ds-tile-deep: color-mix(in oklab, #1a1c1f 8%, transparent);
+	--ds-raised: #fff;
+	--ds-raised-shadow: 0 1px 2px rgb(0 0 0 / 10%), 0 0 0 0.5px rgb(0 0 0 / 4%);
+	--ds-accent: #1a1c1f;
+	--ds-accent-hover: var(--gray-700);
+	--ds-accent-soft: var(--gray-500);
+	--ds-on-accent: #fff;
+	--ds-brand-mark-top: #454a51;
+	--ds-brand-mark-bottom: #141619;
+	--ds-success: #00a240;
+	--ds-warning: #e25507;
+	--ds-error: #e02e2a;
+	--ds-info: var(--gray-500);
+	--ds-purple: #7c3aed;
+	--ds-scrim: color-mix(in oklab, #1a1c1f 28%, transparent);
+	--ds-modal-veil: color-mix(in oklab, #1a1c1f 32%, transparent);
+	--ds-shadow-dialog: 0 3px 8px rgb(0 0 0 / 4%), 0 0 20px rgb(0 0 0 / 5%);
+	--ds-elevation-stroke: 0 0 0 0.5px color-mix(in oklab, #1a1c1f 12%, transparent);
+	--ds-switch-track-off: color-mix(in oklab, #1a1c1f 10%, transparent);
+	--ds-switch-track-off-hover: color-mix(in oklab, #1a1c1f 18%, transparent);
+	--ds-switch-knob-off: #fff;
+	--ds-switch-knob-on: #fff;
+	--ds-field-inset-bg: var(--gray-75);
+	--ds-field-inset-focus-bg: #fff;
+	--ds-send-disabled-bg: #8e8e90;
+	--ds-send-disabled-fg: #fff;
+	--ds-thinking-code-bg: #f0f0f0;
+	--ds-heatmap-empty: color-mix(in oklab, #1a1c1f 10%, transparent);
+	--ds-code-head-bg: color-mix(in oklab, #1a1c1f 3.5%, transparent);
+	--ds-code-hover-bg: color-mix(in oklab, #1a1c1f 6%, transparent);
+	--surface-3: var(--gray-100);
+}
+
+:root[data-theme="light"][data-accent="blue"]{
+	--ds-accent: #4176e6;
+	--ds-accent-hover: #365fbe;
+	--ds-accent-soft: #365fbe;
+	--ds-on-accent: #fff;
+}
+
+:root[data-theme="light"][data-accent="sky"]{
+	--ds-accent: #0284c7;
+	--ds-accent-hover: #0369a1;
+	--ds-accent-soft: #0369a1;
+	--ds-on-accent: #fff;
+}
+
+:root[data-theme="light"][data-accent="indigo"]{
+	--ds-accent: #4f46e5;
+	--ds-accent-hover: #4338ca;
+	--ds-accent-soft: #4338ca;
+	--ds-on-accent: #fff;
+}
+
+:root[data-theme="light"][data-accent="violet"]{
+	--ds-accent: #6d28d9;
+	--ds-accent-hover: #5b21b6;
+	--ds-accent-soft: #5b21b6;
+	--ds-on-accent: #fff;
+}
+
+:root[data-theme="light"][data-accent="cyan"]{
+	--ds-accent: #0e7490;
+	--ds-accent-hover: #155e75;
+	--ds-accent-soft: #155e75;
+	--ds-on-accent: #fff;
+}
+
+:root[data-theme="light"][data-accent="teal"]{
+	--ds-accent: #0f766e;
+	--ds-accent-hover: #115e59;
+	--ds-accent-soft: #115e59;
+	--ds-on-accent: #fff;
+}
+
+:root[data-theme="light"][data-accent="green"]{
+	--ds-accent: #15803d;
+	--ds-accent-hover: #166534;
+	--ds-accent-soft: #166534;
+	--ds-on-accent: #fff;
+}
+
+:root[data-theme="light"][data-accent="amber"]{
+	--ds-accent: #b45309;
+	--ds-accent-hover: #92400e;
+	--ds-accent-soft: #92400e;
+	--ds-on-accent: #fff;
+}
+
+:root[data-theme="light"][data-accent="orange"]{
+	--ds-accent: #c2410c;
+	--ds-accent-hover: #9a3412;
+	--ds-accent-soft: #9a3412;
+	--ds-on-accent: #fff;
+}
+
+:root[data-theme="light"][data-accent="rose"]{
+	--ds-accent: #be123c;
+	--ds-accent-hover: #9f1239;
+	--ds-accent-soft: #9f1239;
+	--ds-on-accent: #fff;
+}
+
+*{
+	box-sizing: border-box;
+}
+
+/*
+ * The renderer is an application shell rather than a document: panes scroll
+ * internally and the page box itself never does, so a transient overflow can
+ * never put a scrollbar on the window.
+ */
+
+	html,
+	body,
+	#root{
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+}
+
+/* Theme-aware selection keeps the monochrome accent contract on copyable
+ * surfaces (transcript, code, inputs). */
+::selection{
+	background: var(--selection);
+	color: var(--text-primary);
+}
+
+/*
+ * Scrollbars are quiet at rest: 6px, trackless, thumb transparent. The thumb
+ * appears only while the pointer is over the owning scroll region, the region
+ * contains keyboard focus, or the region is scrolling, then strengthens under
+ * the pointer.
+ */
+::-webkit-scrollbar{
+	width: 6px;
+	height: 6px;
+}
+
+::-webkit-scrollbar-track{
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb{
+	border: 1px solid transparent;
+	border-radius: var(--radius-full);
+	background: transparent;
+	background-clip: content-box;
+}
+
+	::-webkit-scrollbar-thumb:hover,
+	::-webkit-scrollbar-thumb:active{
+	background: var(--overlay-20);
+	background-clip: content-box;
+}
+
+::-webkit-scrollbar-corner{
+	background: transparent;
+}
+
+/*
+ * Native select menus render outside the page box on some platforms, so both
+ * the trigger and its opened list are pinned to the active theme instead of the
+ * OS default palette.
+ */
+select{
+	color-scheme: inherit;
+	background-color: var(--ds-bg-elevated-opaque);
+	color: var(--ds-text-primary);
+}
+
+	select option,
+	select optgroup{
+	background-color: var(--ds-bg-elevated-opaque);
+	color: var(--ds-text-primary);
+}
+
+button{
+	cursor: pointer;
+}
+
+	button:disabled,
+	input:disabled,
+	textarea:disabled{
+	cursor: not-allowed;
+	opacity: 0.5;
+}
+
+/*
+ * The outline is the chrome control's focus ring. Text fields do not take it:
+ * the reference gives every field `outline: none` plus a soft accent ring, so
+ * a caret in a well never draws a frame around it.
+ */
+
+	
+
+	input:focus-visible,
+	select:focus-visible,
+	textarea:focus-visible{
+	outline: none;
+}
+
+	input:focus,
+	select:focus,
+	textarea:focus{
+	box-shadow: 0 0 0 2px color-mix(in oklab, var(--ds-accent) 22%, transparent);
+}
+
+html{
+	caret-color: var(--text-primary);
+	accent-color: var(--accent);
+}
+
+:root[data-theme="light"] .accent-swatch.is-blue{
+	--swatch-color: #4176e6;
+}
+
+:root[data-theme="light"] .accent-swatch.is-sky{
+	--swatch-color: #0284c7;
+}
+
+:root[data-theme="light"] .accent-swatch.is-indigo{
+	--swatch-color: #4f46e5;
+}
+
+:root[data-theme="light"] .accent-swatch.is-violet{
+	--swatch-color: #6d28d9;
+}
+
+:root[data-theme="light"] .accent-swatch.is-cyan{
+	--swatch-color: #0e7490;
+}
+
+:root[data-theme="light"] .accent-swatch.is-teal{
+	--swatch-color: #0f766e;
+}
+
+:root[data-theme="light"] .accent-swatch.is-green{
+	--swatch-color: #15803d;
+}
+
+:root[data-theme="light"] .accent-swatch.is-amber{
+	--swatch-color: #b45309;
+}
+
+:root[data-theme="light"] .accent-swatch.is-orange{
+	--swatch-color: #c2410c;
+}
+
+:root[data-theme="light"] .accent-swatch.is-rose{
+	--swatch-color: #be123c;
+}
+
+:root[data-theme="light"] .accent-swatch.is-mono{
+	--swatch-color: #1a1c1f;
+}
+
+/*
+ * Codex-style hierarchy consolidation
+ *
+ * Components above predate the design tokens and intentionally keep their
+ * structure. These rules apply the shared typography, density, and states to
+ * the workbench's high-frequency surfaces without changing interaction logic.
+ */
+body{
+	margin: 0;
+	min-width: 320px;
+	color: var(--text);
+	background: var(--bg);
+	font-family: var(--font-sans);
+	font-size: var(--text-base);
+	line-height: var(--leading-body);
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
+	button,
+	input,
+	select,
+	textarea{
+	font: inherit;
+	color: inherit;
+	font-family: var(--font-sans);
+}
+
+	code,
+	pre,
+	kbd,
+	samp{
+	font-family: var(--font-mono);
+}
+
+	button:focus-visible,
+	[tabindex]:focus-visible,
+	summary:focus-visible{
+	outline: 1.5px solid color-mix(in oklab, var(--ds-accent) 80%, transparent);
+	outline-offset: 2px;
+}
+
+:hover::-webkit-scrollbar-thumb,
+:focus-within::-webkit-scrollbar-thumb,
+[data-scrolling]::-webkit-scrollbar-thumb {
+	background: var(--overlay-14);
+	background-clip: content-box;
+}

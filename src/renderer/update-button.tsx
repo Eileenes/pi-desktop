@@ -1,5 +1,6 @@
 import { type CSSProperties, memo } from "react";
 import { useI18n } from "./i18n.ts";
+import { Button } from "./ui/button.tsx";
 import { updatePercent, useAppUpdate } from "./use-app-update.ts";
 
 function DownloadIcon() {
@@ -43,32 +44,32 @@ export const UpdateButton = memo(function UpdateButton({ variant }: { variant: "
 				<span className="update-status-fill" aria-hidden="true" />
 				<DownloadIcon />
 				<span>{detailed ? label : percentLabel}</span>
-				<button className="update-status-cancel" type="button" onClick={() => update.cancel()}>
+				<Button size="sm" className="update-status-cancel" onClick={() => update.cancel()}>
 					{t("cancelDownload")}
-				</button>
+				</Button>
 			</output>
 		);
 	}
 
 	if (update.phase === "installing") {
 		return (
-			<button className={`update-status is-installing is-${variant}`} type="button" disabled>
+			<Button className={`update-status is-installing is-${variant}`} disabled>
 				{t("updateInstalling")}
-			</button>
+			</Button>
 		);
 	}
 
 	if (update.phase === "ready") {
 		const opened = update.message === "opened";
 		return (
-			<button
+			<Button
+				variant="primary"
 				className={`update-status is-ready is-${variant}`}
-				type="button"
 				title={opened ? t("updateOpenedHint") : t("updateInstallHint")}
 				onClick={() => update.install()}
 			>
 				{opened ? t("updateOpened") : t("updateInstallNow")}
-			</button>
+			</Button>
 		);
 	}
 
@@ -76,28 +77,23 @@ export const UpdateButton = memo(function UpdateButton({ variant }: { variant: "
 		const detail =
 			update.message === "no-installer" ? t("noInstallerForPlatform") : (update.message ?? t("updateRetry"));
 		return (
-			<button
-				className={`update-status is-failed is-${variant}`}
-				type="button"
-				title={detail}
-				onClick={() => update.download()}
-			>
+			<Button className={`update-status is-failed is-${variant}`} title={detail} onClick={() => update.download()}>
 				{detailed ? detail : t("updateRetry")}
-			</button>
+			</Button>
 		);
 	}
 
 	if (!update.latestVersion) return null;
 	const label = t("updateToVersion", { version: update.latestVersion });
 	return (
-		<button
+		<Button
+			variant="primary"
 			className={`update-status is-available is-${variant}`}
-			type="button"
 			title={label}
 			onClick={() => update.download()}
 		>
 			<DownloadIcon />
 			<span>{detailed ? label : t("update")}</span>
-		</button>
+		</Button>
 	);
 });

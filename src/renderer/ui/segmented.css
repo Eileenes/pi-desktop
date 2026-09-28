@@ -1,0 +1,67 @@
+/* Shared choice group. Screens do not invent a new tab/scope/choice class. */
+.ui-segmented-track {
+	display: inline-flex;
+	gap: 2px;
+	padding: 3px;
+	border: 1px solid var(--ds-border-subtle);
+	border-radius: var(--radius-m);
+	background: var(--surface-recessed);
+}
+
+.ui-segmented-tiles {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.ui-segmented.is-fill {
+	display: flex;
+	width: 100%;
+}
+
+.ui-segmented.is-fill .ui-segment {
+	flex: 1;
+}
+
+.ui-segmented-track .ui-segment {
+	min-height: 26px;
+	padding: 4px 10px;
+	border-radius: calc(var(--radius-m) - 2px);
+	color: var(--ds-text-muted);
+	background: transparent;
+	font-size: var(--text-sm);
+}
+
+.ui-segmented-track .ui-segment.is-active {
+	color: var(--ds-text-primary);
+	background: var(--hover-strong);
+	font-weight: 600;
+}
+
+.ui-segmented-tiles .ui-segment {
+	flex: 0 1 auto;
+	min-width: 88px;
+	min-height: 32px;
+	padding: 7px 12px;
+	border-radius: var(--radius-md);
+	color: var(--text-primary);
+	background: var(--ds-tile-hover);
+	font-size: var(--text-md);
+	font-weight: 500;
+	transition:
+		background var(--motion-duration-fast) var(--motion-ease-out),
+		color var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.ui-segmented-tiles .ui-segment:hover:not(:disabled) {
+	background: var(--ds-bg-hover);
+}
+
+.ui-segmented-tiles .ui-segment.is-active {
+	color: var(--on-accent);
+	background: var(--accent);
+}
+
+.ui-segmented .ui-segment:disabled {
+	opacity: 0.45;
+}

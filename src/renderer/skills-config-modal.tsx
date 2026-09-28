@@ -10,8 +10,11 @@ import {
 	updateSkill as updateSkillPackage,
 } from "./desktop-store.ts";
 import { useI18n } from "./i18n.ts";
-import { Modal } from "./modal.tsx";
 import { Button } from "./ui/button.tsx";
+import { Field } from "./ui/field.tsx";
+import { Modal } from "./ui/modal.tsx";
+import { Segment, Segmented } from "./ui/segmented.tsx";
+import { Switch } from "./ui/switch.tsx";
 
 interface SkillsConfigModalProps {
 	workspacePath?: string;
@@ -62,15 +65,12 @@ function Toggle({
 }) {
 	const { t } = useI18n();
 	return (
-		<button
-			type="button"
-			className={`toggle-switch ${enabled ? "is-on" : ""}`}
+		<Switch
+			checked={enabled}
 			disabled={loading || disabled === true}
 			title={disabled ? t("dormantToggleHint") : enabled ? t("showInPrompt") : t("hideFromPrompt")}
-			onClick={onToggle}
-		>
-			<span className="toggle-knob" />
-		</button>
+			onCheckedChange={onToggle}
+		/>
 	);
 }
 
@@ -151,14 +151,14 @@ function SkillDetail({
 			{skill.install?.skillsShUrl ? (
 				<div className="skill-detail-section">
 					<span className="skill-detail-label">Source</span>
-					<button
-						type="button"
+					<Button
+						variant="bare"
 						className="skill-source-link"
 						title={skill.install.skillsShUrl}
 						onClick={() => void openExternalUrl(skill.install?.skillsShUrl ?? "")}
 					>
 						{skill.install.skillsShUrl.replace(/^https?:\/\//u, "")} ↗
-					</button>
+					</Button>
 				</div>
 			) : null}
 
@@ -170,14 +170,9 @@ function SkillDetail({
 							{shortVersion(updateStatus?.currentVersion ?? skill.install.versionHash)}
 						</span>
 						{skill.install.canCheckForUpdates ? (
-							<button
-								className="skill-version-button"
-								type="button"
-								disabled={checkingUpdate || updating}
-								onClick={onCheckUpdate}
-							>
+							<Button size="sm" variant="outline" disabled={checkingUpdate || updating} onClick={onCheckUpdate}>
 								{t("check")}
-							</button>
+							</Button>
 						) : null}
 						{updateStatus?.state === "update-available" ? (
 							<span className="skill-version-latest">{shortVersion(updateStatus.latestVersion)}</span>
@@ -196,14 +191,9 @@ function SkillDetail({
 							</span>
 						) : null}
 						{updateStatus?.state === "update-available" ? (
-							<button
-								className="skill-version-button is-primary"
-								type="button"
-								disabled={updating || checkingUpdate}
-								onClick={onUpdate}
-							>
+							<Button size="sm" variant="primary" disabled={updating || checkingUpdate} onClick={onUpdate}>
 								{updating ? t("updatingLabel") : t("update")}
-							</button>
+							</Button>
 						) : null}
 					</div>
 					{updateError ? <span className="skill-detail-status is-error">{updateError}</span> : null}
@@ -287,7 +277,7 @@ function AddSkillPanel({
 			<div className="skill-add-header">
 				<strong>{t("addSkill")}</strong>
 				<div className="skill-add-search">
-					<input
+					<Field
 						value={query}
 						placeholder={t("searchSkillsPlaceholder")}
 						onChange={(event) => setQuery(event.target.value)}
@@ -305,24 +295,19 @@ function AddSkillPanel({
 					</Button>
 				</div>
 				<div className="skill-add-scope-row">
-					<div className="skill-add-scope" role="tablist" aria-label={t("installScopeAria")}>
-						<button
-							type="button"
-							className={scope === "global" ? "is-active" : ""}
-							onClick={() => setScope("global")}
-						>
+					<Segmented aria-label={t("installScopeAria")}>
+						<Segment active={scope === "global"} onClick={() => setScope("global")}>
 							{t("global")}
-						</button>
-						<button
-							type="button"
-							className={scope === "project" ? "is-active" : ""}
+						</Segment>
+						<Segment
+							active={scope === "project"}
 							disabled={!workspacePath || !projectTrusted}
 							title={!projectTrusted ? t("untrustedProjectHint") : undefined}
 							onClick={() => setScope("project")}
 						>
 							{t("project")}
-						</button>
-					</div>
+						</Segment>
+					</Segmented>
 					<span className="skill-add-path">→ {installPath}</span>
 				</div>
 				{searchError ? <p className="skill-add-error">{searchError}</p> : null}
@@ -345,24 +330,25 @@ function AddSkillPanel({
 										<span className="is-mono">{repoPart}</span>
 										{result.installs ? <span>{result.installs}</span> : null}
 										{result.url ? (
-											<button
-												type="button"
+											<Button
+												variant="bare"
 												className="skill-source-link"
 												onClick={() => void openExternalUrl(result.url)}
 											>
 												skills.sh ↗
-											</button>
+											</Button>
 										) : null}
 									</div>
 								</div>
-								<button
-									className={`skill-install-button ${isInstalled ? "is-success" : ""}`}
-									type="button"
+								<Button
+									size="sm"
+									variant={isInstalled ? "outline" : "primary"}
+									className={isInstalled ? "is-success" : ""}
 									disabled={isInstalled || installing !== undefined}
 									onClick={() => void install(result.package)}
 								>
 									{isInstalled ? t("installed") : isInstalling ? t("installing") : t("install")}
-								</button>
+								</Button>
 							</div>
 						);
 					})}
@@ -370,13 +356,13 @@ function AddSkillPanel({
 			) : !searchError && !searching ? (
 				<p className="skill-add-hint">
 					{t("searchSkillsHintPrefix")}{" "}
-					<button
-						type="button"
+					<Button
+						variant="bare"
 						className="skill-source-link"
 						onClick={() => void openExternalUrl("https://skills.sh")}
 					>
 						skills.sh
-					</button>{" "}
+					</Button>{" "}
 					{t("searchSkillsHintSuffix")}
 				</p>
 			) : null}
@@ -546,10 +532,10 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 		const key = updateKeyOf(skill);
 		const hasUpdate = key !== null && updateStatuses[key]?.state === "update-available";
 		return (
-			<button
+			<Button
+				variant="bare"
 				key={skill.filePath}
 				className={`resource-config-row ${isSelected ? "is-active" : ""} ${hidden || dormant ? "is-dimmed" : ""}`}
-				type="button"
 				title={skill.error ?? skill.filePath}
 				onClick={() => {
 					setSelected(skill.filePath);
@@ -565,7 +551,7 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 						↑
 					</span>
 				) : null}
-			</button>
+			</Button>
 		);
 	}
 
@@ -602,9 +588,9 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 										{hiddenSkills.map(renderSkillRow)}
 										{dormantSkills.length > 0 ? (
 											<>
-												<button
+												<Button
+													variant="bare"
 													className="settings-dormant-toggle"
-													type="button"
 													aria-expanded={dormantOpen}
 													title={t("dormantGroupHint")}
 													onClick={() =>
@@ -616,7 +602,7 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 												>
 													<span className="settings-dormant-arrow">{dormantOpen ? "▾" : "▸"}</span>
 													{t("dormantGroup", { count: dormantSkills.length })}
-												</button>
+												</Button>
 												{dormantOpen ? dormantSkills.map(renderSkillRow) : null}
 											</>
 										) : null}
@@ -626,9 +612,9 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 						)}
 					</div>
 					<div className="resource-config-sidebar-footer">
-						<button
+						<Button
+							variant="bare"
 							className={`resource-config-add ${addMode ? "is-active" : ""}`}
-							type="button"
 							onClick={() => setAddMode(true)}
 						>
 							<svg
@@ -645,7 +631,7 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 								<path d="M12 5v14M5 12h14" />
 							</svg>
 							{t("addSkill")}
-						</button>
+						</Button>
 					</div>
 				</aside>
 				<section className="resource-config-detail">

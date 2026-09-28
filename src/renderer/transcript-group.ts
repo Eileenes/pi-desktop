@@ -71,12 +71,14 @@ function toProcessItem(
 export function partitionTranscript(messages: DesktopTranscriptMessage[]): TranscriptRenderItem[] {
 	const items: TranscriptRenderItem[] = [];
 	let index = 0;
+	let seenUser = false;
 	let turnStartedAt: number | undefined;
 	while (index < messages.length) {
 		const current = messages[index];
 		if (!current) break;
 		if (current.role === "user") {
 			items.push({ type: "user", message: current });
+			seenUser = true;
 			turnStartedAt = current.timestamp;
 			index += 1;
 			continue;
@@ -101,7 +103,11 @@ export function partitionTranscript(messages: DesktopTranscriptMessage[]): Trans
 		}
 
 		if (answerIndex < 0) {
-			if (slice.length > 0) items.push(toProcessItem(slice, [], turnStartedAt));
+			// Session boot / extension thinking before the first user turn is not a
+			// conversation process group — a new chat should stay on the empty hero.
+			if (slice.length > 0 && seenUser) {
+				items.push(toProcessItem(slice, [], turnStartedAt));
+			}
 			continue;
 		}
 
@@ -109,7 +115,7 @@ export function partitionTranscript(messages: DesktopTranscriptMessage[]): Trans
 		if (!answerMessage) continue;
 		const split = splitAssistantBlocks(answerMessage.blocks ?? []);
 		const processMessages = slice.filter((_, cursor) => cursor !== answerIndex);
-		if (split.process.length > 0 || processMessages.length > 0) {
+		if (seenUser && (split.process.length > 0 || processMessages.length > 0)) {
 			items.push(toProcessItem(processMessages, split.process, turnStartedAt, answerMessage.timestamp));
 		}
 		items.push({

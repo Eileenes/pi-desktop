@@ -1,0 +1,1139 @@
+/* Sidebar, session list, project rows. */
+
+/*
+ * Only the sidebar sits over the window's vibrancy material. The main pane and
+ * its rails are opaque, so the toolbar keeps the flat #181818 plate the
+ * reference's .conversation-topbar paints instead of a translucent blur.
+ */
+
+.app-workbench.is-sidebar-closed .sidebar{
+	width: 0;
+	min-width: 0;
+	flex-basis: 0;
+	border-right: 0;
+}
+
+/*
+ * Two stacked strips: a brand row (mark + product name, chrome actions at the
+ * trailing edge) over a full-width primary action. That is the shape DSH's own
+ * sidebar uses, and it gives the primary action a real hit target instead of a
+ * text link competing with the window controls.
+ */
+
+.sidebar-brand{
+	display: inline-flex;
+	min-width: 0;
+	align-items: center;
+	gap: 4px;
+	padding-left: 0;
+}
+
+.sidebar-brand-logo{
+	display: block;
+	width: 18px;
+	height: 18px;
+	flex: 0 0 auto;
+	border-radius: var(--radius-3xs);
+	object-fit: contain;
+}
+
+.sidebar-brand-name{
+	overflow: hidden;
+	color: var(--text-primary);
+	font-size: var(--text-md);
+	font-weight: var(--font-weight-semibold);
+	letter-spacing: var(--tracking-tight);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.sidebar-controls-row{
+	display: flex;
+	min-height: var(--ds-control-size);
+	align-items: center;
+	justify-content: flex-end;
+	gap: 2px;
+}
+
+	.sidebar-chrome-button,
+	.sidebar-reopen-button{
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--ds-control-size);
+	height: var(--ds-control-size);
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-md);
+	color: var(--text-dim);
+	background: transparent;
+}
+
+	.sidebar-chrome-button:hover,
+	.sidebar-reopen-button:hover{
+	color: var(--text);
+	background: var(--hover);
+}
+
+.new-chat-button:hover{
+	background: var(--hover);
+}
+
+/* The reference insets the sidebar body 8px from the rail edge. */
+.sidebar-content{
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	min-height: 0;
+	overflow: auto;
+	padding: 0 8px 6px;
+}
+
+.sidebar-project-tree{
+	gap: 8px;
+	overflow: auto;
+	padding: 0 8px 8px;
+}
+
+.sidebar-projects-actions{
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+
+.sidebar-project-tree-group{
+	min-width: 0;
+}
+
+.sidebar-project-tree-row-main:hover, .sidebar-project-tree-group.is-active .sidebar-project-tree-row-main{
+	background: var(--hover);
+}
+
+.sidebar-hover-card{
+	position: fixed;
+	z-index: 80;
+	margin-left: -4px;
+	padding-left: 10px;
+	display: grid;
+	width: max-content;
+	min-width: 220px;
+	max-width: 320px;
+	padding: 6px;
+	border-radius: var(--radius-md);
+	background: var(--ds-bg-elevated-opaque);
+	box-shadow: var(--ds-elevation-stroke), var(--ds-shadow-dialog);
+	color: var(--text-primary);
+}
+
+	.sidebar-hover-card-title,
+	.sidebar-hover-card-row,
+	.sidebar-hover-card button{
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: var(--radius-xs);
+	background: transparent;
+	color: inherit;
+	font-size: var(--text-sm);
+	text-align: left;
+}
+
+.sidebar-hover-card-title{
+	font-weight: var(--font-weight-medium);
+}
+
+.sidebar-hover-card-title small{
+	margin-left: auto;
+	color: var(--text-tertiary);
+	font-size: var(--text-xs);
+	white-space: nowrap;
+}
+
+	.sidebar-hover-card-title span,
+	.sidebar-hover-card-row span{
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.sidebar-hover-card-row{
+	color: var(--text-secondary);
+}
+
+.sidebar-hover-card-divider{
+	height: 1px;
+	margin: 4px 8px;
+	background: var(--border-subtle);
+}
+
+.sidebar-project-tree-copy{
+	display: grid;
+	flex: 1;
+	min-width: 0;
+	gap: 1px;
+}
+
+.sidebar-project-tree-action:hover{
+	color: var(--text);
+	background: var(--hover);
+}
+
+/* One left edge for the whole project block: the task list is not indented
+ * further, and .session-row carries the full inset itself, so the task plates,
+ * icons, and titles land on the same columns as the project row's. */
+
+.sidebar-more-button{
+	border: 0;
+	background: transparent;
+	color: var(--text-dim);
+	font-size: var(--text-xs);
+	text-align: left;
+	padding: 5px 0;
+}
+
+.sidebar-more-button:hover{
+	color: var(--text);
+}
+
+.session-info-popover{
+	position: absolute;
+	right: 0;
+	top: calc(100% + 6px);
+	z-index: 60;
+	width: min(680px, calc(100vw - 80px));
+	max-height: min(420px, 60vh);
+	overflow: auto;
+	padding: 12px 16px;
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-sm);
+	background: var(--surface-1);
+	box-shadow: var(--shadow-float);
+}
+
+.session-info-header{
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 8px;
+}
+
+.session-info-header strong{
+	color: var(--text);
+	font-size: var(--text-md);
+	font-weight: 600;
+}
+
+.session-info-grid{
+	display: grid;
+	grid-template-columns: minmax(200px, 1.6fr) minmax(130px, 0.7fr) minmax(170px, 0.9fr);
+	gap: 20px;
+}
+
+.session-info-section{
+	display: grid;
+	align-content: start;
+	gap: 4px;
+	min-width: 0;
+}
+
+.session-info-section h4{
+	margin: 0 0 3px;
+	color: var(--muted);
+	font-size: var(--text-xs);
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+.stats-info-row{
+	display: grid;
+	grid-template-columns: minmax(0, auto) minmax(0, 1fr) 20px;
+	align-items: center;
+	gap: 8px;
+	min-height: 22px;
+}
+
+.stats-info-row > span:first-child{
+	color: var(--muted);
+	font-size: var(--text-sm);
+}
+
+.stats-info-value{
+	overflow: hidden;
+	min-width: 0;
+	color: var(--text-dim);
+	font-family: var(--font-mono);
+	font-size: var(--text-sm);
+	text-align: right;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.stats-info-value.is-mono{
+	font-family: var(--font-mono);
+}
+
+.project-menu{
+	position: absolute;
+	top: calc(100% + 4px);
+	left: 0;
+	right: 0;
+	z-index: 45;
+	display: grid;
+	max-height: 340px;
+	overflow: auto;
+	padding: 4px;
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-sm);
+	background: var(--surface-1);
+	box-shadow: var(--shadow-float);
+}
+
+.worktree-section{
+	display: grid;
+	margin-top: 2px;
+}
+
+.worktree-filter{
+	width: calc(100% - 16px);
+	margin: 4px 8px 6px;
+	padding: 6px 8px;
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-2xs);
+	color: var(--text);
+	background: var(--surface-2);
+	font: var(--text-xs) var(--font-mono);
+	outline: none;
+	box-sizing: border-box;
+}
+
+.worktree-filter:focus{
+	border-color: var(--accent);
+}
+
+.worktree-empty{
+	margin: 7px 10px;
+	color: var(--muted);
+	font-size: var(--text-xs);
+}
+
+.worktree-list{
+	display: grid;
+	max-height: 180px;
+	overflow: auto;
+	padding: 2px 0;
+}
+
+.worktree-list button{
+	display: grid;
+	gap: 1px;
+	width: 100%;
+	padding: 6px 12px;
+	border: 0;
+	color: var(--text-dim);
+	background: transparent;
+	text-align: left;
+}
+
+.worktree-row{
+	position: relative;
+	display: flex;
+	align-items: stretch;
+}
+
+	.worktree-row:hover,
+	.worktree-row.is-current{
+	background: var(--hover);
+}
+
+.worktree-row-main{
+	display: grid;
+	flex: 1 1 auto;
+	gap: 1px;
+	min-width: 0;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: var(--radius-2xs);
+	color: var(--text-dim);
+	background: transparent;
+	text-align: left;
+}
+
+	.worktree-row-main:hover,
+	.worktree-row.is-current .worktree-row-main{
+	color: var(--text);
+}
+
+.worktree-list button span{
+	font-size: var(--text-sm);
+	font-weight: 500;
+}
+
+.worktree-list button small{
+	overflow: hidden;
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: var(--text-xs);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.worktree-remove{
+	align-self: center;
+	margin-right: 5px;
+	padding: 2px 5px;
+	border: 0;
+	color: var(--muted);
+	background: transparent;
+}
+
+.worktree-confirm-remove{
+	display: flex;
+	align-items: center;
+	gap: 3px;
+	padding-right: 4px;
+}
+
+	.worktree-remove:hover,
+	.worktree-remove:focus-visible{
+	color: var(--danger);
+}
+
+.worktree-add{
+	display: flex;
+	gap: 6px;
+	padding: 8px 10px;
+	border-top: 1px solid var(--border-subtle);
+}
+
+.worktree-branch-switcher{
+	display: grid;
+	gap: 4px;
+	margin: 0 10px 8px;
+	color: var(--muted);
+	font-size: var(--text-2xs);
+}
+
+.worktree-branch-controls{
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+}
+
+.worktree-add .ui-field,
+.worktree-branch-controls .ui-field{
+	min-width: 0;
+	flex: 1;
+}
+
+.worktree-branch-switcher .ui-field{
+	width: 100%;
+}
+
+.worktree-fetch{
+	padding: 4px 7px;
+	font-size: var(--text-2xs);
+	white-space: nowrap;
+}
+
+.worktree-error{
+	margin: 0;
+	padding: 0 12px 8px;
+	color: var(--danger);
+	font-size: var(--text-2xs);
+}
+
+.sidebar-section-title{
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	min-height: 34px;
+	padding: 4px 8px 4px 6px;
+	color: var(--muted);
+	font-size: var(--text-sm);
+	font-weight: 600;
+	letter-spacing: 0.12em;
+}
+
+.session-row-wrap{
+	position: relative;
+	display: flex;
+	align-items: center;
+	height: 28px;
+	min-height: 28px;
+	border-radius: var(--radius-xs);
+	margin-left: calc(var(--session-depth, 0) * 13px);
+}
+
+.session-row-wrap.is-forked{
+	border-left: 1px solid var(--border-subtle);
+	border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+}
+
+.session-row-wrap.is-current{
+	background: var(--hover-strong);
+}
+
+.session-row:disabled{
+	opacity: 0.55;
+}
+
+.session-row:hover{
+	background: var(--hover);
+}
+
+.session-row-icon{
+	display: grid;
+	place-items: center;
+	flex: 0 0 auto;
+	color: var(--muted);
+}
+
+.session-status-dot{
+	width: 5px;
+	height: 5px;
+	flex: 0 0 auto;
+	border-radius: var(--radius-round);
+	background: currentColor;
+}
+
+.session-status-badge.is-running{
+	border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+	color: var(--accent-deep);
+	background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.session-status-badge.is-running .session-status-dot{
+	animation: status-breath 1.4s ease-in-out infinite;
+}
+
+.session-status-badge.is-error{
+	border-color: var(--danger-border);
+	color: var(--danger);
+	background: var(--danger-overlay);
+}
+
+.sidebar-project-more-wrap{
+	position: relative;
+}
+
+.session-row-title{
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text);
+	font-size: var(--text-md);
+	font-weight: 500;
+	letter-spacing: -0.006em;
+}
+
+.session-more{
+	display: grid;
+	place-items: center;
+	flex: 0 0 auto;
+	width: 26px;
+	height: 26px;
+	margin-right: 3px;
+	border: 0;
+	border-radius: var(--radius-2xs);
+	color: var(--muted);
+	background: transparent;
+	opacity: 0;
+	transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+	.session-row-wrap:hover .session-more,
+	.session-more[aria-expanded="true"]{
+	opacity: 1;
+}
+
+.session-more:hover{
+	color: var(--text);
+	background: var(--hover);
+}
+
+.session-more-menu{
+	position: absolute;
+	right: 4px;
+	top: calc(100% + 2px);
+	z-index: 45;
+	display: grid;
+	min-width: 150px;
+	padding: 4px;
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-xs);
+	background: var(--surface-1);
+	box-shadow: var(--shadow-float);
+}
+
+.session-more-meta{
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	margin: 3px 6px 2px;
+	padding: 5px 6px 2px;
+	border-top: 1px solid var(--border-subtle);
+	color: var(--muted);
+	font-size: var(--text-xs);
+	font-family: var(--font-mono);
+	white-space: nowrap;
+}
+
+.session-more-meta span{
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.session-more-menu button:disabled{
+	opacity: 0.5;
+}
+
+.sidebar-empty{
+	display: grid;
+	justify-items: start;
+	gap: 10px;
+	padding: 26px 20px;
+	color: var(--muted);
+}
+
+	.sidebar-empty > svg,
+	.lock-mark{
+	margin-bottom: 4px;
+	color: var(--muted);
+}
+
+.sidebar-empty strong{
+	color: var(--text);
+	font-size: var(--text-md);
+	font-weight: 600;
+}
+
+.sidebar-empty p{
+	margin: 0 0 6px;
+	font-size: var(--text-sm);
+	line-height: 1.55;
+}
+
+.sidebar-content > .explorer-body{
+	width: 100%;
+}
+
+.explorer-body .sidebar-section-title{
+	margin-top: 4px;
+}
+
+	.sidebar-error,
+	.sidebar-loading{
+	margin: 0 16px 8px;
+	font-size: var(--text-xs);
+	line-height: 1.45;
+}
+
+.sidebar-error{
+	color: var(--danger);
+}
+
+.sidebar-loading{
+	color: var(--muted);
+}
+
+.context-ring{
+	display: grid;
+	place-items: center;
+	width: var(--ds-control-size);
+	height: var(--ds-control-size);
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	transition: background var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.context-ring:hover{
+	background: var(--hover);
+}
+
+.context-ring.is-inert{
+	opacity: 0.5;
+}
+
+.context-ring:disabled{
+	cursor: default;
+}
+
+/* Sidebar: a vertical gradient rather than a flat fill — it lifts at the top
+ * and settles toward the bottom, which is what the reference's glass material
+ * reads as. */
+.sidebar{
+	display: flex;
+	width: var(--sidebar-width, var(--ds-sidebar-width-default));
+	min-width: var(--sidebar-width, var(--ds-sidebar-width-default));
+	min-height: 0;
+	flex: 0 0 var(--sidebar-width, var(--ds-sidebar-width-default));
+	flex-direction: column;
+	overflow: hidden;
+	border-right: 0;
+	background: var(--sidebar-bg);
+	transition: width 200ms ease, min-width 200ms ease, flex-basis 200ms ease;
+	background-color: var(--sidebar-bg);
+	background-image: linear-gradient(180deg, var(--ds-sidebar-glass-sheen-top), transparent 220px),
+		linear-gradient(0deg, var(--ds-sidebar-glass-sheen-bottom), transparent 160px);
+	background-repeat: no-repeat;
+}
+
+.app-workbench.is-macos .session-sidebar-header{
+	padding-top: 30px;
+}
+
+.app-workbench.is-macos .sidebar-controls-row{
+	min-height: var(--ds-control-size);
+	padding: 0;
+}
+
+.app-workbench.is-macos.is-sidebar-closed .sidebar-reopen-button{
+	position: relative;
+	top: -5px;
+}
+
+.sidebar-reopen-button{
+	flex: 0 0 var(--ds-control-size);
+	width: var(--ds-control-size);
+	height: var(--ds-control-size);
+	border-right: 0;
+	border-radius: var(--radius-md);
+	align-self: center;
+	flex-basis: var(--ds-control-size);
+	margin-right: 4px;
+}
+
+	.new-chat-button,
+	.sidebar-projects-header,
+	.session-row-title,
+	.sidebar-section-title{
+	font-size: var(--text-md);
+}
+
+.sidebar-projects-header{
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	min-height: 34px;
+	margin: 4px 0 0;
+	padding: 0 2px 0 0;
+	color: var(--text-dim);
+	font-size: var(--text-sm);
+	font-weight: 650;
+	letter-spacing: 0.12em;
+}
+
+	.new-chat-button,
+	.sidebar-project-tree-row-main,
+	.session-row-title{
+	font-weight: 500;
+}
+
+/* Full-width raised action: its own plate, a centred glyph + label. */
+
+.new-chat-button:disabled{
+	background: var(--ds-tile);
+}
+
+	.sidebar-project-tree-copy small,
+	.section-kicker,
+	.sidebar-more-button{
+	font-size: var(--text-xs);
+}
+
+.sidebar-project-tree-copy small{
+	overflow: hidden;
+	color: var(--muted);
+	font-size: var(--text-xs);
+	font-weight: 400;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Session rows keep the reference's compact 28px pitch. */
+
+	.session-row-wrap,
+	.session-row{
+	min-height: var(--ds-control-size);
+	height: var(--ds-control-size);
+}
+
+.sidebar-project-tree-row-actions{
+	display: flex;
+	flex-direction: row-reverse;
+	align-items: center;
+	gap: 1px;
+	margin-left: 4px;
+}
+
+.sidebar-project-tree-action{
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-2xs);
+	color: var(--muted);
+	background: transparent;
+}
+
+	.sidebar-project-tree-row-main,
+	.sidebar-project-tree-action,
+	.session-more{
+	border-radius: var(--radius-sm);
+}
+
+@media (width <= 640px) {.sidebar{
+	position: fixed;
+	inset: 0 auto 0 0;
+	z-index: 250;
+	width: 280px;
+	min-width: 280px;
+	max-width: 85vw;
+	flex-basis: 280px;
+	box-shadow: 4px 0 20px rgb(0 0 0 / 15%);
+	transition: transform 250ms ease, box-shadow 250ms ease;
+}
+
+.app-workbench.is-sidebar-closed .sidebar{
+	width: 280px;
+	min-width: 280px;
+	flex-basis: 280px;
+	transform: translateX(-100%);
+	box-shadow: none;
+	pointer-events: none;
+}
+}
+
+.session-more-menu button:hover:not(:disabled){
+	background: var(--ds-bg-hover);
+}
+
+/* A destructive row carries one signal — its ink — not two. */
+.session-more-menu button.is-danger{
+	color: var(--ds-error);
+}
+
+/* Badges and chips share one capsule shape and one quiet fill. */
+
+.session-status-badge{
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 4px;
+	min-height: 17px;
+	padding: 1px 7px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-full);
+	font-size: var(--text-2xs);
+	font-weight: 600;
+	line-height: 1.2;
+}
+
+/* The brand row and the primary action share the project block's left edge, so
+ * the whole sidebar reads as one column instead of three different insets. */
+.session-sidebar-header{
+	display: grid;
+	gap: 6px;
+	padding: 6px 8px;
+	border-bottom: 0;
+	padding-left: 16px;
+}
+
+/*
+ * One plate per row, at one inset. The project plate used to be painted twice —
+ * by the row and again by the button inside it, 16px apart — which both doubled
+ * the tint (making the project read brighter than the selected task) and left
+ * the project's visible edge 16px right of the task's. The row is now a plain
+ * layout strip, and the button carries the whole inset so its plate starts where
+ * the task plates start.
+ */
+
+	.sidebar-project-tree-row,
+	.sidebar-project-tree-row:hover,
+	.sidebar-project-tree-group.is-active .sidebar-project-tree-row{
+	background: transparent;
+}
+
+.sidebar-project-tree-row-main{
+	display: flex;
+	min-width: 0;
+	flex: 1;
+	align-items: center;
+	gap: 7px;
+	padding: 5px 7px;
+	border: 0;
+	border-radius: var(--radius-2xs);
+	color: var(--text);
+	background: transparent;
+	font-size: var(--text-sm);
+	font-weight: 500;
+	text-align: left;
+	padding-block: 4px;
+	padding-inline: 6px;
+	padding-left: 22px;
+}
+
+.sidebar-project-tree-group.is-active .sidebar-project-tree-row-main{
+	background: var(--hover-strong);
+}
+
+/*
+ * Sidebar rows share one geometry: the plate spans the row, the icon sits a
+ * uniform 10px inside it, and the label follows on one column. The project plate
+ * is drawn by the row itself so it is exactly as wide as a task's, and the
+ * primary action centres its glyph and label.
+ */
+.sidebar-project-tree-row{
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	min-height: var(--ds-control-size);
+	height: var(--ds-control-size);
+	padding: 0 10px 0 0;
+	border-radius: var(--radius-sm);
+}
+
+	.sidebar-project-tree-row:hover,
+	.sidebar-project-tree-group.is-active .sidebar-project-tree-row{
+	background: var(--hover-strong);
+}
+
+	.sidebar-project-tree-row-main,
+	.sidebar-project-tree-row-main:hover,
+	.sidebar-project-tree-group.is-active .sidebar-project-tree-row-main{
+	padding-left: 10px;
+	background: transparent;
+}
+
+.session-row{
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	align-items: center;
+	gap: 8px;
+	height: 28px;
+	min-height: 28px;
+	padding: 0 4px 0 10px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	color: var(--text-dim);
+	background: transparent;
+	text-align: left;
+	transition: background 140ms ease;
+	padding-inline: 10px 5px;
+}
+
+.session-inline-rename{
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 5px 2px 10px;
+}
+
+/* The lockup sits on the row columns: mark on the icon column, name on the text
+ * column. */
+.sidebar-brand-row{
+	display: flex;
+	height: var(--ds-control-size);
+	align-items: center;
+	justify-content: space-between;
+	gap: 4px;
+	padding-left: 10px;
+}
+
+.new-chat-button > svg{
+	flex: 0 0 auto;
+	color: var(--text-primary);
+	margin-left: 0;
+}
+
+/*
+ * Menu rows never wrap: a long label used to break onto a second line and made
+ * that row twice as tall as its neighbours. The menu is capped so an overlong
+ * label ellipsises instead of stretching the panel.
+ */
+
+	.project-menu,
+	.session-more-menu{
+	max-width: 240px;
+}
+
+.session-more-menu button{
+	border: 0;
+	border-radius: var(--radius-2xs);
+	padding: 7px 10px;
+	color: var(--text);
+	background: transparent;
+	font-size: var(--text-sm);
+	text-align: left;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+/*
+ * One settings entry point in the footer. The menu opens upward from the gear,
+ * since the button sits on the window's bottom edge.
+ */
+.footer-menu-wrap{
+	position: relative;
+	display: inline-flex;
+}
+
+.footer-menu{
+	position: absolute;
+	bottom: calc(100% + 6px);
+	left: 0;
+	z-index: 60;
+	display: grid;
+	min-width: 168px;
+	padding: 5px;
+	border: 1px solid var(--ds-border-subtle);
+	border-radius: var(--radius-md-plus);
+	background: var(--ds-bg-elevated-opaque);
+	box-shadow: var(--ds-shadow-dialog);
+}
+
+.sidebar-footer{
+	display: flex;
+	min-height: 41px;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 6px;
+	padding: 4px 8px 5px;
+	border-top: 0;
+}
+
+/* A gap between the project row and its task list: their plates share an edge
+ * otherwise, which reads as one merged block. */
+.sidebar-project-tree-children{
+	display: grid;
+	gap: 2px;
+	padding-left: 0;
+	padding-top: 4px;
+}
+
+/* The row's icon buttons are square hit targets; the glyph is centred by the
+ * grid instead of sitting on the text baseline. */
+.sidebar-project-tree-row-actions button{
+	display: inline-grid;
+	place-items: center;
+	padding: 0;
+	line-height: 1;
+}
+
+.sidebar-project-tree-row-actions button > svg{
+	display: block;
+}
+
+/* The row toggle is a case, not a chevron: closed means folded away, so it
+ * never rotates. */
+.sidebar-project-tree-row-main > svg:first-child{
+	flex: 0 0 auto;
+	color: var(--ds-text-secondary);
+	transition: transform var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.sidebar-project-tree-group.is-collapsed .sidebar-project-tree-row-main > svg:first-child{
+	transform: none;
+}
+
+/* Project names take the room they need; only a genuinely long name
+ * ellipsises, and the tooltip carries the rest. */
+.sidebar-project-tree-name{
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--text-base);
+	font-weight: var(--font-weight-medium);
+}
+
+/* Partitions group projects in the sidebar once the user creates them, with
+ * air between projects and a little more between partitions. */
+.sidebar-project-section{
+	display: grid;
+	gap: 6px;
+}
+
+.sidebar-project-section + .sidebar-project-section{
+	margin-top: 6px;
+}
+
+.sidebar-project-section-head{
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 10px 2px 12px;
+	color: var(--ds-text-muted);
+	font-size: var(--text-2xs);
+	font-weight: var(--font-weight-medium);
+	letter-spacing: var(--tracking-wide);
+	text-transform: uppercase;
+}
+
+.project-row-menu{
+	min-width: 188px;
+}
+
+	.project-row-submenu-anchor > .app-menu-item[aria-expanded="true"] > .app-menu-trailing,
+	.project-row-submenu-anchor > .app-menu-item > .app-menu-trailing{
+	transition: transform var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.project-row-submenu-anchor > .app-menu-item[aria-expanded="true"] > .app-menu-trailing{
+	transform: rotate(90deg);
+}
+
+/* The sidebar is a scroll container, so the section list opens in place
+ * instead of flying out where it would be clipped. */
+.project-row-submenu{
+	margin: 2px 4px 4px 6px;
+}
+
+.project-row-submenu-form{
+	padding: 3px;
+}
+
+.new-chat-button{
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 7px;
+	justify-self: start;
+	padding: 0 10px;
+	border: 0;
+	border-radius: var(--radius-md);
+	color: var(--text-primary);
+	background: var(--ds-raised);
+	font-size: var(--text-base);
+	font-weight: 500;
+	white-space: nowrap;
+	text-align: left;
+	transition: background var(--motion-duration-fast) var(--motion-ease-out);
+	width: 100%;
+	height: 38px;
+	justify-content: center;
+	letter-spacing: var(--tracking-normal);
+	padding-left: 8px;
+	padding-inline: 10px;
+	box-shadow: 0 0 0 0.5px var(--ds-border-subtle);
+}
+
+.new-chat-button:hover:not(:disabled){
+	background: var(--ds-bg-hover);
+}

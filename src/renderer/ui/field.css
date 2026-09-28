@@ -1,0 +1,37 @@
+/* Shared text field. Screens do not invent a new input class. */
+.ui-field {
+	width: 100%;
+	min-height: 32px;
+	padding: 7px 10px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: var(--ds-tile-hover);
+	color: var(--ds-text-primary);
+	font: inherit;
+	outline: none;
+}
+
+.ui-field::placeholder {
+	color: var(--ds-text-muted);
+}
+
+.ui-field:focus {
+	background: var(--ds-raised);
+	box-shadow: 0 0 0 2px color-mix(in oklab, var(--ds-accent) 22%, transparent);
+}
+
+.ui-field:disabled {
+	cursor: not-allowed;
+	opacity: 0.5;
+}
+
+textarea.ui-field {
+	min-height: 72px;
+	resize: vertical;
+	line-height: var(--leading-body);
+}
+
+select.ui-field {
+	color-scheme: inherit;
+	cursor: pointer;
+}

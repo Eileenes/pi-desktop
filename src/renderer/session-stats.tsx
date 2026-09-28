@@ -64,9 +64,9 @@ export const ContextUsageRing = memo(function ContextUsageRing({ stats, onToggle
 	const filled = RING_CIRCUMFERENCE * (pct / 100);
 
 	return (
-		<button
+		<Button
+			variant="bare"
 			className={`context-ring ${!hasUsage ? "is-inert" : ""}`}
-			type="button"
 			disabled={!hasUsage}
 			aria-label={tooltipParts.join(" · ") || t("contextUsage")}
 			title={tooltipParts.join(" · ") || undefined}
@@ -95,7 +95,7 @@ export const ContextUsageRing = memo(function ContextUsageRing({ stats, onToggle
 					transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
 				/>
 			</svg>
-		</button>
+		</Button>
 	);
 });
 
@@ -108,10 +108,10 @@ function CopyRow({ label, value, mono = true }: { label: string; value: string; 
 			<span className={`stats-info-value ${mono ? "is-mono" : ""}`} title={value}>
 				{value}
 			</span>
-			<button
+			<Button
+				size="icon"
+				className="compact"
 				aria-label={t("copyAria", { label })}
-				className="stats-copy-button"
-				type="button"
 				onClick={() => {
 					void copyText(value);
 					setCopied(true);
@@ -119,7 +119,7 @@ function CopyRow({ label, value, mono = true }: { label: string; value: string; 
 				}}
 			>
 				{copied ? "✓" : "⧉"}
-			</button>
+			</Button>
 		</div>
 	);
 }
@@ -227,9 +227,9 @@ export const SessionStatsPanel = memo(function SessionStatsPanel({
 					</section>
 				</div>
 			)}
-			<button className="stats-activity-link" type="button" onClick={onOpenActivity}>
+			<Button size="sm" className="stats-activity-link" type="button" onClick={onOpenActivity}>
 				{t("viewTokenActivity")}
-			</button>
+			</Button>
 		</div>
 	);
 });

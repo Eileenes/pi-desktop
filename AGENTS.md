@@ -23,6 +23,16 @@
 - `src/main`: Electron main process and runtime adapter
 - `src/preload`: restricted renderer bridge
 - `src/renderer`: React UI
+- `src/renderer/ui`: shared primitives (`Button`, `Menu`, `Modal`, `Field`, `Switch`, `Segmented`). See `src/renderer/ui/README.md`
 - `src/shared`: IPC contracts
 - `test`: regression tests
 - `scripts`: build artifact validation
+
+## Renderer CSS
+
+Follow Codex/DSH: tokens + primitives, not a new class per screen.
+
+- Put colour, type, and radius on tokens in `src/renderer/ui/tokens.css`.
+- Reuse `Button`, `Menu`, `Modal`, `Field`, `Switch`, and `Segmented` instead of adding `.foo-button` / one-off dialogs.
+- Shell layout: `styles.css`, `sidebar.css`, `chat.css`, `composer.css`, `files.css`.
+- Settings/dialogs: `pages.css`. Do not add a new sheet per screen.

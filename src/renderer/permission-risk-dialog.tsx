@@ -1,7 +1,7 @@
 import { memo, useState } from "react";
 import { useI18n } from "./i18n.ts";
-import { Modal } from "./modal.tsx";
 import { Button } from "./ui/button.tsx";
+import { Modal } from "./ui/modal.tsx";
 
 interface PermissionRiskDialogProps {
 	busy?: boolean;

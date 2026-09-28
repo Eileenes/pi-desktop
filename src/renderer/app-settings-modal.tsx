@@ -2,8 +2,10 @@ import { memo, useCallback, useEffect, useState } from "react";
 import type { DesktopUpdateInfo } from "../shared/contracts.ts";
 import { checkForUpdates, openCustomCss, openExternalUrl, quitApp, setCloseQuits } from "./desktop-store.ts";
 import { useI18n } from "./i18n.ts";
-import { Modal } from "./modal.tsx";
 import { Button } from "./ui/button.tsx";
+import { Modal } from "./ui/modal.tsx";
+import { Segment, Segmented } from "./ui/segmented.tsx";
+import { Switch } from "./ui/switch.tsx";
 import { UpdateButton } from "./update-button.tsx";
 
 interface AppSettingsModalProps {
@@ -52,19 +54,6 @@ const ACCENT_OPTIONS = [
 	{ value: "orange", label: "accentOrange" },
 	{ value: "rose", label: "accentRose" },
 ] as const;
-
-function ChoiceButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) {
-	return (
-		<button
-			className={`choice-button ${active ? "is-active" : ""}`}
-			type="button"
-			aria-pressed={active}
-			onClick={onClick}
-		>
-			{children}
-		</button>
-	);
-}
 
 export const AppSettingsModal = memo(function AppSettingsModal({
 	theme,
@@ -120,19 +109,19 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 	return (
 		<Modal title={PRODUCT_NAME} subtitle={t("localAiAgent")} className="app-settings-dialog" onClose={onClose}>
 			<div className="settings-meta-row">
-				<button
+				<Button
+					variant="bare"
 					className="settings-meta-chip"
-					type="button"
 					title={t("openRepoHint")}
 					onClick={() => void openExternalUrl(`https://github.com/${REPOSITORY}`)}
 				>
 					<span>{t("repository")}</span>
 					<span className="is-value">{REPOSITORY}</span>
 					<span aria-hidden="true">↗</span>
-				</button>
-				<button
+				</Button>
+				<Button
+					variant="bare"
 					className={`settings-meta-chip ${updateAvailable ? "is-emphasized" : ""}`}
-					type="button"
 					title={
 						latestText
 							? t("chipTitleLatest", { version: versionText, latest: latestText })
@@ -146,42 +135,42 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 							: t("versionChip", { version: versionText })}
 					</span>
 					{updateAvailable ? <span aria-hidden="true">↗</span> : null}
-				</button>
+				</Button>
 				{updateAvailable ? <UpdateButton variant="settings" /> : null}
 				{!updateAvailable && !checkingUpdate ? <span className="settings-update-ok">{t("upToDate")}</span> : null}
 			</div>
 			{updateError ? (
 				<p className="settings-update-error" aria-live="polite">
 					{updateError}
-					<button className="settings-update-retry" type="button" onClick={() => void runUpdateCheck()}>
+					<Button size="sm" variant="outline" onClick={() => void runUpdateCheck()}>
 						{t("retry")}
-					</button>
+					</Button>
 				</p>
 			) : null}
 			<div className="app-settings-cards">
 				<section className="app-settings-card">
 					<strong>{t("language")}</strong>
 					<p>{t("languageDescription")}</p>
-					<div className="choice-row">
-						<ChoiceButton active={language === "zh-CN"} onClick={() => setLanguage("zh-CN")}>
+					<Segmented variant="tiles" aria-label={t("language")}>
+						<Segment active={language === "zh-CN"} onClick={() => setLanguage("zh-CN")}>
 							简体中文
-						</ChoiceButton>
-						<ChoiceButton active={language === "en"} onClick={() => setLanguage("en")}>
+						</Segment>
+						<Segment active={language === "en"} onClick={() => setLanguage("en")}>
 							English
-						</ChoiceButton>
-					</div>
+						</Segment>
+					</Segmented>
 				</section>
 				<section className="app-settings-card">
 					<strong>{t("appearance")}</strong>
 					<p>{t("appearanceDescription")}</p>
-					<div className="choice-row">
-						<ChoiceButton active={theme === "light"} onClick={() => onChangeTheme("light")}>
+					<Segmented variant="tiles" aria-label={t("appearance")}>
+						<Segment active={theme === "light"} onClick={() => onChangeTheme("light")}>
 							{t("light")}
-						</ChoiceButton>
-						<ChoiceButton active={theme === "dark"} onClick={() => onChangeTheme("dark")}>
+						</Segment>
+						<Segment active={theme === "dark"} onClick={() => onChangeTheme("dark")}>
 							{t("dark")}
-						</ChoiceButton>
-					</div>
+						</Segment>
+					</Segmented>
 					<div className="accent-setting">
 						<span>
 							{t("accentColor")}
@@ -189,9 +178,9 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 						</span>
 						<div className="accent-swatch-row">
 							{ACCENT_OPTIONS.map((option) => (
-								<button
+								<Button
+									variant="bare"
 									className={`accent-swatch is-${option.value} ${accent === option.value ? "is-active" : ""}`}
-									type="button"
 									key={option.value}
 									aria-label={t(option.label)}
 									aria-pressed={accent === option.value}
@@ -199,7 +188,7 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 									onClick={() => onChangeAccent(option.value)}
 								>
 									<span className="accent-swatch-color" aria-hidden="true" />
-								</button>
+								</Button>
 							))}
 						</div>
 						<small>{t("accentColorHint")}</small>
@@ -232,20 +221,20 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 					<strong>{t("desktopApp")}</strong>
 					<p>{t("desktopAppDescription")}</p>
 					<div className="app-settings-options">
-						<label className="toggle-row">
+						<div className="toggle-row">
 							<span>
 								<strong>{t("notifyOnComplete")}</strong>
 								<small>{t("notifyHint")}</small>
 							</span>
-							<input type="checkbox" checked={notifyOnComplete} onChange={onToggleNotify} />
-						</label>
-						<label className="toggle-row">
+							<Switch checked={notifyOnComplete} onCheckedChange={onToggleNotify} />
+						</div>
+						<div className="toggle-row">
 							<span>
 								<strong>{t("closeQuits")}</strong>
 								<small>{t("closeQuitsHint")}</small>
 							</span>
-							<input type="checkbox" checked={closeQuits} onChange={handleToggleCloseQuits} />
-						</label>
+							<Switch checked={closeQuits} onCheckedChange={handleToggleCloseQuits} />
+						</div>
 						<div className="toggle-row">
 							<span>
 								<strong>{t("appUpdate")}</strong>

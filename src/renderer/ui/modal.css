@@ -1,0 +1,133 @@
+/* Shared dialog chrome. Screens only add width / body content. */
+.modal-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 300;
+	display: grid;
+	place-items: center;
+	padding: 24px;
+	background: var(--ds-scrim);
+	animation: modal-backdrop-in var(--motion-duration-normal) var(--motion-ease-out) both;
+}
+
+.modal-panel {
+	display: flex;
+	flex-direction: column;
+	width: min(900px, 100%);
+	max-height: min(78vh, 780px);
+	min-height: 0;
+	border: 0;
+	border-radius: var(--ds-panel-radius);
+	background: var(--ds-bg-elevated-opaque);
+	box-shadow:
+		0 0 0 0.5px var(--ds-border-default),
+		var(--ds-shadow-dialog);
+	animation: modal-panel-in var(--motion-duration-normal) var(--motion-ease-out) both;
+}
+
+@keyframes modal-backdrop-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes modal-panel-in {
+	from {
+		opacity: 0;
+		transform: translateY(8px) scale(0.985);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+.modal-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	flex: 0 0 auto;
+	min-height: 52px;
+	padding: 20px 14px 12px 24px;
+	border-bottom: 0.5px solid var(--ds-border-subtle);
+	background: transparent;
+}
+
+.modal-heading {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	min-width: 0;
+}
+
+.modal-title {
+	margin: 0;
+	color: var(--text-primary);
+	font-size: var(--text-lg-plus);
+	font-weight: var(--font-weight-semibold);
+	letter-spacing: var(--tracking-tight);
+}
+
+.modal-subtitle {
+	overflow: hidden;
+	color: var(--muted);
+	font-family: var(--font-sans);
+	font-size: var(--text-xs-plus);
+	line-height: var(--leading-body);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.modal-body {
+	overflow: auto;
+	flex: 1 1 auto;
+	min-height: 0;
+	padding: 8px 24px 24px;
+}
+
+.modal-form {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.modal-footer {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 8px;
+	padding: 12px 18px;
+	border-top: 0.5px solid var(--ds-border-subtle);
+}
+
+.modal-footer.is-end {
+	justify-content: flex-end;
+}
+
+@media (width <= 640px) {
+	.modal-backdrop {
+		padding: 8px;
+	}
+
+	.modal-panel {
+		width: 100%;
+		max-height: calc(100dvh - 16px);
+		border-radius: var(--radius-lg);
+	}
+
+	.modal-body {
+		padding: 14px;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.modal-backdrop,
+	.modal-panel {
+		animation: none;
+	}
+}

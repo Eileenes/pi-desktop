@@ -1,8 +1,9 @@
 import { type FormEvent, memo, useEffect, useState } from "react";
 import { useI18n } from "./i18n.ts";
 import { Icon } from "./icons.tsx";
-import { Modal } from "./modal.tsx";
 import { Button } from "./ui/button.tsx";
+import { Field } from "./ui/field.tsx";
+import { Modal } from "./ui/modal.tsx";
 
 interface ProjectEditorDialogProps {
 	/** The project's own root folder: always first, always the primary folder. */
@@ -80,9 +81,9 @@ export const ProjectEditorDialog = memo(function ProjectEditorDialog({
 			onSubmit={handleSubmit}
 			footer={
 				<>
-					<button className="project-editor-remove" type="button" disabled={busy} onClick={onRemoveProject}>
+					<Button variant="danger" type="button" disabled={busy} onClick={onRemoveProject}>
 						{t("removeLocalProject")}
-					</button>
+					</Button>
 					<span className="project-editor-actions-spacer" />
 					<Button variant="outline" type="button" disabled={busy} onClick={onClose}>
 						{t("cancel")}
@@ -97,7 +98,7 @@ export const ProjectEditorDialog = memo(function ProjectEditorDialog({
 				<span className="project-editor-field-icon" aria-hidden="true">
 					<Icon name="folder" size={15} />
 				</span>
-				<input
+				<Field
 					value={name}
 					onChange={(event) => setName(event.target.value)}
 					placeholder={t("projectNamePlaceholder")}
@@ -116,38 +117,37 @@ export const ProjectEditorDialog = memo(function ProjectEditorDialog({
 						{index === 0 ? (
 							<>
 								<span className="project-editor-badge">{t("primaryFolder")}</span>
-								<button
-									className="project-editor-folder-remove"
-									type="button"
+								<Button
+									size="icon"
+									className="project-editor-folder-remove compact"
 									disabled
 									title={t("removePrimaryFolderHint")}
 									aria-label={t("removePrimaryFolderHint")}
 								>
 									<Icon name="close" size={12} />
-								</button>
+								</Button>
 							</>
 						) : (
-							<button
-								className="project-editor-folder-remove"
-								type="button"
+							<Button
+								size="icon"
+								className="project-editor-folder-remove compact"
 								aria-label={t("removeAria", { name: folderLabel(folder) })}
 								title={t("remove")}
 								onClick={() => setFolders((current) => current.filter((item) => item !== folder))}
 							>
 								<Icon name="close" size={12} />
-							</button>
+							</Button>
 						)}
 					</div>
 				))}
-				<button
+				<Button
 					className="project-editor-folder project-editor-add"
-					type="button"
 					disabled={busy || picking}
 					onClick={() => void handleAddFolder()}
 				>
 					<Icon name="folderPlus" size={15} />
 					<span>{t("addFolder")}</span>
-				</button>
+				</Button>
 			</div>
 			{error ? <p className="project-editor-error">{error}</p> : null}
 		</Modal>

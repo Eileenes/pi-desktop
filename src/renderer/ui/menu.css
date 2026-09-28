@@ -1,0 +1,144 @@
+/* Shared menu plate. Screens only add position / min-width. */
+.app-menu {
+	min-width: 180px;
+	padding: 5px;
+	border: 0.5px solid var(--ds-border-default);
+	border-radius: var(--radius-lg);
+	color: var(--text-primary);
+	background: color-mix(in oklab, var(--ds-bg-elevated-opaque) 82%, transparent);
+	box-shadow:
+		0 0 0 0.5px var(--ds-border-subtle),
+		var(--ds-shadow-dialog);
+	backdrop-filter: blur(18px) saturate(1.25);
+	font-family: var(--font-sans);
+	font-size: var(--text-sm-plus);
+	font-weight: var(--font-weight-normal);
+	line-height: var(--leading-normal);
+}
+
+.app-menu.is-inline {
+	min-width: 0;
+	padding: 4px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: var(--ds-tile);
+	box-shadow: none;
+	backdrop-filter: none;
+}
+
+.app-menu .app-menu-item {
+	display: flex;
+	width: 100%;
+	min-height: 34px;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: var(--radius-md);
+	color: var(--text-primary);
+	background: transparent;
+	font: inherit;
+	font-size: var(--text-md);
+	line-height: 20px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.app-menu .app-menu-item:hover:not(:disabled) {
+	background: var(--ds-bg-hover);
+}
+
+.app-menu .app-menu-item:disabled {
+	color: var(--ds-text-muted);
+	cursor: not-allowed;
+}
+
+.app-menu .app-menu-item.is-danger {
+	color: var(--ds-error);
+}
+
+.app-menu .app-menu-item.is-danger:hover:not(:disabled) {
+	background: color-mix(in oklab, var(--ds-error) 12%, transparent);
+}
+
+.app-menu .app-menu-icon {
+	display: inline-grid;
+	width: 18px;
+	flex: 0 0 18px;
+	place-items: center;
+	color: var(--ds-text-muted);
+}
+
+.app-menu .app-menu-icon img {
+	width: 16px;
+	height: 16px;
+	object-fit: contain;
+}
+
+.app-menu .app-menu-item.is-danger .app-menu-icon {
+	color: inherit;
+}
+
+.app-menu .app-menu-label {
+	display: grid;
+	flex: 1;
+	min-width: 0;
+	gap: 2px;
+}
+
+.app-menu .app-menu-copy {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.app-menu .app-menu-hint {
+	overflow: hidden;
+	color: var(--ds-text-muted);
+	font-size: var(--text-xs);
+	line-height: 1.35;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.app-menu .app-menu-trailing {
+	margin-left: auto;
+	color: var(--ds-text-faint);
+}
+
+.app-menu .app-menu-divider {
+	height: 0.5px;
+	margin: 4px 8px;
+	border: 0;
+	background: var(--ds-border-default);
+}
+
+.app-menu .app-menu-heading {
+	margin: 6px 10px 2px;
+	color: var(--ds-text-muted);
+	font-size: var(--text-2xs);
+	font-weight: var(--font-weight-medium);
+	letter-spacing: var(--tracking-wide);
+}
+
+.app-menu .app-menu-empty {
+	margin: 4px 10px 8px;
+	color: var(--ds-text-muted);
+	font-size: var(--text-xs);
+}
+
+.app-menu .app-menu-filter {
+	width: calc(100% - 16px);
+	margin: 4px 8px 6px;
+	padding: 6px 8px;
+	border: 1px solid var(--ds-border-subtle);
+	border-radius: var(--radius-2xs);
+	color: var(--text);
+	background: var(--ds-field-inset-bg);
+	font-size: var(--text-sm);
+}
+
+.app-menu .app-menu-filter:focus {
+	outline: none;
+	border-color: var(--ds-accent);
+}

@@ -30,6 +30,24 @@ describe("splitAssistantBlocks", () => {
 });
 
 describe("partitionTranscript", () => {
+	it("hides thinking-only noise before the first user message", () => {
+		const items = partitionTranscript([
+			message({
+				id: "a0",
+				role: "assistant",
+				timestamp: 100,
+				blocks: [{ type: "thinking", text: "warmup" }],
+			}),
+			message({
+				id: "a1",
+				role: "assistant",
+				timestamp: 200,
+				blocks: [{ type: "thinking", text: "still booting" }],
+			}),
+		]);
+		expect(items).toEqual([]);
+	});
+
 	it("renders a user and plain assistant turn without a process group", () => {
 		const items = partitionTranscript([
 			message({ id: "u1", role: "user", text: "hi" }),

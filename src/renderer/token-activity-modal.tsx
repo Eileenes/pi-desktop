@@ -2,7 +2,9 @@ import { type KeyboardEvent, memo, useEffect, useMemo, useRef, useState } from "
 import type { DesktopTokenUsage, DesktopUsageActivity, DesktopUsageActivityBucket } from "../shared/contracts.ts";
 import { getUsageActivity } from "./desktop-store.ts";
 import { useI18n } from "./i18n.ts";
-import { Modal } from "./modal.tsx";
+import { Button } from "./ui/button.tsx";
+import { Modal } from "./ui/modal.tsx";
+import { Segment, Segmented } from "./ui/segmented.tsx";
 
 type ActivityView = "daily" | "weekly" | "cumulative";
 const WEEKDAY_IDS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
@@ -246,28 +248,21 @@ export const TokenActivityModal = memo(function TokenActivityModal({ onClose }: 
 			onClose={onClose}
 		>
 			<div className="token-activity-toolbar">
-				<div className="token-activity-tabs" role="tablist" aria-label={t("tokenActivityViewAria")}>
+				<Segmented aria-label={t("tokenActivityViewAria")}>
 					{tabs.map((item) => (
-						<button
-							key={item.id}
-							type="button"
-							role="tab"
-							aria-selected={view === item.id}
-							className={view === item.id ? "is-active" : ""}
-							onClick={() => setView(item.id)}
-						>
+						<Segment key={item.id} role="tab" active={view === item.id} onClick={() => setView(item.id)}>
 							{item.label}
-						</button>
+						</Segment>
 					))}
-				</div>
-				<button
-					className="token-activity-refresh"
-					type="button"
+				</Segmented>
+				<Button
+					size="sm"
+					variant="outline"
 					disabled={!activity && !error}
 					onClick={() => setReloadToken((value) => value + 1)}
 				>
 					{activity || error ? t("refresh") : t("tokenActivityLoading")}
-				</button>
+				</Button>
 			</div>
 			{error ? <p className="token-activity-state is-error">{t("tokenActivityLoadError", { error })}</p> : null}
 			{!activity && !error ? <p className="token-activity-state">{t("tokenActivityLoading")}</p> : null}
@@ -336,10 +331,10 @@ export const TokenActivityModal = memo(function TokenActivityModal({ onClose }: 
 											const isSelected = selected?.date === bucket.date;
 											const tokenText = formatToken(bucket.tokens.total, locale);
 											return (
-												<button
+												<Button
+													variant="bare"
 													id={cellId(bucket.date)}
 													key={bucket.date}
-													type="button"
 													tabIndex={isSelected ? 0 : -1}
 													className={`token-heatmap-cell level-${intensity(bucket.tokens.total, ceiling)}${isSelected ? " is-selected" : ""}`}
 													aria-label={t("tokenActivityDayAria", {
@@ -375,9 +370,9 @@ export const TokenActivityModal = memo(function TokenActivityModal({ onClose }: 
 								{weekly.map((week) => {
 									const height = weeklyCeiling ? Math.max(3, (week.tokens.total / weeklyCeiling) * 100) : 0;
 									return (
-										<button
+										<Button
+											variant="bare"
 											key={week.start}
-											type="button"
 											className="token-weekly-bar"
 											style={{ height: `${height}%` }}
 											aria-label={t("tokenActivityWeekAria", {

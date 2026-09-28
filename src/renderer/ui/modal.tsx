@@ -1,6 +1,7 @@
 import { type FormEvent, memo, type ReactNode, useEffect, useRef } from "react";
-import { useI18n } from "./i18n.ts";
-import { Button } from "./ui/button.tsx";
+import { useI18n } from "../i18n.ts";
+import { Button } from "./button.tsx";
+import "./modal.css";
 
 const FOCUSABLE_SELECTOR =
 	'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';

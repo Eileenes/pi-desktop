@@ -137,10 +137,10 @@ export const SearchDialog = memo(function SearchDialog({
 							<div key={group.project}>
 								<div className="search-group-label">{group.project}</div>
 								{group.hits.map((hit) => (
-									<button
+									<Button
+										variant="bare"
 										key={hit.session.id}
 										className={`search-item${hit.index === active ? " is-active" : ""}`}
-										type="button"
 										onMouseEnter={() => setActive(hit.index)}
 										onClick={() => open(hit)}
 									>
@@ -149,7 +149,7 @@ export const SearchDialog = memo(function SearchDialog({
 										{hit.snippet && hit.snippet !== hit.title ? (
 											<span className="search-item-meta">{hit.snippet}</span>
 										) : null}
-									</button>
+									</Button>
 								))}
 							</div>
 						))

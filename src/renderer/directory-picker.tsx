@@ -3,8 +3,9 @@ import type { DesktopDirectoryEntry } from "../shared/contracts.ts";
 import { browseDirectories } from "./desktop-store.ts";
 import { useI18n } from "./i18n.ts";
 import { Icon } from "./icons.tsx";
-import { Modal } from "./modal.tsx";
 import { Button } from "./ui/button.tsx";
+import { Field } from "./ui/field.tsx";
+import { Modal } from "./ui/modal.tsx";
 
 interface DirectoryPickerProps {
 	onClose: () => void;
@@ -102,10 +103,9 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 					>
 						↑
 					</Button>
-					<input
+					<Field
 						className="mono"
 						value={pathInput}
-						// biome-ignore lint/a11y/noAutofocus: 路径输入是目录选择器的主要操作入口。
 						autoFocus
 						autoComplete="off"
 						spellCheck={false}
@@ -129,9 +129,9 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 					) : null}
 					{!loading && !error && !selectionError
 						? displayedEntries.map((entry) => (
-								<button
+								<Button
+									variant="bare"
 									className="directory-picker-entry"
-									type="button"
 									key={entry.path}
 									title={entry.path}
 									disabled={busy}
@@ -139,7 +139,7 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 								>
 									{drives ? <DriveIcon /> : <Icon name="folder" size={14} />}
 									<span>{entry.name}</span>
-								</button>
+								</Button>
 							))
 						: null}
 				</div>

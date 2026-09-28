@@ -1,8 +1,9 @@
 import { memo, useEffect, useState } from "react";
 import type { DesktopExtensionDialog } from "../shared/contracts.ts";
 import { useI18n } from "./i18n.ts";
-import { Modal } from "./modal.tsx";
 import { Button } from "./ui/button.tsx";
+import { Field } from "./ui/field.tsx";
+import { Modal } from "./ui/modal.tsx";
 
 interface ExtensionDialogProps {
 	dialog: DesktopExtensionDialog;
@@ -59,10 +60,10 @@ export const ExtensionDialog = memo(function ExtensionDialog({ dialog, busy, onR
 			{dialog.kind === "select" ? (
 				<div className="extension-dialog-options">
 					{dialog.options.map((option) => (
-						<button
+						<Button
+							variant="bare"
 							className={`extension-dialog-option ${value === option ? "is-active" : ""}`}
 							key={option}
-							type="button"
 							disabled={busy}
 							onClick={() => {
 								setValue(option);
@@ -70,13 +71,12 @@ export const ExtensionDialog = memo(function ExtensionDialog({ dialog, busy, onR
 							}}
 						>
 							{option}
-						</button>
+						</Button>
 					))}
 				</div>
 			) : null}
 			{dialog.kind === "input" ? (
-				<input
-					// biome-ignore lint/a11y/noAutofocus: 对话框打开即聚焦输入
+				<Field
 					autoFocus
 					placeholder={dialog.placeholder}
 					value={value}
@@ -88,8 +88,8 @@ export const ExtensionDialog = memo(function ExtensionDialog({ dialog, busy, onR
 				/>
 			) : null}
 			{dialog.kind === "editor" ? (
-				<textarea
-					// biome-ignore lint/a11y/noAutofocus: 对话框打开即聚焦编辑器
+				<Field
+					as="textarea"
 					autoFocus
 					className="extension-dialog-editor"
 					value={value}

@@ -71,9 +71,9 @@ function TreeNodeView({
 	const role = representative.entry.role;
 	return (
 		<div>
-			<button
+			<Button
+				variant="bare"
 				className={`branch-tree-node ${isActive ? "is-active" : ""}`}
-				type="button"
 				onClick={() => onSelect(representative.entry.id)}
 			>
 				<span className="branch-tree-guides" aria-hidden="true">
@@ -92,7 +92,7 @@ function TreeNodeView({
 				<span className={`branch-tree-label ${isActive ? "is-active" : isOnPath ? "is-path" : ""}`}>
 					{labelFor(representative)}
 				</span>
-			</button>
+			</Button>
 			{representative.children.map((child, index) => (
 				<TreeNodeView
 					key={child.entry.id}
@@ -127,9 +127,9 @@ export const BranchNavigator = memo(function BranchNavigator({
 
 	return (
 		<div className="branch-navigator">
-			<button
+			<Button
+				size="sm"
 				className={`native-toolbar-button ${open ? "is-active" : ""}`}
-				type="button"
 				aria-label={t("branches")}
 				title={t("branches")}
 				disabled={!hasContent || !hasSession}
@@ -139,7 +139,7 @@ export const BranchNavigator = memo(function BranchNavigator({
 			>
 				<Icon name="branch" size={12} />
 				<span>{t("branches")}</span>
-			</button>
+			</Button>
 			{open ? (
 				<div className="branch-popover" role="menu" aria-label={t("branches")}>
 					<div className="branch-popover-header">

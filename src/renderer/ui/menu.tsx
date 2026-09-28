@@ -1,4 +1,5 @@
 import { type KeyboardEvent, type MouseEvent, memo, type ReactNode } from "react";
+import "./menu.css";
 
 /*
  * One dropdown grammar for every menu in the app.

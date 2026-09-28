@@ -1,0 +1,45 @@
+/* Shared on/off control. Screens do not invent a new toggle class. */
+.ui-switch {
+	position: relative;
+	flex: 0 0 auto;
+	width: 36px;
+	height: 20px;
+	padding: 2px;
+	border: 0;
+	border-radius: 999px;
+	background: var(--ds-border-strong);
+	transition: background 180ms ease;
+}
+
+.ui-switch-knob {
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	background: var(--ds-bg-primary);
+	box-shadow: 0 1px 4px rgb(0 0 0 / 22%);
+	transition: transform 180ms ease;
+}
+
+.ui-switch.is-on {
+	background: var(--accent-strong);
+}
+
+.ui-switch.is-on .ui-switch-knob {
+	transform: translateX(16px);
+	background: var(--ds-on-accent);
+}
+
+.ui-switch:disabled {
+	cursor: not-allowed;
+	opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ui-switch,
+	.ui-switch-knob {
+		transition: none;
+	}
+}

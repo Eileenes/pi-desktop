@@ -7,6 +7,7 @@ import { getDesktopSnapshot } from "./desktop-store.ts";
 import { resolveWorkspaceFileHref } from "./file-links.ts";
 import { MermaidBlock } from "./mermaid-block.tsx";
 import { HighlightedCode } from "./syntax-highlight.tsx";
+import { Button } from "./ui/button.tsx";
 
 interface MathToken {
 	type: "mathInline" | "mathDisplay";
@@ -86,9 +87,9 @@ const CodeBlock = memo(function CodeBlock({ code, language }: { code: string; la
 		<div className="code-block">
 			<div className="code-block-toolbar">
 				<span>{language || "text"}</span>
-				<button type="button" aria-label={t("copyCode")} onClick={() => void handleCopy()}>
+				<Button size="sm" type="button" aria-label={t("copyCode")} onClick={() => void handleCopy()}>
 					{copied ? t("copied") : t("copy")}
-				</button>
+				</Button>
 			</div>
 			<pre>
 				<HighlightedCode code={code} language={language} />

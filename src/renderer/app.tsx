@@ -101,8 +101,6 @@ import { ExtensionDialog } from "./extension-dialog.tsx";
 import { type I18n, type TranslationKey, useI18n } from "./i18n.ts";
 import { appShortcutFor, isComposingInput } from "./keyboard-shortcuts.ts";
 import { MarkdownBody } from "./markdown.tsx";
-import { Menu, MenuDivider, MenuEmpty, MenuFilter, MenuHeading, MenuItem } from "./menu.tsx";
-import { Modal } from "./modal.tsx";
 import { ModelsConfigModal } from "./models-config-modal.tsx";
 import { PermissionRiskDialog } from "./permission-risk-dialog.tsx";
 import { PluginsConfigModal } from "./plugins-config-modal.tsx";
@@ -117,6 +115,9 @@ import { TerminalPanel } from "./terminal-panel.tsx";
 import { TokenActivityModal } from "./token-activity-modal.tsx";
 import { buildConversationTurns, partitionTranscript } from "./transcript-group.ts";
 import { Button } from "./ui/button.tsx";
+import { Menu, MenuDivider, MenuEmpty, MenuFilter, MenuHeading, MenuItem } from "./ui/menu.tsx";
+import { Modal } from "./ui/modal.tsx";
+import { Segment, Segmented } from "./ui/segmented.tsx";
 import { UpdateButton } from "./update-button.tsx";
 
 import { WorktreeSection } from "./worktree-selector.tsx";
@@ -1157,7 +1158,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
 	if (block.type === "thinking") {
 		return (
 			<div className="message-block message-block-thinking">
-				<button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
+				<Button variant="bare" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
 					<span className="entry-chevron">
 						<Icon name="chevron" size={11} />
 					</span>
@@ -1167,7 +1168,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
 							? t("thinkingDuration", { seconds: (durationMs / 1000).toFixed(1) })
 							: t("thinkingChars", { count: formatCompact(block.text.length) })}
 					</span>
-				</button>
+				</Button>
 				{expanded ? (
 					<pre>
 						<code>{block.text}</code>
@@ -1179,13 +1180,13 @@ const TranscriptBlock = memo(function TranscriptBlock({
 	const editDiff = parseEditToolDiff(block.name, block.input);
 	return (
 		<div className={`message-block message-block-toolCall ${expanded ? "is-expanded" : ""}`}>
-			<button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
+			<Button variant="bare" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
 				<span className="entry-chevron">
 					<Icon name="chevron" size={11} />
 				</span>
 				<code className="tool-name">{block.name}</code>
 				<span className="tool-preview">{toolCallPreview(block.input)}</span>
-			</button>
+			</Button>
 			{expanded ? (
 				editDiff ? (
 					<EditDiffView lines={editDiff.lines} />
@@ -1271,12 +1272,12 @@ const UserMessageBody = memo(function UserMessageBody({
 				{imagePreview}
 				{text ? <MarkdownBody text={text} /> : null}
 			</div>
-			<button type="button" className="message-user-expand" onClick={() => setCollapsed((current) => !current)}>
+			<Button variant="bare" className="message-user-expand" onClick={() => setCollapsed((current) => !current)}>
 				{collapsed ? t("expandAll") : t("collapse")}
 				<span className="entry-chevron">
 					<Icon name="chevron" size={11} />
 				</span>
-			</button>
+			</Button>
 		</div>
 	);
 });
@@ -1468,36 +1469,31 @@ const TranscriptMessage = memo(function TranscriptMessage({
 					{completedTps ? (
 						<span className={`message-tps ${speedTone(completedTps)}`}>{completedTps.toFixed(1)} t/s</span>
 					) : null}
-					<button type="button" onClick={() => void copyMessage()}>
+					<Button size="sm" type="button" onClick={() => void copyMessage()}>
 						{copied ? t("copied") : t("copy")}
-					</button>
+					</Button>
 					{message.timestamp && isLastAssistant ? <time>{formatMessageTime(message.timestamp)}</time> : null}
 				</div>
 			) : (
 				<div className="message-actions">
-					<button
-						type="button"
+					<Button
+						size="icon"
 						aria-label={copied ? t("copied") : t("copy")}
 						title={copied ? t("copied") : t("copy")}
 						onClick={() => void copyMessage()}
 						disabled={!message.text}
 					>
 						<Icon name={copied ? "check" : "copy"} size={14} />
-					</button>
+					</Button>
 					{!isAssistant && (message.text || message.blocks?.some((block) => block.type === "image")) ? (
-						<button type="button" aria-label={t("edit")} title={t("edit")} onClick={() => onEdit(message)}>
+						<Button size="icon" aria-label={t("edit")} title={t("edit")} onClick={() => onEdit(message)}>
 							<Icon name="edit" size={14} />
-						</button>
+						</Button>
 					) : null}
 					{!isAssistant && message.forkEntryId ? (
-						<button
-							type="button"
-							aria-label="Fork"
-							title="Fork"
-							onClick={() => onFork(message.forkEntryId ?? "")}
-						>
+						<Button size="icon" aria-label="Fork" title="Fork" onClick={() => onFork(message.forkEntryId ?? "")}>
 							<Icon name="branch" size={14} />
-						</button>
+						</Button>
 					) : null}
 				</div>
 			)}
@@ -1567,9 +1563,9 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 	}
 	return (
 		<article className={`transcript-entry ${expanded ? "is-expanded" : ""}`}>
-			<button
+			<Button
+				variant="bare"
 				className={`entry-toggle ${message.isError ? "is-error" : "is-success"}`}
-				type="button"
 				aria-expanded={expanded}
 				onClick={() => setExpanded((current) => !current)}
 			>
@@ -1586,7 +1582,7 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 				{message.toolCallId ? <code className="tool-call-id">#{message.toolCallId.slice(-6)}</code> : null}
 				{durationSeconds !== undefined ? <small className="entry-duration">{durationSeconds}s</small> : null}
 				{message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
-			</button>
+			</Button>
 			{expanded ? (
 				<div className="entry-detail-wrap">
 					{toolCall ? (
@@ -1614,20 +1610,25 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 						) : null}
 					</pre>
 					<div className="entry-detail-actions">
-						<button type="button" onClick={() => void copyOutput()} disabled={!displayedOutput}>
+						<Button size="sm" type="button" onClick={() => void copyOutput()} disabled={!displayedOutput}>
 							{copied ? t("copied") : t("copyOutput")}
-						</button>
+						</Button>
 						{message.truncated && message.fullOutputAvailable && fullOutput === undefined ? (
-							<button type="button" disabled={loadingFullOutput} onClick={() => void loadFullOutput()}>
+							<Button size="sm" type="button" disabled={loadingFullOutput} onClick={() => void loadFullOutput()}>
 								{loadingFullOutput ? t("reading") : t("viewFullOutput")}
-							</button>
+							</Button>
 						) : message.truncated && fullOutput === undefined ? (
 							<span>{t("outputTruncated")}</span>
 						) : null}
 						{message.fullOutputAvailable ? (
-							<button type="button" disabled={savingFullOutput} onClick={() => void downloadFullOutput()}>
+							<Button
+								size="sm"
+								type="button"
+								disabled={savingFullOutput}
+								onClick={() => void downloadFullOutput()}
+							>
 								{savingFullOutput ? t("saving") : t("downloadFullOutput")}
-							</button>
+							</Button>
 						) : null}
 						{fullOutput !== undefined ? <span>{t("fullOutputShown")}</span> : null}
 						{fullOutputError ? <span className="is-error">{fullOutputError}</span> : null}
@@ -1918,30 +1919,26 @@ function Explorer({
 				key={entry.path}
 				style={{ "--entry-depth": entry.depth } as CSSProperties}
 			>
-				<button className="tree-entry-main" type="button" onClick={() => onOpenFile(entry)}>
+				<Button variant="bare" className="tree-entry-main" onClick={() => onOpenFile(entry)}>
 					<span className="tree-file-icon">
 						<Icon name={fileIconFor(entry.path)} size={13} />
 					</span>
 					<span className="tree-entry-name">{displayPath}</span>
-				</button>
+				</Button>
 				{gitStatus ? (
 					<span className={`tree-git-status is-${gitStatus}`}>{gitStatus.slice(0, 1).toUpperCase()}</span>
 				) : null}
 				<div className="tree-entry-actions">
-					<button
-						type="button"
-						title={t("mentionAria", { path: entry.path })}
-						onClick={() => onMention(entry.path)}
-					>
+					<Button size="icon" title={t("mentionAria", { path: entry.path })} onClick={() => onMention(entry.path)}>
 						@
-					</button>
-					<button
-						type="button"
+					</Button>
+					<Button
+						size="icon"
 						title={t("downloadAria", { path: entry.path })}
 						onClick={() => onDownload(entry.path)}
 					>
 						↓
-					</button>
+					</Button>
 				</div>
 			</div>
 		);
@@ -1958,9 +1955,9 @@ function Explorer({
 		if (gitChanges.length === 0) return null;
 		return (
 			<section className="changed-files-section">
-				<button
+				<Button
+					variant="bare"
 					className="changed-files-heading"
-					type="button"
 					aria-expanded={!changesCollapsed}
 					onClick={() => setChangesCollapsed((collapsed) => !collapsed)}
 				>
@@ -1968,7 +1965,7 @@ function Explorer({
 						<Icon name="chevron" size={12} />
 					</span>
 					<span>{t("changesWithCount", { count: gitChanges.length })}</span>
-				</button>
+				</Button>
 				{!changesCollapsed
 					? gitChanges.map((change) =>
 							renderFileRow(
@@ -2006,9 +2003,9 @@ function Explorer({
 			return (
 				<div className="tree-directory-error" key={`${path}:error`}>
 					<span>{node.error}</span>
-					<button type="button" onClick={() => void loadDirectory(path)}>
+					<Button size="sm" variant="outline" type="button" onClick={() => void loadDirectory(path)}>
 						{t("retry")}
-					</button>
+					</Button>
 				</div>
 			);
 		}
@@ -2016,11 +2013,11 @@ function Explorer({
 		for (const entry of node.directories) {
 			const expanded = expandedDirectories.has(entry.path);
 			rows.push(
-				<button
+				<Button
+					variant="bare"
 					className={`tree-entry directory-entry ${expanded ? "" : "is-collapsed"} ${uploadDirectory === entry.path ? "is-upload-target" : ""}`}
 					key={entry.path}
 					style={{ "--entry-depth": entry.depth } as CSSProperties}
-					type="button"
 					onDragOver={(event) => {
 						event.preventDefault();
 						event.stopPropagation();
@@ -2042,7 +2039,7 @@ function Explorer({
 					<Icon name="folder" size={14} />
 					<span>{entry.name}</span>
 					{changedDirectories.has(entry.path) ? <span className="directory-change-dot" /> : null}
-				</button>,
+				</Button>,
 			);
 			if (expanded) rows.push(renderNodeRows(entry.path));
 		}
@@ -2111,14 +2108,14 @@ function Explorer({
 						}}
 					/>
 				</label>
-				<button
+				<Button
+					size="sm"
 					className="file-upload-target"
-					type="button"
 					title={t("uploadTargetTitle")}
 					onClick={() => setUploadDirectory("")}
 				>
 					{uploadDirectory || t("rootDirectory")}
-				</button>
+				</Button>
 				<Button size="icon" className="compact" type="button" aria-label={t("refreshFiles")} onClick={onRefresh}>
 					↻
 				</Button>
@@ -2330,15 +2327,15 @@ function Inspector({
 							</span>
 							<strong title={preview.path}>{preview.path.split("/").at(-1) ?? preview.path}</strong>
 							{changedHint ? (
-								<button
+								<Button
+									size="sm"
 									className="file-live-badge"
-									type="button"
 									title={t("reloadChangedHint")}
 									onClick={onReloadChanged}
 								>
 									<span className="file-live-dot" />
 									{t("updated")}
-								</button>
+								</Button>
 							) : (
 								<span className="file-live-badge is-static">
 									<span className="file-live-dot" />
@@ -2357,34 +2354,19 @@ function Inspector({
 				</div>
 				<div className="inspector-header-actions">
 					{preview && !isImage && !isAudio && !isPdf && !isDocx ? (
-						<div className="inspector-segmented" role="tablist" aria-label={t("displayModes")}>
-							<button
-								aria-pressed={mode === "source"}
-								className={mode === "source" ? "is-active" : ""}
-								type="button"
-								onClick={() => setMode("source")}
-							>
+						<Segmented fill aria-label={t("displayModes")}>
+							<Segment active={mode === "source"} onClick={() => setMode("source")}>
 								{t("source")}
-							</button>
+							</Segment>
 							{isPreviewable ? (
-								<button
-									aria-pressed={mode === "preview"}
-									className={mode === "preview" ? "is-active" : ""}
-									type="button"
-									onClick={() => setMode("preview")}
-								>
+								<Segment active={mode === "preview"} onClick={() => setMode("preview")}>
 									{t("preview")}
-								</button>
+								</Segment>
 							) : null}
-							<button
-								aria-pressed={mode === "diff"}
-								className={mode === "diff" ? "is-active" : ""}
-								type="button"
-								onClick={() => setMode("diff")}
-							>
+							<Segment active={mode === "diff"} onClick={() => setMode("diff")}>
 								{t("diff")}
-							</button>
-						</div>
+							</Segment>
+						</Segmented>
 					) : null}
 					{preview && !isImage && !isAudio && !isPdf && !isDocx ? (
 						<Button
@@ -2465,14 +2447,14 @@ function Inspector({
 				</label>
 			) : null}
 			{selectedLineRange && previewPath && mode === "source" ? (
-				<button
+				<Button
+					size="sm"
 					className="mention-selected-lines"
-					type="button"
 					onMouseDown={(event) => event.preventDefault()}
 					onClick={() => onQuoteLines(previewPath, selectedLineRange.start, selectedLineRange.end)}
 				>
 					{t("mentionSelectedLines", { start: selectedLineRange.start, end: selectedLineRange.end })}
-				</button>
+				</Button>
 			) : null}
 			{preview ? (
 				isImage ? (
@@ -2975,6 +2957,7 @@ export function App() {
 		return parts.join(" · ");
 	})();
 	const transcriptItems = useMemo(() => partitionTranscript(session?.messages ?? []), [session?.messages]);
+	const hasUserMessage = Boolean(session?.messages.some((message) => message.role === "user"));
 	const modelScopeNotice = (() => {
 		const scope = snapshot.modelScope;
 		if (!scope) return undefined;
@@ -4838,9 +4821,9 @@ export function App() {
 											key={root}
 										>
 											<div className="sidebar-project-tree-row">
-												<button
+												<Button
+													variant="bare"
 													className="sidebar-project-tree-row-main"
-													type="button"
 													onClick={() =>
 														setCollapsedProjects((current) => {
 															const next = new Set(current);
@@ -4873,20 +4856,20 @@ export function App() {
 														</span>
 														{branch ? <small>⎇ {formatGitBranch(branch)}</small> : null}
 													</span>
-												</button>
+												</Button>
 												<div className="sidebar-project-tree-row-actions">
-													<button
+													<Button
+														size="icon"
 														className="sidebar-project-tree-action"
-														type="button"
 														aria-label={t("newSessionAria")}
 														onClick={() => void handleNewSessionForProject(root)}
 													>
 														<Icon name="plus" size={13} />
-													</button>
+													</Button>
 													<div className="sidebar-project-more-wrap project-menu-root">
-														<button
+														<Button
+															size="icon"
 															className="sidebar-project-tree-action sidebar-project-tree-more"
-															type="button"
 															aria-label={t("projectActions")}
 															aria-expanded={projectRowMenuOpen === root}
 															onClick={() =>
@@ -4896,7 +4879,7 @@ export function App() {
 															}
 														>
 															<Icon name="more" size={13} />
-														</button>
+														</Button>
 														{projectRowMenuOpen === root ? (
 															<Menu className="session-more-menu project-row-menu">
 																<MenuItem
@@ -5050,12 +5033,14 @@ export function App() {
 																				if (event.key === "Escape") setRenamingSession(undefined);
 																			}}
 																		/>
-																		<button type="submit">{t("save")}</button>
+																		<Button size="sm" variant="primary" type="submit">
+																			{t("save")}
+																		</Button>
 																	</form>
 																) : (
-																	<button
+																	<Button
+																		variant="bare"
 																		className="session-row"
-																		type="button"
 																		onMouseEnter={(event) =>
 																			setHoverCard({
 																				kind: "session",
@@ -5090,12 +5075,12 @@ export function App() {
 																		{unreadSessionIds.has(item.id) ? (
 																			<span className="session-unread-dot" />
 																		) : null}
-																	</button>
+																	</Button>
 																)}
 																{!isRenaming ? (
-																	<button
-																		className="session-more"
-																		type="button"
+																	<Button
+																		size="icon"
+																		className="session-more compact"
 																		aria-label={t("sessionActions")}
 																		aria-expanded={sessionMenuOpen === item.path}
 																		onClick={() =>
@@ -5105,7 +5090,7 @@ export function App() {
 																		}
 																	>
 																		<Icon name="more" size={14} />
-																	</button>
+																	</Button>
 																) : null}
 																{sessionMenuOpen === item.path ? (
 																	<Menu className="session-more-menu">
@@ -5167,20 +5152,20 @@ export function App() {
 														);
 													})}
 													{!expanded && flattenedItems.length > 5 ? (
-														<button
+														<Button
+															size="sm"
 															className="sidebar-more-button"
-															type="button"
 															onClick={() =>
 																setExpandedProjects((current) => new Set(current).add(root))
 															}
 														>
 															{t("showMore", { count: flattenedItems.length - 5 })}
-														</button>
+														</Button>
 													) : null}
 													{expanded && flattenedItems.length > 5 ? (
-														<button
+														<Button
+															size="sm"
 															className="sidebar-more-button"
-															type="button"
 															onClick={() =>
 																setExpandedProjects((current) => {
 																	const next = new Set(current);
@@ -5190,7 +5175,7 @@ export function App() {
 															}
 														>
 															{t("showLess")}
-														</button>
+														</Button>
 													) : null}
 												</div>
 											) : null}
@@ -5348,8 +5333,8 @@ export function App() {
 						<span>{displayPath(hoverCard.root)}</span>
 					</div>
 					<div className="sidebar-hover-card-divider" />
-					<button
-						type="button"
+					<Button
+						size="sm"
 						onMouseDown={(event) => event.preventDefault()}
 						onClick={() => {
 							setEditingProjectRoot(hoverCard.root);
@@ -5358,9 +5343,9 @@ export function App() {
 					>
 						<Icon name="gear" size={14} />
 						<span>{t("editProject")}</span>
-					</button>
-					<button
-						type="button"
+					</Button>
+					<Button
+						size="sm"
 						onMouseDown={(event) => event.preventDefault()}
 						onClick={() => {
 							void handleRevealProject(hoverCard.root);
@@ -5369,7 +5354,7 @@ export function App() {
 					>
 						<Icon name="folder" size={14} />
 						<span>{t("revealInFinder")}</span>
-					</button>
+					</Button>
 				</div>
 			) : null}
 			{hoverCard?.kind === "session" ? (
@@ -5388,18 +5373,18 @@ export function App() {
 							<span className="sidebar-brand-name">Pi Desktop</span>
 						</span>
 						<div className="sidebar-controls-row">
-							<button
+							<Button
+								size="icon"
 								className="sidebar-chrome-button"
-								type="button"
 								aria-label={t("searchSessionsAria")}
 								title={t("searchSessionsAria")}
 								onClick={() => setSearchOpen(true)}
 							>
 								<Icon name="search" size={15} />
-							</button>
-							<button
+							</Button>
+							<Button
+								size="icon"
 								className="sidebar-chrome-button"
-								type="button"
 								aria-label={theme === "dark" ? t("switchToLight") : t("switchToDark")}
 								onClick={() => {
 									const next = theme === "dark" ? "light" : "dark";
@@ -5425,41 +5410,40 @@ export function App() {
 								}}
 							>
 								<Icon name={theme === "dark" ? "sun" : "moon"} size={15} />
-							</button>
-							<button
+							</Button>
+							<Button
+								size="icon"
 								className="sidebar-chrome-button"
-								type="button"
 								aria-label={t("hideSidebar")}
 								onClick={() => setSidebarOpen(false)}
 							>
 								<Icon name="panel" size={15} />
-							</button>
+							</Button>
 						</div>
 					</div>
-					<button
+					<Button
 						className="new-chat-button"
-						type="button"
 						disabled={session?.phase === "running"}
 						onClick={() => void handleNewSession()}
 					>
 						<Icon name="plus" size={16} />
 						<span>{t("newSessionShort")}</span>
-					</button>
+					</Button>
 				</header>
 				<div className="sidebar-content">{renderSidebar()}</div>
 				<footer className="sidebar-footer">
 					<div className="footer-menu-wrap">
-						<button
+						<Button
+							size="icon"
 							aria-label={t("settings")}
 							aria-expanded={settingsMenuOpen}
 							aria-haspopup="menu"
-							className={`footer-button is-icon is-settings ${settingsMenuOpen ? "is-active" : ""}`}
+							className={`footer-button is-settings ${settingsMenuOpen ? "is-active" : ""}`}
 							title={t("settings")}
-							type="button"
 							onClick={() => setSettingsMenuOpen((open) => !open)}
 						>
 							<Icon name="gear" size={16} />
-						</button>
+						</Button>
 						{settingsMenuOpen ? (
 							<Menu className="footer-menu">
 								{FOOTER_SETTINGS_ENTRIES.map((entry) => (
@@ -5518,14 +5502,14 @@ export function App() {
 			>
 				<header className="top-bar">
 					{!sidebarOpen ? (
-						<button
+						<Button
+							size="icon"
 							className="sidebar-reopen-button"
-							type="button"
 							aria-label={t("showSidebar")}
 							onClick={() => setSidebarOpen(true)}
 						>
 							<Icon name="panel" size={16} />
-						</button>
+						</Button>
 					) : null}
 					{/* One line, like the reference's .ct-title; the second line of detail
 					    stays reachable through the tooltip. */}
@@ -5533,9 +5517,9 @@ export function App() {
 						<span title={topBarTitle}>{truncateLabel(topBarTitle)}</span>
 					</div>
 					<div className="top-bar-actions">
-						<button
+						<Button
+							size="sm"
 							className="native-toolbar-button"
-							type="button"
 							aria-label={t("fullHistory")}
 							title={t("fullHistory")}
 							disabled={!session?.messages.length}
@@ -5543,7 +5527,7 @@ export function App() {
 						>
 							<Icon name="history" size={12} />
 							<span>{t("fullHistory")}</span>
-						</button>
+						</Button>
 						<BranchNavigator
 							tree={snapshot.branchTree ?? []}
 							activeLeafId={snapshot.branchActiveLeafId}
@@ -5553,9 +5537,9 @@ export function App() {
 							open={topPanel === "branches"}
 							onToggle={() => setTopPanel((current) => (current === "branches" ? undefined : "branches"))}
 						/>
-						<button
+						<Button
+							size="sm"
 							className={`native-toolbar-button ${terminalOpen ? "is-active" : ""}`}
-							type="button"
 							aria-label={t("toggleTerminal")}
 							title={t("toggleTerminal")}
 							aria-expanded={terminalOpen}
@@ -5564,11 +5548,11 @@ export function App() {
 						>
 							<Icon name="terminal" size={12} />
 							<span>{t("toggleTerminal")}</span>
-						</button>
+						</Button>
 						<div className="top-bar-more-wrap">
-							<button
+							<Button
+								size="sm"
 								className={`native-toolbar-button app-topbar-more-trigger ${moreMenuOpen ? "is-active" : ""}`}
-								type="button"
 								aria-label={t("more")}
 								title={t("more")}
 								aria-expanded={moreMenuOpen}
@@ -5576,7 +5560,7 @@ export function App() {
 							>
 								<Icon name="more" size={12} />
 								<span>{t("more")}</span>
-							</button>
+							</Button>
 							{moreMenuOpen ? (
 								<Menu className="top-bar-more-menu">
 									<MenuItem
@@ -5657,9 +5641,9 @@ export function App() {
 							) : null}
 						</div>
 						<div className="top-bar-more-wrap top-bar-openwith-wrap open-with-group">
-							<button
+							<Button
+								size="sm"
 								className="native-toolbar-button open-with-main"
-								type="button"
 								aria-label={t("openWithMain", { name: selectedOpenWith?.name ?? "" })}
 								title={t("openWithMain", { name: selectedOpenWith?.name ?? "" })}
 								disabled={!snapshot.workspacePath || !selectedOpenWith}
@@ -5673,10 +5657,10 @@ export function App() {
 									<Icon name="external" size={14} />
 								)}
 								<span>{selectedOpenWith?.name ?? t("openWithTitle")}</span>
-							</button>
-							<button
+							</Button>
+							<Button
+								size="icon"
 								className={`native-toolbar-button open-with-chevron ${openWithMenuOpen ? "is-active" : ""}`}
-								type="button"
 								aria-label={t("openWithChoose")}
 								title={t("openWithChoose")}
 								aria-expanded={openWithMenuOpen}
@@ -5684,7 +5668,7 @@ export function App() {
 								onClick={handleToggleOpenWithMenu}
 							>
 								<Icon name="chevronDown" size={12} />
-							</button>
+							</Button>
 							{openWithMenuOpen ? (
 								<Menu className="top-bar-more-menu open-with-menu">
 									{openWithApps.map((app) => (
@@ -5758,9 +5742,9 @@ export function App() {
 					<output className="offline-banner">
 						<span className="offline-banner-dot" />
 						<span>{isOnline ? t("initFailedBanner") : t("offlineBanner")}</span>
-						<button type="button" onClick={() => void startDesktopStore()}>
+						<Button size="sm" variant="outline" type="button" onClick={() => void startDesktopStore()}>
 							{t("retry")}
-						</button>
+						</Button>
 					</output>
 				) : null}
 				<div className="chat-scroll" ref={chatScrollRef} onScroll={handleChatScroll}>
@@ -5784,15 +5768,15 @@ export function App() {
 							// biome-ignore lint/a11y/useSemanticElements: 通知容器非单独状态区
 							<div className="notice-shelf" role="status">
 								{notices.map((notice) => (
-									<button
+									<Button
+										variant="bare"
 										className={`notice-shelf-item is-${notice.kind}`}
 										key={notice.id}
-										type="button"
 										onClick={() => setNotices((current) => current.filter((item) => item.id !== notice.id))}
 									>
 										<span className="notice-dot" />
 										<span className="notice-text">{notice.text}</span>
-									</button>
+									</Button>
 								))}
 							</div>
 						) : null}
@@ -5826,20 +5810,16 @@ export function App() {
 								/>
 							</section>
 						) : null}
-						<div className="transcript">
+						<div className="transcript" key={session?.id}>
 							{visibleItemCount < transcriptItems.length ? (
 								<div className="load-earlier-sentinel" ref={earlierMessagesSentinelRef} aria-hidden="true" />
 							) : null}
 							{visibleItemCount < transcriptItems.length ? (
-								<button
-									className="load-earlier"
-									type="button"
-									onClick={() => setVisibleItemCount((current) => current + 60)}
-								>
+								<Button className="load-earlier" onClick={() => setVisibleItemCount((current) => current + 60)}>
 									{t("loadEarlier", { count: transcriptItems.length - visibleItemCount })}
-								</button>
+								</Button>
 							) : null}
-							{session?.messages.length
+							{hasUserMessage
 								? transcriptItems.slice(-visibleItemCount).map((item) => {
 										if (item.type === "process") {
 											return (
@@ -5909,11 +5889,11 @@ export function App() {
 											>
 												<TranscriptMessage
 													message={item.message}
-													modelLabel={session.model?.id}
+													modelLabel={session?.model?.id}
 													isLastAssistant={
 														item.message.id === lastMessage?.id && item.message.role === "assistant"
 													}
-													isStreaming={item.message.id === lastMessage?.id && session.phase === "running"}
+													isStreaming={item.message.id === lastMessage?.id && session?.phase === "running"}
 													previousTimestamp={previousMessageTimestamps.get(item.message.id)}
 													onEdit={(message) => void handleEditMessage(message)}
 													onFork={(entryId) => void handleForkFromMessage(entryId)}
@@ -5926,8 +5906,8 @@ export function App() {
 								<div className="queued-panel">
 									<div className="queued-panel-header">
 										<span>{t("queuedCount", { count: session.pendingMessages.length })}</span>
-										<button
-											type="button"
+										<Button
+											size="sm"
 											onClick={() => {
 												void (async () => {
 													try {
@@ -5956,7 +5936,7 @@ export function App() {
 											}}
 										>
 											{t("retrieve")}
-										</button>
+										</Button>
 									</div>
 									{session.pendingMessages.map((message, index) => (
 										<div className="queued-message" key={`${message.behavior}:${index}:${message.text}`}>
@@ -6009,10 +5989,10 @@ export function App() {
 					</div>
 				</div>
 				{awayFromBottom ? (
-					<button className="scroll-to-latest" type="button" onClick={scrollToLatest}>
+					<Button className="scroll-to-latest" onClick={scrollToLatest}>
 						<span>↓</span>
 						{unseenMessages > 0 ? t("unseenCount", { count: unseenMessages }) : t("backToBottom")}
-					</button>
+					</Button>
 				) : null}
 				<form
 					className={`composer ${draggingImages ? "is-dragging-images" : ""}`}
@@ -6034,16 +6014,17 @@ export function App() {
 					{compactError ? (
 						<output className="compact-editor-error" role="alert">
 							{compactError}
-							<button
-								type="button"
+							<Button
+								size="icon"
+								className="compact"
 								onClick={() => setCompactError(undefined)}
 								aria-label={t("closeCompactError")}
 							>
 								×
-							</button>
+							</Button>
 						</output>
 					) : null}
-					{!session?.messages.length ? (
+					{!hasUserMessage ? (
 						<div className="empty-hero">
 							<span className="empty-hero-icon" aria-hidden="true">
 								<BrandMark size={100} />
@@ -6065,16 +6046,16 @@ export function App() {
 					{snapshot.workspacePath && composerBranch ? (
 						<div className="composer-project-line">
 							<div className="composer-project-anchor project-menu-root">
-								<button
+								<Button
+									size="sm"
 									className="composer-project-item"
-									type="button"
 									aria-expanded={branchMenuOpen}
 									aria-haspopup="menu"
 									onClick={() => setBranchMenuOpen((open) => !open)}
 								>
 									<Icon name="branch" size={14} />
 									<span>{formatGitBranch(composerBranch)}</span>
-								</button>
+								</Button>
 								{branchMenuOpen ? (
 									<Menu className="composer-branch-menu">
 										<WorktreeSection
@@ -6100,19 +6081,19 @@ export function App() {
 								{visibleSlashCommands.length ? (
 									<div className="slash-command-grid">
 										{visibleSlashCommands.map((command, index) => (
-											<button
+											<Button
+												variant="bare"
 												aria-selected={suggestionIndex === index}
 												className={`slash-command ${suggestionIndex === index ? "is-selected" : ""}`}
 												key={command.name}
 												role="option"
-												type="button"
 												onMouseDown={(event) => event.preventDefault()}
 												onClick={() => selectComposerSuggestion(index)}
 											>
 												<code>/{command.name}</code>
 												<span>{command.description}</span>
 												<small>{command.category}</small>
-											</button>
+											</Button>
 										))}
 									</div>
 								) : (
@@ -6128,18 +6109,18 @@ export function App() {
 								</div>
 								{hashSessions.length ? (
 									hashSessions.map((item, index) => (
-										<button
+										<Button
+											variant="bare"
 											aria-selected={suggestionIndex === index}
 											className={`slash-command ${suggestionIndex === index ? "is-selected" : ""}`}
 											key={item.path}
 											role="option"
-											type="button"
 											onMouseDown={(event) => event.preventDefault()}
 											onClick={() => selectComposerSuggestion(index)}
 										>
 											<span>#{item.name ?? t("unnamedSession")}</span>
 											<small>{item.firstMessage}</small>
-										</button>
+										</Button>
 									))
 								) : (
 									<p className="slash-empty">{t("noMatchingSessions")}</p>
@@ -6156,12 +6137,12 @@ export function App() {
 									atEntries.map((entry, index) => {
 										const dirIndex = mentionNameStart(entry.path, atQuery);
 										return (
-											<button
+											<Button
+												variant="bare"
 												aria-selected={suggestionIndex === index}
 												className={`slash-command ${suggestionIndex === index ? "is-selected" : ""}`}
 												key={entry.path}
 												role="option"
-												type="button"
 												onMouseDown={(event) => event.preventDefault()}
 												onClick={() => selectComposerSuggestion(index)}
 											>
@@ -6185,7 +6166,7 @@ export function App() {
 														</>
 													)}
 												</span>
-											</button>
+											</Button>
 										);
 									})
 								) : (
@@ -6210,9 +6191,10 @@ export function App() {
 												<Icon name="image" size={20} />
 											</span>
 										)}
-										<button
+										<Button
+											size="icon"
+											className="compact"
 											aria-label={t("removeAria", { name: attachment.name })}
-											type="button"
 											onClick={() => {
 												setAttachments((current) =>
 													current.filter((currentAttachment) => currentAttachment.id !== attachment.id),
@@ -6221,7 +6203,7 @@ export function App() {
 											}}
 										>
 											<Icon name="close" size={12} />
-										</button>
+										</Button>
 									</div>
 								))}
 							</div>
@@ -6242,9 +6224,9 @@ export function App() {
 									</div>
 									<div className="prompt-history-list">
 										{promptHistoryRef.current.map((item, index) => (
-											<button
+											<Button
+												variant="bare"
 												key={`${index}:${item}`}
-												type="button"
 												role="option"
 												aria-selected={index === historyActiveIndex}
 												className={index === historyActiveIndex ? "is-active" : ""}
@@ -6259,7 +6241,7 @@ export function App() {
 											>
 												<span>{index + 1}</span>
 												<strong>{item}</strong>
-											</button>
+											</Button>
 										))}
 									</div>
 								</div>
@@ -6388,14 +6370,13 @@ export function App() {
 						{permissionPrompt ? (
 							<div className="composer-permission-prompt">
 								<p>{permissionPrompt.text}</p>
-								<button
-									className="composer-permission-allow"
-									type="button"
+								<Button
+									variant="primary"
 									disabled={allowingPermission}
 									onClick={() => void allowBlockedPermission()}
 								>
 									{allowingPermission ? t("allowingPermissionChange") : t("allowPermissionChange")}
-								</button>
+								</Button>
 							</div>
 						) : null}
 						<div
@@ -6691,8 +6672,9 @@ export function App() {
 									>
 										<Icon name={fileIconFor(tab.path)} size={14} />
 										<span>{tab.path.split("/").at(-1) ?? tab.path}</span>
-										<button
-											type="button"
+										<Button
+											size="icon"
+											className="compact"
 											aria-label={t("closeTabAria", { path: tab.path })}
 											onClick={(event) => {
 												event.stopPropagation();
@@ -6700,7 +6682,7 @@ export function App() {
 											}}
 										>
 											<Icon name="close" size={12} />
-										</button>
+										</Button>
 									</div>
 								))
 							)}

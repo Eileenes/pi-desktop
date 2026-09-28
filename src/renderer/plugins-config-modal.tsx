@@ -10,8 +10,11 @@ import {
 	updatePlugin,
 } from "./desktop-store.ts";
 import { type I18n, type TranslationKey, useI18n } from "./i18n.ts";
-import { Modal } from "./modal.tsx";
 import { Button } from "./ui/button.tsx";
+import { Field } from "./ui/field.tsx";
+import { Modal } from "./ui/modal.tsx";
+import { Segment, Segmented } from "./ui/segmented.tsx";
+import { Switch } from "./ui/switch.tsx";
 
 interface PluginsConfigModalProps {
 	plugins: DesktopPlugin[];
@@ -260,10 +263,10 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 
 	function renderPackageRow(pkg: DesktopPluginPackage) {
 		return (
-			<button
+			<Button
+				variant="bare"
 				key={packageKey(pkg)}
 				className={`plugin-package-row ${selectedKey === packageKey(pkg) ? "is-active" : ""}`}
-				type="button"
 				title={pkg.source}
 				onClick={() => setSelectedKey(packageKey(pkg))}
 			>
@@ -274,7 +277,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 					{pkg.version || pkg.configuredVersion ? <small>{versionSummary(pkg, t)}</small> : null}
 					{pkg.filtered ? <small className="plugin-filtered-label">{t("filteredLabel")}</small> : null}
 				</span>
-			</button>
+			</Button>
 		);
 	}
 
@@ -309,9 +312,9 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 						{!loading && packages.length === 0 ? <p className="modal-empty">{t("noPlugins")}</p> : null}
 					</div>
 					<div className="resource-config-sidebar-footer">
-						<button
+						<Button
+							variant="bare"
 							className={`resource-config-add ${selectedKey === "add" ? "is-active" : ""}`}
-							type="button"
 							onClick={() => {
 								setSelectedKey("add");
 								setError(undefined);
@@ -322,7 +325,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 								<path d="M12 5v14M5 12h14" />
 							</svg>
 							{t("addPlugin").replace(/^＋\s*/u, "")}
-						</button>
+						</Button>
 					</div>
 				</aside>
 				<section className="resource-config-detail">
@@ -350,7 +353,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 							<label>
 								{t("sourceLabel")}
 								<div className="plugin-source-picker">
-									<input
+									<Field
 										ref={installInputRef}
 										className="mono"
 										value={installSource}
@@ -390,26 +393,19 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 								</div>
 							</label>
 							<div className="plugin-install-actions">
-								<fieldset className="plugin-scope-picker" aria-label={t("installScopeLabel")}>
-									<button
-										type="button"
-										className={installScope === "user" ? "is-active" : ""}
-										aria-pressed={installScope === "user"}
-										onClick={() => setInstallScope("user")}
-									>
+								<Segmented aria-label={t("installScopeLabel")}>
+									<Segment active={installScope === "user"} onClick={() => setInstallScope("user")}>
 										{t("global")}
-									</button>
-									<button
-										type="button"
-										className={installScope === "project" ? "is-active" : ""}
-										aria-pressed={installScope === "project"}
+									</Segment>
+									<Segment
+										active={installScope === "project"}
 										disabled={!workspacePath || !projectResourcesLoaded}
 										title={!workspacePath || !projectResourcesLoaded ? t("projectNotTrustedHint") : undefined}
 										onClick={() => setInstallScope("project")}
 									>
 										{t("project")}
-									</button>
-								</fieldset>
+									</Segment>
+								</Segmented>
 								<Button
 									variant="primary"
 									type="button"
@@ -423,9 +419,9 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 								<span>{t("examplesLabel")}</span>
 								{["npm:@scope/pi-plugin", "git:https://github.com/user/repo", "/absolute/path/to/plugin"].map(
 									(example) => (
-										<button type="button" key={example} onClick={() => setInstallSource(example)}>
+										<Button variant="bare" key={example} onClick={() => setInstallSource(example)}>
 											{example}
-										</button>
+										</Button>
 									),
 								)}
 							</div>
@@ -435,14 +431,11 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 						<div className="plugin-detail">
 							<div className="plugin-detail-heading">
 								<div className="plugin-detail-identity">
-									<button
-										className={`plugin-toggle-switch ${selected.enabled ? "is-on" : ""}`}
-										type="button"
-										role="switch"
-										aria-checked={selected.enabled}
+									<Switch
+										checked={selected.enabled}
 										aria-label={selected.enabled ? t("disable") : t("enable")}
 										disabled={busy || (selected.scope === "project" && !projectResourcesLoaded)}
-										onClick={() =>
+										onCheckedChange={() =>
 											void run(
 												"toggle",
 												() =>
@@ -454,9 +447,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 												selected.enabled ? t("pluginDisabled") : t("pluginEnabled"),
 											)
 										}
-									>
-										<span />
-									</button>
+									/>
 									<span className={`resource-scope-tag ${selected.scope === "project" ? "is-project" : ""}`}>
 										{detailScopeLabel(selected.scope)}
 									</span>

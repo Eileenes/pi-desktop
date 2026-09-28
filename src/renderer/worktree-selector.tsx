@@ -9,8 +9,9 @@ import {
 	switchGitBranch,
 } from "./desktop-store.ts";
 import { useI18n } from "./i18n.ts";
-import { MenuHeading } from "./menu.tsx";
 import { Button } from "./ui/button.tsx";
+import { Field } from "./ui/field.tsx";
+import { MenuHeading } from "./ui/menu.tsx";
 
 interface WorktreeSectionProps {
 	workspacePath: string;
@@ -170,7 +171,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 		<div className="worktree-section">
 			<MenuHeading>Worktrees</MenuHeading>
 			{worktrees.length >= 8 ? (
-				<input
+				<Field
 					className="worktree-filter"
 					value={worktreeFilter}
 					onChange={(event) => setWorktreeFilter(event.target.value)}
@@ -181,9 +182,9 @@ export const WorktreeSection = memo(function WorktreeSection({
 			<div className="worktree-list">
 				{visibleWorktrees.map((tree) => (
 					<div className={`worktree-row ${tree.path === workspacePath ? "is-current" : ""}`} key={tree.path}>
-						<button
+						<Button
+							variant="bare"
 							className="worktree-row-main"
-							type="button"
 							onClick={() => {
 								if (tree.path !== workspacePath) onSwitch(tree.path);
 							}}
@@ -193,7 +194,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 								{tree.isMain ? ` · ${t("worktreeMain")}` : ""}
 							</span>
 							<small>{tree.path}</small>
-						</button>
+						</Button>
 						{!tree.isMain ? (
 							confirmRemovePath === tree.path ? (
 								<div className="worktree-confirm-remove">
@@ -220,9 +221,9 @@ export const WorktreeSection = memo(function WorktreeSection({
 									</Button>
 								</div>
 							) : (
-								<button
-									className="worktree-remove"
-									type="button"
+								<Button
+									size="icon"
+									className="worktree-remove compact"
 									disabled={!projectTrusted}
 									title={!projectTrusted ? t("trustProjectFirst") : undefined}
 									aria-label={t("removeWorktreeAria", { branch: displayBranch(tree.branch) })}
@@ -232,7 +233,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 									}}
 								>
 									×
-								</button>
+								</Button>
 							)
 						) : null}
 					</div>
@@ -240,7 +241,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 				{visibleWorktrees.length === 0 ? <p className="worktree-empty">{t("noMatchingWorktrees")}</p> : null}
 			</div>
 			<div className="worktree-add">
-				<input
+				<Field
 					placeholder={t("newBranchName")}
 					value={branchDraft}
 					onChange={(event) => setBranchDraft(event.target.value)}
@@ -266,7 +267,8 @@ export const WorktreeSection = memo(function WorktreeSection({
 				<label className="worktree-branch-switcher">
 					<span>{t("switchCurrentBranch")}</span>
 					<div className="worktree-branch-controls">
-						<select
+						<Field
+							as="select"
 							defaultValue=""
 							disabled={busy || fetchingBranches || !projectTrusted}
 							title={!projectTrusted ? t("trustProjectFirst") : undefined}
@@ -291,7 +293,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 									))}
 								</optgroup>
 							) : null}
-						</select>
+						</Field>
 						<Button
 							variant="outline"
 							className="worktree-fetch"

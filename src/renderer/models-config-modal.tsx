@@ -18,9 +18,11 @@ import {
 	testModel,
 } from "./desktop-store.ts";
 import { useI18n } from "./i18n.ts";
-import { Modal } from "./modal.tsx";
 import { ProviderIconMark } from "./provider-icons.tsx";
 import { Button } from "./ui/button.tsx";
+import { Field } from "./ui/field.tsx";
+import { Modal } from "./ui/modal.tsx";
+import { Segment, Segmented } from "./ui/segmented.tsx";
 
 interface ModelsConfigModalProps {
 	providers: DesktopApiKeyProvider[];
@@ -152,27 +154,19 @@ function ThinkingLevelMapEditor({
 							/>
 							{level}
 						</span>
-						<span className="models-thinking-level-presets">
-							<button
-								type="button"
-								className={state === "omit" ? "is-active" : ""}
-								onClick={() => setLevel(level, "omit")}
-							>
+						<Segmented>
+							<Segment active={state === "omit"} onClick={() => setLevel(level, "omit")}>
 								{t("defaultBtn")}
-							</button>
-							<button
-								type="button"
-								className={state === "null" ? "is-disabled" : ""}
-								onClick={() => setLevel(level, null)}
-							>
+							</Segment>
+							<Segment active={state === "null"} onClick={() => setLevel(level, null)}>
 								{t("disabledBtn")}
-							</button>
-						</span>
+							</Segment>
+						</Segmented>
 						<span className={`models-thinking-custom ${state === "string" ? "is-active" : ""}`}>
-							<button type="button" onClick={() => setLevel(level, customValue || level)}>
+							<Button variant="bare" onClick={() => setLevel(level, customValue || level)}>
 								{t("customBtn")}
-							</button>
-							<input
+							</Button>
+							<Field
 								value={customValue}
 								placeholder={level}
 								maxLength={10}
@@ -220,9 +214,9 @@ const AuthenticationDeviceCode = memo(function AuthenticationDeviceCode({
 				<span>{t("deviceCode")}</span>
 				<strong>{code}</strong>
 			</div>
-			<button type="button" className="models-auth-copy" onClick={() => void copyCode()}>
+			<Button size="sm" variant="outline" type="button" onClick={() => void copyCode()}>
 				{copied ? t("copied") : t("copy")}
-			</button>
+			</Button>
 			{remainingSeconds !== undefined ? (
 				<small className={remainingSeconds === 0 ? "is-expired" : ""}>
 					{remainingSeconds === 0
@@ -592,20 +586,20 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 			<div className="models-layout">
 				<aside className="models-tree">
 					<div className="models-tree-scroll">
-						<button
+						<Button
+							variant="bare"
 							className={`models-tree-item scope ${selection?.type === "scope" ? "is-active" : ""}`}
-							type="button"
 							onClick={() => setSelection({ type: "scope" })}
 						>
 							<span>{t("modelScopeTitle")}</span>
 							<small>enabledModels</small>
-						</button>
+						</Button>
 						<div className="models-tree-divider" />
 						{providers.map((provider) => (
-							<button
+							<Button
+								variant="bare"
 								key={provider.id}
 								className={`models-tree-item provider ${selectedProviderId === provider.id ? "is-connected" : ""}`}
-								type="button"
 								onClick={() => {
 									onChangeProvider(provider.id);
 									setSelection({ type: "managed", providerId: provider.id });
@@ -617,14 +611,14 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								{provider.configured ? (
 									<span className="models-connected-dot" title={t("connectedDot")} />
 								) : null}
-							</button>
+							</Button>
 						))}
 						{providers.length && config.length ? <div className="models-tree-divider" /> : null}
 						{config.map((provider) => (
 							<div key={provider.id} className="models-tree-group">
-								<button
+								<Button
+									variant="bare"
 									className={`models-tree-item provider ${selection?.type === "provider" && selection.providerId === provider.id ? "is-active" : ""}`}
-									type="button"
 									onClick={() => {
 										setSelection({ type: "provider", providerId: provider.id });
 										resetDiscovery();
@@ -632,19 +626,19 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								>
 									<ProviderMark providerId={provider.id} name={provider.name ?? provider.id} />
 									<span>{provider.name ?? provider.id}</span>
-								</button>
+								</Button>
 								{provider.models?.map((model, index) => (
-									<button
+									<Button
+										variant="bare"
 										key={`${model.id}-${index}`}
 										className={`models-tree-item model ${selection?.type === "model" && selection.providerId === provider.id && selection.modelIndex === index ? "is-active" : ""}`}
-										type="button"
 										onClick={() =>
 											setSelection({ type: "model", providerId: provider.id, modelIndex: index })
 										}
 									>
 										<span>{model.name ?? model.id}</span>
 										{model.reasoning ? <span className="models-reasoning-badge">T</span> : null}
-									</button>
+									</Button>
 								))}
 							</div>
 						))}
@@ -675,7 +669,8 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								<code>anthropic/*:high</code>
 								{t("scopeDescription3")}
 							</p>
-							<textarea
+							<Field
+								as="textarea"
 								value={modelScopeText}
 								placeholder={"anthropic/*:high\nopenai/gpt-5*"}
 								spellCheck={false}
@@ -773,7 +768,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</div>
 							<label>
 								{t("providerName")}
-								<input
+								<Field
 									defaultValue={selectedProvider.id}
 									key={selectedProvider.id}
 									onBlur={(event) => renameProvider(event.target.value)}
@@ -781,7 +776,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</label>
 							<label>
 								{t("displayName")}
-								<input
+								<Field
 									value={selectedProvider.name ?? ""}
 									placeholder={selectedProvider.id}
 									onChange={(event) =>
@@ -794,7 +789,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</label>
 							<label>
 								Base URL
-								<input
+								<Field
 									className="mono"
 									value={selectedProvider.baseUrl ?? ""}
 									placeholder="https://api.example.com/v1"
@@ -810,7 +805,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							<label>
 								API Key
 								<div className="models-secret-input">
-									<input
+									<Field
 										className="mono"
 										type={showProviderApiKey ? "text" : "password"}
 										value={selectedProvider.apiKey ?? ""}
@@ -824,21 +819,22 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 											resetDiscovery();
 										}}
 									/>
-									<button
+									<Button
+										size="sm"
 										className="models-secret-toggle"
-										type="button"
 										aria-label={showProviderApiKey ? t("hideApiKey") : t("showApiKey")}
 										title={showProviderApiKey ? t("hideApiKey") : t("showApiKey")}
 										onClick={() => setShowProviderApiKey((visible) => !visible)}
 									>
 										{showProviderApiKey ? t("hide") : t("show")}
-									</button>
+									</Button>
 								</div>
 								<small>{t("apiKeyHint")}</small>
 							</label>
 							<label>
 								API
-								<select
+								<Field
+									as="select"
 									value={selectedProvider.api ?? "openai-completions"}
 									onChange={(event) =>
 										updateProvider(selectedProvider.id, (provider) => ({
@@ -850,7 +846,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									{API_OPTIONS.map((option) => (
 										<option key={option}>{option}</option>
 									))}
-								</select>
+								</Field>
 							</label>
 							<div className="models-discovery">
 								{discovery.phase !== "success" ? (
@@ -866,7 +862,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								{discovery.phase === "error" ? <p className="sidebar-error">{discovery.message}</p> : null}
 								{discovery.phase === "success" ? (
 									<>
-										<input
+										<Field
 											value={discoveryQuery}
 											placeholder={t("filterModelsCount", { count: discovery.models.length })}
 											onChange={(event) => setDiscoveryQuery(event.target.value)}
@@ -947,7 +943,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							<div className="models-form-grid">
 								<label>
 									{t("idLabel")}
-									<input
+									<Field
 										className="mono"
 										value={selectedModel.id}
 										onChange={(event) => updateModel((model) => ({ ...model, id: event.target.value }))}
@@ -955,7 +951,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								</label>
 								<label>
 									{t("nameLabel")}
-									<input
+									<Field
 										value={selectedModel.name ?? ""}
 										placeholder={t("displayNamePlaceholder")}
 										onChange={(event) =>
@@ -966,7 +962,8 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</div>
 							<label>
 								{t("apiOverride")}
-								<select
+								<Field
+									as="select"
 									value={selectedModel.api ?? ""}
 									onChange={(event) =>
 										updateModel((model) => ({ ...model, api: event.target.value || undefined }))
@@ -976,7 +973,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									{API_OPTIONS.map((option) => (
 										<option key={option}>{option}</option>
 									))}
-								</select>
+								</Field>
 							</label>
 							<div className="models-checks">
 								<label>
@@ -1014,14 +1011,14 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 										{t("deepseekCompatLabel")}
 									</label>
 								) : null}
-								<button
-									className="skill-version-button"
-									type="button"
+								<Button
+									size="sm"
+									variant="outline"
 									disabled={catalogFill.state === "loading"}
 									onClick={() => void handleCatalogFill()}
 								>
 									{catalogFill.state === "loading" ? t("querying") : t("fillFromCatalog")}
-								</button>
+								</Button>
 								<a
 									className="models-catalog-source"
 									href="https://github.com/anomalyco/models.dev"
@@ -1033,9 +1030,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									{t("catalogSource")}
 								</a>
 								{catalogUndo ? (
-									<button className="skill-version-button" type="button" onClick={undoCatalogFill}>
+									<Button size="sm" variant="outline" onClick={undoCatalogFill}>
 										{t("undoFill")}
-									</button>
+									</Button>
 								) : null}
 							</div>
 							{catalogFill.state === "success" ? (
@@ -1048,13 +1045,13 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									<div className="models-field-title models-thinking-map-heading">
 										<span>Thinking level map</span>
 										{selectedModel.thinkingLevelMap ? (
-											<button
-												className="skill-version-button"
-												type="button"
+											<Button
+												size="sm"
+												variant="outline"
 												onClick={() => updateModel((model) => ({ ...model, thinkingLevelMap: undefined }))}
 											>
 												{t("clear")}
-											</button>
+											</Button>
 										) : null}
 									</div>
 									<ThinkingLevelMapEditor
@@ -1066,7 +1063,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							<div className="models-form-grid">
 								<label>
 									{t("contextWindowLabel")}
-									<input
+									<Field
 										type="number"
 										value={selectedModel.contextWindow ?? ""}
 										placeholder="128000"
@@ -1080,7 +1077,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								</label>
 								<label>
 									{t("maxTokensLabel")}
-									<input
+									<Field
 										type="number"
 										value={selectedModel.maxTokens ?? ""}
 										placeholder="16384"
@@ -1099,7 +1096,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									{COST_FIELDS.map((field) => (
 										<label key={field}>
 											{field}
-											<input
+											<Field
 												type="number"
 												min="0"
 												step="0.01"
@@ -1155,17 +1152,14 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									/>
 								) : null}
 								{authenticationUrl ? (
-									<button
-										className="models-auth-link"
-										type="button"
-										onClick={() => void openExternalUrl(authenticationUrl)}
-									>
+									<Button size="sm" type="button" onClick={() => void openExternalUrl(authenticationUrl)}>
 										{t("openAuthPage")}
-									</button>
+									</Button>
 								) : null}
 								<p>{authenticationPrompt.message}</p>
 								{authenticationPrompt.type === "select" ? (
-									<select
+									<Field
+										as="select"
 										disabled={authenticationResolving}
 										value={authenticationResponse}
 										onChange={(event) => onChangeAuthenticationResponse(event.target.value)}
@@ -1175,9 +1169,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 												{option.label}
 											</option>
 										))}
-									</select>
+									</Field>
 								) : (
-									<input
+									<Field
 										disabled={authenticationResolving}
 										placeholder={authenticationPrompt.placeholder}
 										type={authenticationPrompt.type === "secret" ? "password" : "text"}
@@ -1199,13 +1193,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									/>
 								) : null}
 								{authenticationUrl ? (
-									<button
-										className="models-auth-link"
-										type="button"
-										onClick={() => void openExternalUrl(authenticationUrl)}
-									>
+									<Button size="sm" type="button" onClick={() => void openExternalUrl(authenticationUrl)}>
 										{t("openAuthPage")}
-									</button>
+									</Button>
 								) : null}
 							</div>
 						)}
@@ -1257,7 +1247,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 				>
 					<div className="models-provider-picker" role="dialog" aria-modal="true" aria-label={t("addProvider")}>
 						<div className="models-provider-picker-search">{t("addProvider")}</div>
-						<input
+						<Field
 							className="models-provider-picker-input"
 							ref={providerPickerInputRef}
 							value={providerPickerQuery}
@@ -1265,8 +1255,8 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							onChange={(event) => setProviderPickerQuery(event.target.value)}
 						/>
 						<div className="models-provider-picker-grid">
-							<button
-								type="button"
+							<Button
+								variant="bare"
 								onClick={() => {
 									addProvider();
 									setProviderPickerOpen(false);
@@ -1277,7 +1267,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									<small>{t("customEndpointSubtitle")}</small>
 								</span>
 								<b>＋</b>
-							</button>
+							</Button>
 							{providers
 								.filter((provider) => {
 									if (provider.configured) return false;
@@ -1289,9 +1279,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									);
 								})
 								.map((provider) => (
-									<button
+									<Button
+										variant="bare"
 										key={provider.id}
-										type="button"
 										disabled={settingUpProvider || providerSetupInProgress}
 										onClick={() => {
 											onChangeProvider(provider.id);
@@ -1311,7 +1301,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 											</small>
 										</span>
 										<ProviderMark providerId={provider.id} name={provider.name} />
-									</button>
+									</Button>
 								))}
 						</div>
 					</div>

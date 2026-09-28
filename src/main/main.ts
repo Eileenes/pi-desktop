@@ -26,6 +26,8 @@ import {
 	type DesktopDirectoryListing,
 	type DesktopImageAttachment,
 	type DesktopOpenWithApp,
+	type DesktopPromptReceipt,
+	type DesktopQueueReceipt,
 	type DesktopSnapshot,
 	type DesktopTerminalSession,
 	type DesktopWorkspaceChange,
@@ -52,6 +54,7 @@ import {
 	isDesktopRestoreMessageImagesInput,
 	isDesktopRevealProjectPathInput,
 	isDesktopSaveModelsConfigInput,
+	isDesktopSessionTargetInput,
 	isDesktopTerminalCloseInput,
 	isDesktopTerminalCreateInput,
 	isDesktopTerminalResizeInput,
@@ -84,13 +87,13 @@ const TRAY_ICON_WHITE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" 
 const TRAY_ICON_COLOR_BASE64 =
 	"iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAABjklEQVR4nO2ZvW6DMBRGv5ZKvARlqxTBC2RJ361pJNKdJWVpprqvwEuwBnVmYWFGArWTo/J/DdjgKmdiMPcefTK2hYEbcrmbq9Bm8/QzNOZy+Z7cb1IBimQXY+VHvTRFtI6ouNDgOUXrUMXvqQVlyorUJwnLlhXpMyisSpbar1dYtSylb6fwUrJD/VuFl5bltHk8jCm02z3D87xJMmEYYr9/EX6vkfBa0uXUfRqLtYiwZVlg7AsAwNgnfN9vHee6Lk6ndwBAEAQ4nz/oxqhuKpWE15Yu568XeadbC/oKr3U6cLifvgnrwk1YNkqEi6K4PhuGMamWEuEsy67P2+0WlvUI27ZH1VIinKYpkiQBADiOA8YYjse3UbWUzeHD4RVxHKMsy0l1Kocf0c3DNE04jgOgmqIM+AFo1HmYk+c5oiiax4iI3svaHP++ZNB5HtaBhvDaUq776J8wsJ6U2zw6E15auqt/75RYSrqv7+AcVi091I/00amSpvQhrxKypan1//cdRx1tbpHaUHVPpx2/NvmcOC+ox8YAAAAASUVORK5CYII=";
 
-const APP_ICON_PATH = join(currentDirectory, "..", "..", "build", "icon.png");
+const APP_ICON_PATH = join(app.getAppPath(), "build", process.platform === "darwin" ? "icon-mac.png" : "icon.png");
 
 function loadAppIcon(): NativeImage {
 	return nativeImage.createFromPath(APP_ICON_PATH);
 }
 
-/** Packaged and window icon: the same pi tile used inside the app. */
+/** Keep development Dock/window icons aligned with the packaged platform icon. */
 function getAppIcon(): NativeImage {
 	const icon = loadAppIcon();
 	return icon.isEmpty() ? nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_COLOR_BASE64}`) : icon;
@@ -544,14 +547,14 @@ function registerIpc(): void {
 			typeof importInput.targetDirectory === "string" ? importInput.targetDirectory : "",
 		);
 	});
-	ipcMain.handle("pi-desktop:prompt", async (event, value: unknown): Promise<DesktopSnapshot> => {
+	ipcMain.handle("pi-desktop:prompt", async (event, value: unknown): Promise<DesktopPromptReceipt> => {
 		assertMainWindowSender(event);
 		if (!isDesktopPromptInput(value)) {
 			throw new Error("无效的桌面端消息请求。");
 		}
 		const text = value.text.trim();
 		const attachmentIds = value.attachmentIds ?? [];
-		if (!text && attachmentIds.length === 0) return getHost().getSnapshot();
+		if (!text && attachmentIds.length === 0) throw new Error("消息不能为空。");
 		if (text.length > 100_000) {
 			throw new Error("桌面端消息不能超过 100,000 个字符。");
 		}
@@ -560,22 +563,32 @@ function registerIpc(): void {
 			if (!attachment) throw new Error("所选图片已失效，请重新选择。");
 			return attachment.image;
 		});
-		const snapshot = await getHost().prompt(
+		const receipt = await getHost().prompt(
+			value.sessionId,
+			value.requestId,
 			text,
 			images,
 			value.streamingBehavior,
 			value.sessionReferenceLabels ?? [],
 		);
-		await Promise.all(attachmentIds.map((id) => removePendingImageAttachment(id)));
-		return snapshot;
+		await Promise.all(
+			attachmentIds.map((id) =>
+				removePendingImageAttachment(id).catch((error: unknown) => {
+					console.error("Failed to remove accepted image attachment", error);
+				}),
+			),
+		);
+		return receipt;
 	});
-	ipcMain.handle("pi-desktop:abort", async (event): Promise<DesktopSnapshot> => {
+	ipcMain.handle("pi-desktop:abort", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
-		return getHost().abort();
+		if (!isDesktopSessionTargetInput(value)) throw new Error("无效的会话停止请求。");
+		return getHost().abort(value.sessionId);
 	});
-	ipcMain.handle("pi-desktop:clear-queue", async (event): Promise<DesktopSnapshot> => {
+	ipcMain.handle("pi-desktop:clear-queue", async (event, value: unknown): Promise<DesktopQueueReceipt> => {
 		assertMainWindowSender(event);
-		return getHost().clearQueue();
+		if (!isDesktopSessionTargetInput(value)) throw new Error("无效的会话队列请求。");
+		return getHost().clearQueue(value.sessionId);
 	});
 	ipcMain.handle("pi-desktop:open-session", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
@@ -879,12 +892,12 @@ function registerIpc(): void {
 	 * Integrated terminal. The renderer never supplies a directory: the host owns
 	 * the trusted project root, and it is what every shell is opened in.
 	 */
-	ipcMain.handle("pi-desktop:set-permission-mode", (event, value: unknown): void => {
+	ipcMain.handle("pi-desktop:set-permission-mode", (event, value: unknown): DesktopSnapshot => {
 		assertMainWindowSender(event);
 		if (!isDesktopPermissionModeInput(value)) {
 			throw new Error("无效的权限模式。");
 		}
-		getHost().setPermissionMode(value.mode);
+		return getHost().setPermissionMode(value.sessionId, value.mode);
 	});
 	ipcMain.handle("pi-desktop:terminal-create", (event, value: unknown): DesktopTerminalSession => {
 		assertMainWindowSender(event);

@@ -5,6 +5,27 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+/** Plain folders have no Git entries; other command failures must remain visible. */
+async function readGitListing(cwd: string, args: string[]): Promise<string> {
+	try {
+		const { stdout } = await execFileAsync("git", args, { cwd, env: { ...process.env, LC_ALL: "C" } });
+		return stdout;
+	} catch (error) {
+		if (
+			typeof error === "object" &&
+			error !== null &&
+			"code" in error &&
+			error.code === 128 &&
+			"stderr" in error &&
+			typeof error.stderr === "string" &&
+			/^fatal: not a git repository\b/mu.test(error.stderr)
+		) {
+			return "";
+		}
+		throw error;
+	}
+}
+
 export type GitChangeStatus = "added" | "conflict" | "deleted" | "modified" | "renamed" | "untracked";
 
 export interface GitChange {
@@ -41,7 +62,7 @@ function parseStatusLine(line: string): GitChange | undefined {
 }
 
 export async function listGitChanges(cwd: string): Promise<GitChange[]> {
-	const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd });
+	const stdout = await readGitListing(cwd, ["status", "--porcelain"]);
 	return stdout
 		.split("\n")
 		.map(parseStatusLine)
@@ -136,7 +157,7 @@ export async function switchGitBranch(cwd: string, branch: string): Promise<void
 }
 
 export async function listGitWorktrees(cwd: string): Promise<GitWorktree[]> {
-	const { stdout } = await execFileAsync("git", ["worktree", "list", "--porcelain"], { cwd });
+	const stdout = await readGitListing(cwd, ["worktree", "list", "--porcelain"]);
 	const worktrees: GitWorktree[] = [];
 	let currentPath: string | undefined;
 	let currentBranch: string | undefined;

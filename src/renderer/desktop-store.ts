@@ -9,12 +9,13 @@ import type {
 	DesktopNavigateTreeInput,
 	DesktopOpenSessionInput,
 	DesktopOpenWithApp,
-	DesktopPermissionModeInput,
 	DesktopPluginPackageFilterInput,
 	DesktopPluginPackagesResult,
+	DesktopPromptReceipt,
 	DesktopProviderConfig,
 	DesktopProviderModelConfig,
 	DesktopProviderSetupInput,
+	DesktopQueueReceipt,
 	DesktopRemoveWorktreeResult,
 	DesktopRestoreImageAttachmentsInput,
 	DesktopRestoreMessageImagesInput,
@@ -145,31 +146,30 @@ export function importDroppedFiles(files: File[], overwriteConflicts = false, ta
 }
 
 export async function submitPrompt(
+	sessionId: string,
 	text: string,
 	attachmentIds: string[],
 	streamingBehavior?: "steer" | "followUp",
 	sessionReferenceLabels: string[] = [],
-): Promise<DesktopSnapshot> {
-	const next = await window.piDesktop.prompt({
+): Promise<DesktopPromptReceipt> {
+	return window.piDesktop.prompt({
+		sessionId,
+		requestId: crypto.randomUUID(),
 		text,
 		...(attachmentIds.length ? { attachmentIds } : {}),
 		...(sessionReferenceLabels.length ? { sessionReferenceLabels } : {}),
 		...(streamingBehavior === undefined ? {} : { streamingBehavior }),
 	});
+}
+
+export async function abortSession(sessionId: string): Promise<DesktopSnapshot> {
+	const next = await window.piDesktop.abort({ sessionId });
 	publish(next);
 	return next;
 }
 
-export async function abortSession(): Promise<DesktopSnapshot> {
-	const next = await window.piDesktop.abort();
-	publish(next);
-	return next;
-}
-
-export async function clearSessionQueue(): Promise<DesktopSnapshot> {
-	const next = await window.piDesktop.clearQueue();
-	publish(next);
-	return next;
+export function clearSessionQueue(sessionId: string): Promise<DesktopQueueReceipt> {
+	return window.piDesktop.clearQueue({ sessionId });
 }
 
 export async function openSession(input: DesktopOpenSessionInput): Promise<DesktopSnapshot> {
@@ -414,8 +414,9 @@ export function openWorkspaceWith(appId: string): Promise<void> {
 	return window.piDesktop.openWorkspaceWith({ appId });
 }
 
-export function setPermissionMode(mode: "ask" | "autoEdit" | "full"): Promise<void> {
-	return window.piDesktop.setPermissionMode({ mode });
+export async function setPermissionMode(sessionId: string, mode: "ask" | "autoEdit" | "full"): Promise<void> {
+	const next = await window.piDesktop.setPermissionMode({ sessionId, mode });
+	publish(next);
 }
 
 export function createTerminal(cols: number, rows: number): Promise<DesktopTerminalSession> {

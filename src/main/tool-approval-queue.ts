@@ -33,11 +33,13 @@ export class ToolApprovalQueue {
 		return Array.from(this.pending.values(), (pending) => pending.approval);
 	}
 
-	request(input: Omit<DesktopToolApproval, "id" | "requestedAt">, groupKey?: string): Promise<boolean> {
+	request(input: Omit<DesktopToolApproval, "id" | "requestedAt" | "expiresAt">, groupKey?: string): Promise<boolean> {
+		const requestedAt = this.now();
 		const approval: DesktopToolApproval = {
 			...input,
 			id: this.createId(),
-			requestedAt: this.now(),
+			requestedAt,
+			expiresAt: requestedAt + this.timeoutMs,
 		};
 
 		return new Promise((resolve) => {

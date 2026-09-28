@@ -38,8 +38,10 @@ import type {
 	DesktopPluginPackage,
 	DesktopPluginPackageFilterInput,
 	DesktopPluginPackagesResult,
+	DesktopPromptReceipt,
 	DesktopProviderConfig,
 	DesktopProviderModelConfig,
+	DesktopQueueReceipt,
 	DesktopRemoveWorktreeResult,
 	DesktopSessionInfo,
 	DesktopSessionPhase,
@@ -60,8 +62,8 @@ import type {
 	DesktopWorkspaceFilePreview,
 } from "../shared/contracts.ts";
 import { expandSessionReferences } from "../shared/session-reference.ts";
+import { permitsTool } from "../shared/tool-permissions.ts";
 import { AuthenticationPromptQueue } from "./authentication-prompt-queue.ts";
-import { AUTO_EDIT_TOOLS } from "./developer-tools-shared.ts";
 import { ExtensionCustomUiController, ExtensionDialogQueue } from "./extension-ui-controller.ts";
 import {
 	addGitWorktree as gitAddWorktree,
@@ -83,6 +85,7 @@ import {
 	writeModelsConfig,
 } from "./models-config-store.ts";
 import { listOpenWithApps, openWith } from "./open-with-apps.ts";
+import { startPromptSubmission } from "./prompt-submission.ts";
 import { SecurityAuditLog } from "./security-audit-log.ts";
 import { listIndexedSessions } from "./session-index.ts";
 import {
@@ -173,6 +176,8 @@ interface ManagedSession {
 	workspacePath?: string;
 	sessionDirectory: string;
 	projectTrusted: boolean;
+	permissionMode: DesktopPermissionMode;
+	submitting: boolean;
 	unsubscribe: () => void;
 	error?: string;
 	modelScope?: DesktopModelScopeStatus;
@@ -507,11 +512,6 @@ function toPhase(session: AgentSession, error: string | undefined): DesktopSessi
 
 export class DesktopAgentHost {
 	private readonly agentDir: string;
-	/**
-	 * Approval policy for tool calls. Defaults to asking every time; the
-	 * permissive modes are only ever set from an explicit user choice.
-	 */
-	private permissionMode: DesktopPermissionMode = "ask";
 	private readonly approvalQueue: ToolApprovalQueue;
 	private readonly authenticationPromptQueue: AuthenticationPromptQueue;
 	private readonly trustStore: WorkspaceTrustStore;
@@ -629,6 +629,7 @@ export class DesktopAgentHost {
 			id: this.session.sessionId,
 			...(this.session.sessionName === undefined ? {} : { name: this.session.sessionName }),
 			phase: toPhase(this.session, this.error),
+			permissionMode: activeManaged?.permissionMode ?? "ask",
 			pendingMessages: [
 				...this.session.getSteeringMessages().map((text) => ({ behavior: "steer" as const, text })),
 				...this.session.getFollowUpMessages().map((text) => ({ behavior: "followUp" as const, text })),
@@ -867,9 +868,15 @@ export class DesktopAgentHost {
 					hidden: true,
 					factory: (pi) => {
 						pi.on("tool_call", async (event) => {
-							if (this.autoApproves(event.toolName)) return undefined;
+							const owner = [...this.managedSessions.values()].find((item) => item.lifecycleId === lifecycleId);
+							if (!owner)
+								return { block: true, reason: "Desktop session is no longer available.", terminate: true };
+							if (permitsTool(owner.permissionMode, event.toolName)) return undefined;
 							const approved = await this.approvalQueue.request(
 								{
+									sessionId: owner.id,
+									sessionName: owner.session.sessionName,
+									workspacePath: owner.workspacePath,
 									toolCallId: event.toolCallId,
 									toolName: event.toolName,
 									input: event.input,
@@ -878,7 +885,7 @@ export class DesktopAgentHost {
 							);
 							return approved
 								? undefined
-								: { block: true, reason: "Desktop user denied this tool call.", terminate: true };
+								: { block: true, reason: "Desktop tool approval was denied or expired.", terminate: true };
 						});
 					},
 				},
@@ -908,6 +915,8 @@ export class DesktopAgentHost {
 			...(options.workspacePath ? { workspacePath: options.workspacePath } : {}),
 			sessionDirectory: options.sessionDirectory,
 			projectTrusted: options.projectTrusted,
+			permissionMode: "ask",
+			submitting: false,
 			unsubscribe: () => undefined,
 			...(created.modelFallbackMessage ? { error: "没有可用模型。请在设置中配置模型服务商。" } : {}),
 			modelScope:
@@ -1105,50 +1114,78 @@ export class DesktopAgentHost {
 	}
 
 	async prompt(
+		sessionId: string,
+		requestId: string,
 		text: string,
 		images: DesktopPromptImage[] = [],
 		streamingBehavior?: "steer" | "followUp",
 		sessionReferenceLabels: readonly string[] = [],
-	): Promise<DesktopSnapshot> {
-		if (this.providerSetupInProgress) {
-			throw new Error("请先完成当前模型服务商配置，再发送消息。");
-		}
-		if (!this.session) {
-			throw new Error("请先选择项目，再发送消息。");
-		}
-		const managed = this.activeSessionId ? this.managedSessions.get(this.activeSessionId) : undefined;
-		if (!managed) throw new Error("当前智能体会话未注册。");
+	): Promise<DesktopPromptReceipt> {
+		if (this.providerSetupInProgress) throw new Error("请先完成当前模型服务商配置，再发送消息。");
+		const managed = this.requireManagedSession(sessionId);
 		const session = managed.session;
-
-		if (session.sessionName === undefined) {
-			const trimmed = text.trim().replace(/\s+/gu, " ");
-			if (trimmed) {
-				const name = trimmed.length > 40 ? `${trimmed.slice(0, 40)}…` : trimmed;
-				session.sessionManager.appendSessionInfo(name);
-			}
-		}
-
+		if (managed.submitting) throw new Error("上一条输入仍在确认中，请稍后重试。");
 		if (session.isStreaming && streamingBehavior === undefined) {
 			throw new Error("智能体运行中，请选择立即引导或排队跟进。");
 		}
 		if (session.isStreaming && images.length > 0) {
 			throw new Error("智能体运行中不能在引导或排队消息中附加图片。");
 		}
-
+		const expandedText = this.resolveSessionReferences(text, sessionReferenceLabels);
+		managed.submitting = true;
 		managed.error = undefined;
 		if (this.activeSessionId === managed.id) this.error = undefined;
-		try {
-			await session.prompt(this.resolveSessionReferences(text, sessionReferenceLabels), {
+		const submission = startPromptSubmission((preflightResult) =>
+			session.prompt(expandedText, {
 				images: images.map((image) => ({ ...image, type: "image" as const })),
 				source: "interactive",
+				preflightResult,
 				...(streamingBehavior === undefined ? {} : { streamingBehavior }),
-			});
-		} catch (error) {
+			}),
+		);
+		// Observe the run immediately, even if the renderer switches tasks or closes.
+		void submission.completed
+			.then(
+				() => this.finishPrompt(managed),
+				(error: unknown) => this.finishPrompt(managed, error),
+			)
+			.catch((error: unknown) => console.error("Failed to publish prompt completion", error));
+		try {
+			await submission.accepted;
+			try {
+				if (session.sessionName === undefined) {
+					const name = text.trim().replace(/\s+/gu, " ");
+					if (name) session.sessionManager.appendSessionInfo(name.length > 40 ? `${name.slice(0, 40)}…` : name);
+				}
+				this.finishPrompt(managed);
+			} catch (error) {
+				// Once Pi accepted the input, a display/metadata failure must not invite resubmission.
+				console.error("Failed to publish accepted prompt", error);
+			}
+			return { sessionId, requestId };
+		} finally {
+			managed.submitting = false;
+		}
+	}
+
+	private finishPrompt(managed: ManagedSession, error?: unknown): void {
+		if (this.managedSessions.get(managed.id) !== managed) return;
+		if (error !== undefined) {
 			managed.error = error instanceof Error ? error.message : String(error);
 			if (this.activeSessionId === managed.id) this.error = managed.error;
 		}
-		await this.refreshSessions();
-		return this.publish();
+		this.publish();
+		void this.refreshSessions()
+			.then(() => this.publish())
+			.catch((reason: unknown) => {
+				console.error("Failed to refresh sessions after a prompt", reason);
+			});
+	}
+
+	private requireManagedSession(sessionId: string): ManagedSession {
+		const managed = this.managedSessions.get(sessionId);
+		if (!managed) throw new Error("当前智能体会话已关闭，请重新打开后重试。");
+		return managed;
 	}
 
 	private resolveSessionReferences(text: string, confirmedLabels: readonly string[]): string {
@@ -1181,19 +1218,23 @@ export class DesktopAgentHost {
 		});
 	}
 
-	async abort(): Promise<DesktopSnapshot> {
-		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
-		if (!this.session.isStreaming && !this.session.isCompacting) return this.getSnapshot();
-		const managed = this.activeSessionId ? this.managedSessions.get(this.activeSessionId) : undefined;
-		if (managed) this.approvalQueue.cancelGroup(managed.lifecycleId);
-		await this.session.abort();
+	async abort(sessionId: string): Promise<DesktopSnapshot> {
+		const managed = this.requireManagedSession(sessionId);
+		this.approvalQueue.cancelGroup(managed.lifecycleId);
+		await managed.session.abort();
 		return this.publish();
 	}
 
-	async clearQueue(): Promise<DesktopSnapshot> {
-		if (!this.session) throw new Error("本地智能体会话尚未就绪。");
-		this.session.clearQueue();
-		return this.publish();
+	async clearQueue(sessionId: string): Promise<DesktopQueueReceipt> {
+		const { steering, followUp } = this.requireManagedSession(sessionId).session.clearQueue();
+		this.publish();
+		return {
+			sessionId,
+			messages: [
+				...steering.map((text) => ({ behavior: "steer" as const, text })),
+				...followUp.map((text) => ({ behavior: "followUp" as const, text })),
+			],
+		};
 	}
 
 	getActiveSessionFile(): string {
@@ -1518,7 +1559,7 @@ export class DesktopAgentHost {
 			throw new Error("This tool approval request is no longer pending.");
 		}
 		this.auditLog.write("tool.approval", approved ? "allowed" : "denied", {
-			...(approval ? { toolName: approval.toolName } : {}),
+			...(approval ? { toolName: approval.toolName, sessionId: approval.sessionId } : {}),
 		});
 		return this.getSnapshot();
 	}
@@ -2549,28 +2590,15 @@ export class DesktopAgentHost {
 		return queued;
 	}
 
-	setPermissionMode(mode: DesktopPermissionMode): void {
-		this.permissionMode = mode;
-		this.auditLog.write("tool.approval", "allowed", { policy: mode });
-		// Leaving a call pending after the user grants the mode that covers it
-		// denies the next one and stops the task. Full access covers every call;
-		// auto-edit covers file changes only.
+	setPermissionMode(sessionId: string, mode: DesktopPermissionMode): DesktopSnapshot {
+		const managed = this.requireManagedSession(sessionId);
+		managed.permissionMode = mode;
+		this.auditLog.write("tool.approval", "allowed", { policy: mode, sessionId });
 		const covered = this.approvalQueue
 			.getPendingApprovals()
-			.filter((approval) => this.autoApproves(approval.toolName))
-			.map((approval) => approval.id);
-		for (const id of covered) this.approvalQueue.resolve(id, true);
-	}
-
-	/**
-	 * Tools the current policy lets through without a prompt. "autoEdit" covers
-	 * file changes only: running commands still needs the user, which keeps a
-	 * silent install impossible unless "full" was chosen deliberately.
-	 */
-	private autoApproves(toolName: string): boolean {
-		if (this.permissionMode === "full") return true;
-		if (this.permissionMode === "autoEdit") return AUTO_EDIT_TOOLS.has(toolName);
-		return false;
+			.filter((approval) => approval.sessionId === sessionId && permitsTool(mode, approval.toolName));
+		for (const approval of covered) this.approvalQueue.resolve(approval.id, true);
+		return this.publish();
 	}
 
 	private getTrustedWorkspaceBrowser(): TrustedWorkspaceBrowser {

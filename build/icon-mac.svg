@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 32 32">
+  <title>Pi Desktop</title>
+  <rect x="3" y="3" width="26" height="26" rx="6" fill="#fff"/>
+  <path fill="#333" d="M8.6 10.4h14.8v2.8h-2.3v8.8h-2.8v-8.8h-4.6v8.8h-2.8v-8.8H8.6Z"/>
+</svg>

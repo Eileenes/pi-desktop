@@ -1,5 +1,5 @@
 import type { CSSProperties, FormEvent, ReactNode } from "react";
-import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import type {
 	DesktopAuthenticationPrompt,
@@ -22,6 +22,7 @@ import type {
 } from "../shared/contracts.ts";
 import { formatSessionReference } from "../shared/session-reference.ts";
 import { flattenSessionTree } from "../shared/session-tree.ts";
+import { permitsTool } from "../shared/tool-permissions.ts";
 import { parseAnsiLine } from "./ansi.ts";
 import { type AppAccent, AppSettingsModal, isAppAccent } from "./app-settings-modal.tsx";
 import { BranchNavigator } from "./branch-navigator.tsx";
@@ -65,7 +66,6 @@ import {
 	notifyComplete,
 	onExtensionUi,
 	onWorkspaceChanged,
-	openDefaultWorkspace,
 	openSession,
 	openWorkspaceFile,
 	openWorkspacePath,
@@ -99,6 +99,7 @@ import {
 import { ExtensionCustomPanel, ExtensionWidgetStack } from "./extension-custom-panel.tsx";
 import { ExtensionDialog } from "./extension-dialog.tsx";
 import { type I18n, type TranslationKey, useI18n } from "./i18n.ts";
+import { appShortcutFor, isComposingInput } from "./keyboard-shortcuts.ts";
 import { MarkdownBody } from "./markdown.tsx";
 import { Menu, MenuDivider, MenuEmpty, MenuFilter, MenuHeading, MenuItem } from "./menu.tsx";
 import { ModelsConfigModal } from "./models-config-modal.tsx";
@@ -241,14 +242,9 @@ function permissionActionFor(toolName: string): PermissionAction {
 }
 
 /** The mode that lets this tool through without another prompt. */
-function permissionNeededFor(action: PermissionAction): DesktopPermissionMode {
-	return action === "command" || action === "tool" ? "full" : "autoEdit";
-}
-
-function autoApprovesTool(mode: DesktopPermissionMode, toolName: string): boolean {
-	if (mode === "full") return true;
-	if (mode === "autoEdit") return EDIT_PERMISSION_TOOLS.has(toolName);
-	return false;
+function permissionNeededFor(action: PermissionAction): DesktopPermissionMode | undefined {
+	if (action === "read") return undefined;
+	return action === "edit" ? "autoEdit" : "full";
 }
 
 function lastDeniedTool(
@@ -946,14 +942,26 @@ function useCompletionAudio(): { play: () => void; unlock: () => void } {
 }
 
 interface ToolApprovalCardProps {
+	onOpenSession: (sessionId: string) => void;
 	approval: DesktopToolApproval;
 	resolving: boolean;
 	onDecide: (id: string, approved: boolean) => Promise<void>;
 }
 
-const ToolApprovalCard = memo(function ToolApprovalCard({ approval, resolving, onDecide }: ToolApprovalCardProps) {
+const ToolApprovalCard = memo(function ToolApprovalCard({
+	approval,
+	resolving,
+	onDecide,
+	onOpenSession,
+}: ToolApprovalCardProps) {
 	const { t } = useI18n();
 	const inputText = JSON.stringify(approval.input, null, 2);
+	const [now, setNow] = useState(Date.now);
+	useEffect(() => {
+		const timer = window.setInterval(() => setNow(Date.now()), 1000);
+		return () => window.clearInterval(timer);
+	}, []);
+	const seconds = Math.max(0, Math.ceil((approval.expiresAt - now) / 1000));
 	return (
 		<article className="approval-card">
 			<div className="card-heading">
@@ -963,12 +971,19 @@ const ToolApprovalCard = memo(function ToolApprovalCard({ approval, resolving, o
 				</div>
 				<span className="card-id">{approval.toolCallId.slice(0, 8)}</span>
 			</div>
+			<div className="approval-context">
+				<button type="button" className="quiet-button" onClick={() => onOpenSession(approval.sessionId)}>
+					{approval.sessionName ?? approval.sessionId}
+				</button>
+				{approval.workspacePath ? <code>{approval.workspacePath}</code> : null}
+				<small>{t("approvalExpires", { seconds })}</small>
+			</div>
 			<pre>{inputText}</pre>
 			<div className="card-actions">
 				<button
 					type="button"
 					className="quiet-button"
-					disabled={resolving}
+					disabled={resolving || seconds === 0}
 					onClick={() => void onDecide(approval.id, false)}
 				>
 					{t("reject")}
@@ -976,7 +991,7 @@ const ToolApprovalCard = memo(function ToolApprovalCard({ approval, resolving, o
 				<button
 					type="button"
 					className="accent-button"
-					disabled={resolving}
+					disabled={resolving || seconds === 0}
 					onClick={() => void onDecide(approval.id, true)}
 				>
 					{resolving ? t("processing") : t("allowOnce")}
@@ -1694,6 +1709,7 @@ function Explorer({
 		| undefined
 	>();
 	const [gitChanges, setGitChanges] = useState<DesktopGitChange[]>([]);
+	const [gitError, setGitError] = useState<string>();
 
 	const loadDirectory = useCallback(async (path: string): Promise<void> => {
 		setDirectoryNodes((current) => ({
@@ -1758,8 +1774,9 @@ function Explorer({
 		void loadDirectory(directoryReload.path);
 	}, [directoryReload, loadDirectory]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reloadSignal invalidates Git after filesystem and task events.
 	useEffect(() => {
-		setUploadDirectory("");
+		setGitError(undefined);
 		if (!workspacePath || !isTrusted) {
 			setGitChanges([]);
 			return;
@@ -1769,14 +1786,17 @@ function Explorer({
 			(changes) => {
 				if (!cancelled) setGitChanges(changes);
 			},
-			() => {
-				if (!cancelled) setGitChanges([]);
+			(error: unknown) => {
+				if (!cancelled) {
+					setGitChanges([]);
+					setGitError(error instanceof Error ? error.message : String(error));
+				}
 			},
 		);
 		return () => {
 			cancelled = true;
 		};
-	}, [workspacePath, isTrusted]);
+	}, [workspacePath, isTrusted, reloadSignal]);
 
 	// Composer-style search reuses the bounded deep workspace index.
 	useEffect(() => {
@@ -1888,7 +1908,14 @@ function Explorer({
 	}
 
 	function renderChangedFiles(): ReactNode {
-		if (searchQuery.trim() || gitChanges.length === 0) return null;
+		if (searchQuery.trim()) return null;
+		if (gitError)
+			return (
+				<p className="sidebar-error" role="alert">
+					{t("gitLoadFailed", { message: gitError })}
+				</p>
+			);
+		if (gitChanges.length === 0) return null;
 		return (
 			<section className="changed-files-section">
 				<button
@@ -2105,6 +2132,8 @@ interface FileTab {
 }
 
 function Inspector({
+	workspacePath,
+	reloadSignal,
 	tabs,
 	activeTabPath,
 	changedHint,
@@ -2117,6 +2146,8 @@ function Inspector({
 	onCopyContent,
 	onQuoteLines,
 }: {
+	workspacePath: string | undefined;
+	reloadSignal: number;
 	tabs: FileTab[];
 	activeTabPath: string | undefined;
 	changedHint: boolean;
@@ -2135,6 +2166,8 @@ function Inspector({
 	const [wrapLines, setWrapLines] = useState(() => localStorage.getItem("pi-desktop-file-wrap") === "on");
 	const [diffText, setDiffText] = useState<string>();
 	const [diffLoading, setDiffLoading] = useState(false);
+	const [diffError, setDiffError] = useState<string>();
+	const [diffRetry, setDiffRetry] = useState(0);
 	const sourceRootRef = useRef<HTMLDivElement>(null);
 	const [selectedLineRange, setSelectedLineRange] = useState<{ start: number; end: number }>();
 	const activeTab = tabs.find((tab) => tab.path === activeTabPath);
@@ -2146,21 +2179,31 @@ function Inspector({
 	const isPreviewable = preview ? isMarkdownFile(preview.path) || isHtmlFile(preview.path) || isDocx : false;
 	const previewPath = preview?.path;
 
-	const loadDiff = useCallback(async (path: string) => {
-		setDiffLoading(true);
-		try {
-			setDiffText(await getGitDiff(path));
-		} catch {
-			setDiffText("");
-		} finally {
-			setDiffLoading(false);
-		}
-	}, []);
-
+	// biome-ignore lint/correctness/useExhaustiveDependencies: revisions and explicit retries reload the same file.
 	useEffect(() => {
-		if (mode !== "diff" || !previewPath) return;
-		void loadDiff(previewPath);
-	}, [loadDiff, mode, previewPath]);
+		if (mode !== "diff" || !previewPath || !workspacePath) return;
+		let current = true;
+		setDiffLoading(true);
+		setDiffText(undefined);
+		setDiffError(undefined);
+		void getGitDiff(previewPath).then(
+			(text) => {
+				if (current) {
+					setDiffText(text);
+					setDiffLoading(false);
+				}
+			},
+			(error: unknown) => {
+				if (current) {
+					setDiffError(error instanceof Error ? error.message : String(error));
+					setDiffLoading(false);
+				}
+			},
+		);
+		return () => {
+			current = false;
+		};
+	}, [mode, previewPath, workspacePath, reloadSignal, diffRetry]);
 
 	useEffect(() => {
 		setMode(
@@ -2425,6 +2468,13 @@ function Inspector({
 				) : mode === "diff" ? (
 					diffLoading ? (
 						<p className="inspector-diff-empty">{t("loadingDiff")}</p>
+					) : diffError ? (
+						<div className="inspector-diff-empty" role="alert">
+							<p>{t("diffLoadFailed", { message: diffError })}</p>
+							<button type="button" className="quiet-button" onClick={() => setDiffRetry((value) => value + 1)}>
+								{t("retry")}
+							</button>
+						</div>
 					) : diffText ? (
 						<div className="file-preview-source is-diff-view">
 							{diffText.split("\n").map((line, index) => (
@@ -2560,13 +2610,9 @@ export function App() {
 	const [moreMenuOpen, setMoreMenuOpen] = useState(false);
 	const [terminalOpen, setTerminalOpen] = useState(false);
 	const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
-	/*
-	 * Approval policy mirrored for display; the host owns the real policy.
-	 */
-	const [permissionMode, setPermissionModeState] = useState<DesktopPermissionMode>(() => {
-		const stored = localStorage.getItem("pi-desktop-permission-mode");
-		return stored === "autoEdit" || stored === "full" ? stored : "ask";
-	});
+	const permissionMode = snapshot.session?.permissionMode ?? "ask";
+	const permissionRiskSessionRef = useRef<string | undefined>(undefined);
+
 	const [openWithMenuOpen, setOpenWithMenuOpen] = useState(false);
 	const [openWithApps, setOpenWithApps] = useState<DesktopOpenWithApp[]>([]);
 	const [openWithAppId, setOpenWithAppId] = useState(() => localStorage.getItem("pi-desktop-open-with") ?? "finder");
@@ -2591,7 +2637,8 @@ export function App() {
 			return [];
 		}
 	});
-	const [submittingSessionId, setSubmittingSessionId] = useState<string>();
+	const [submittingSessionIds, setSubmittingSessionIds] = useState<Set<string>>(new Set());
+	const submittingSessionsRef = useRef(new Set<string>());
 	const [aborting, setAborting] = useState(false);
 	const [allowingPermission, setAllowingPermission] = useState(false);
 	const [awayFromBottom, setAwayFromBottom] = useState(false);
@@ -2641,16 +2688,15 @@ export function App() {
 	);
 
 	const applyPermissionMode = useCallback(
-		async (mode: DesktopPermissionMode): Promise<void> => {
-			setPermissionModeState(mode);
-			localStorage.setItem("pi-desktop-permission-mode", mode);
+		async (mode: DesktopPermissionMode, sessionId = snapshot.session?.id): Promise<void> => {
+			if (!sessionId) return;
 			try {
-				await setPermissionMode(mode);
+				await setPermissionMode(sessionId, mode);
 			} catch (error) {
 				pushNotice("error", error instanceof Error ? error.message : String(error));
 			}
 		},
-		[pushNotice],
+		[pushNotice, snapshot.session?.id],
 	);
 
 	const handlePermissionChange = useCallback(
@@ -2658,23 +2704,18 @@ export function App() {
 			/*
 			 * Full access is the one mode that removes the per-call confirmation
 			 * step, so the risk is acknowledged in a dialog before the host policy
-			 * moves. The remembered mode is applied at launch without asking again.
+			 * moves. The choice applies only to the originating session.
 			 */
 			if (mode === "full" && permissionMode !== "full") {
 				setComposerMenu(undefined);
+				permissionRiskSessionRef.current = snapshot.session?.id;
 				setPermissionRiskOpen(true);
 				return;
 			}
 			await applyPermissionMode(mode);
 		},
-		[applyPermissionMode, permissionMode],
+		[applyPermissionMode, permissionMode, snapshot.session?.id],
 	);
-
-	// The host holds the policy, so the remembered choice is re-applied on launch.
-	useEffect(() => {
-		const stored = localStorage.getItem("pi-desktop-permission-mode");
-		void setPermissionMode(stored === "autoEdit" || stored === "full" ? stored : "ask").catch(() => undefined);
-	}, []);
 
 	const handleToggleOpenWithMenu = useCallback((): void => {
 		setMoreMenuOpen(false);
@@ -2758,6 +2799,7 @@ export function App() {
 	const [automaticThinkingModelKey, setAutomaticThinkingModelKey] = useState<string>();
 	const [suggestionIndex, setSuggestionIndex] = useState(0);
 	const fileRequestId = useRef(0);
+	const fileOpenRequestId = useRef(0);
 	const chatScrollRef = useRef<HTMLDivElement>(null);
 	const earlierMessagesSentinelRef = useRef<HTMLDivElement>(null);
 	const scrollFrameRef = useRef<number | undefined>(undefined);
@@ -2776,7 +2818,7 @@ export function App() {
 	const draftBeforeHistoryRef = useRef("");
 	const hydratedDraftKeyRef = useRef<string | undefined>(undefined);
 	const extensionEditorRequestRef = useRef<number | undefined>(undefined);
-	const previousPhaseRef = useRef<DesktopSessionPhase | undefined>(undefined);
+	const previousPhaseRef = useRef<{ id: string; phase: DesktopSessionPhase } | undefined>(undefined);
 	const previousSessionPhasesRef = useRef<Map<string, DesktopSessionPhase | undefined>>(new Map());
 	const soundedExtensionDialogIdRef = useRef<string | undefined>(undefined);
 	const restorationAttemptedRef = useRef(false);
@@ -2840,7 +2882,7 @@ export function App() {
 		[recentWorkspaces, snapshot.sessions],
 	);
 	const currentSessionPath = snapshot.sessions.find((item) => item.id === session?.id)?.path;
-	const submitting = submittingSessionId === session?.id;
+	const submitting = !!session?.id && submittingSessionIds.has(session.id);
 	const draftKey = `${DRAFT_STORAGE_PREFIX}${session?.id ?? snapshot.workspacePath ?? "new"}`;
 	const lastMessage = session?.messages.at(-1);
 	const messageSignature = `${session?.id ?? ""}:${session?.messages.length ?? 0}:${lastMessage?.id ?? ""}:${lastMessage?.text.length ?? 0}`;
@@ -3145,22 +3187,28 @@ export function App() {
 	};
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
-			if (!(event.metaKey || event.ctrlKey)) return;
-			if (event.key.toLowerCase() === "k") {
-				event.preventDefault();
-				promptRef.current?.focus();
-			} else if (event.key.toLowerCase() === "n") {
-				event.preventDefault();
-				void shortcutStateRef.current.newSession();
-			} else if (event.key.toLowerCase() === "j") {
-				// Matches the reference app's terminal toggle binding.
-				event.preventDefault();
-				void shortcutStateRef.current.toggleTerminal();
-			}
+			if (isComposingInput(event, composingRef.current)) return;
+			const target = event.target instanceof Element ? event.target : undefined;
+			const command = appShortcutFor(
+				event,
+				Boolean(document.querySelector('[role="dialog"], [role="alertdialog"], dialog[open]')),
+				Boolean(target?.closest(".xterm")),
+			);
+			if (!command) return;
+			event.preventDefault();
+			if (command === "search") setSearchOpen((open) => !open);
+			else if (command === "focusComposer") promptRef.current?.focus();
+			else if (command === "newSession") void shortcutStateRef.current.newSession();
+			else if (command === "toggleTerminal") shortcutStateRef.current.toggleTerminal();
 		};
 		window.addEventListener("keydown", onKeyDown);
 		const onEscape = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
+			if (event.key !== "Escape" || event.defaultPrevented || isComposingInput(event, composingRef.current)) return;
+			if (
+				document.querySelector('[role="dialog"], [role="alertdialog"], dialog[open]') ||
+				(event.target instanceof Element && event.target.closest(".xterm"))
+			)
+				return;
 			const shortcutState = shortcutStateRef.current;
 			setMenusDismissed(true);
 			setComposerMenu(undefined);
@@ -3213,16 +3261,7 @@ export function App() {
 		document.documentElement.dataset.accent = accent;
 		localStorage.setItem("pi-desktop-accent", accent);
 	}, [accent]);
-	// Search is a dialog, so it needs a shortcut rather than a field on screen.
-	useEffect(() => {
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "k" || !(event.metaKey || event.ctrlKey)) return;
-			event.preventDefault();
-			setSearchOpen((open) => !open);
-		};
-		window.addEventListener("keydown", onKeyDown);
-		return () => window.removeEventListener("keydown", onKeyDown);
-	}, []);
+
 	useEffect(() => {
 		if (!themeFollowsSystem) return;
 		const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -3348,12 +3387,17 @@ export function App() {
 	}, [session?.id]);
 	useEffect(() => {
 		const phase = session?.phase;
-		if (previousPhaseRef.current === "running" && phase === "idle") {
+		if (
+			previousPhaseRef.current?.id === session?.id &&
+			previousPhaseRef.current?.phase === "running" &&
+			phase === "idle"
+		) {
+			setExplorerReloadSignal((value) => value + 1);
 			if (soundOnComplete) playCompletionTone();
 			if (notifyOnComplete && !document.hasFocus()) void notifyComplete(session?.name);
 		}
-		previousPhaseRef.current = phase;
-	}, [notifyOnComplete, playCompletionTone, session?.name, session?.phase, soundOnComplete]);
+		previousPhaseRef.current = session?.id && phase ? { id: session.id, phase } : undefined;
+	}, [notifyOnComplete, playCompletionTone, session?.id, session?.name, session?.phase, soundOnComplete]);
 	useEffect(() => {
 		if (!extensionDialog || extensionDialogSessionId !== session?.id) return;
 		if (soundedExtensionDialogIdRef.current === extensionDialog.id) return;
@@ -3446,6 +3490,7 @@ export function App() {
 
 	useEffect(() => {
 		fileRequestId.current += 1;
+		fileOpenRequestId.current += 1;
 		setWorkspaceEntries([]);
 		setFileTabs([]);
 		setActiveTabPath(undefined);
@@ -3554,22 +3599,32 @@ export function App() {
 				setExtensionCustomUi({ sessionId: event.sessionId, id: event.id, lines: event.lines });
 			}
 		});
+		let active = true;
+		let previewRevision = 0;
 		const unsubscribeChanges = onWorkspaceChanged((changes) => {
 			if (!snapshot.projectTrusted || !snapshot.workspacePath) return;
 			void refreshWorkspaceFiles();
 			setExplorerReloadSignal((value) => value + 1);
 			if (activeTabPath && changes.some((change) => change.path === activeTabPath)) {
+				const workspacePath = snapshot.workspacePath;
+				const requestId = ++previewRevision;
 				void readWorkspaceFile(activeTabPath)
 					.then((preview) => {
+						if (!active || requestId !== previewRevision || getDesktopSnapshot().workspacePath !== workspacePath)
+							return;
 						setFileTabs((tabs) =>
 							tabs.map((tab) => (tab.path === preview.path ? { path: preview.path, preview } : tab)),
 						);
 						setChangedFileHint(false);
 					})
-					.catch(() => setChangedFileHint(true));
+					.catch(() => {
+						if (active && requestId === previewRevision && getDesktopSnapshot().workspacePath === workspacePath)
+							setChangedFileHint(true);
+					});
 			}
 		});
 		return () => {
+			active = false;
 			unsubscribeExtensionUi();
 			unsubscribeChanges();
 		};
@@ -3734,27 +3789,34 @@ export function App() {
 		localStorage.removeItem(submissionDraftKey);
 		localStorage.removeItem(`${submissionDraftKey}:attachments`);
 		if (getDesktopSnapshot().session?.id !== submissionSessionId) return;
-		startTransition(() => {
-			setAttachments([]);
-			setDraft("");
-		});
+		setAttachments([]);
+		setDraft("");
 	}
 
-	async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
-		event.preventDefault();
+	function markSubmitting(sessionId: string | undefined, busy: boolean): void {
+		if (!sessionId) return;
+		if (busy) submittingSessionsRef.current.add(sessionId);
+		else submittingSessionsRef.current.delete(sessionId);
+		setSubmittingSessionIds(new Set(submittingSessionsRef.current));
+	}
+
+	async function handleSubmit(event?: FormEvent<HTMLFormElement>, behavior?: "steer" | "followUp"): Promise<void> {
+		event?.preventDefault();
 		if (!canSubmit) return;
 		unlockCompletionAudio();
 		const submissionSessionId = session?.id;
+		if (!submissionSessionId || submittingSessionsRef.current.has(submissionSessionId)) return;
 		const submissionDraftKey = draftKey;
 		rememberPrompt(draft);
-		if (await handleDesktopSlashCommand(draft)) {
-			startTransition(() => setDraft(""));
+		if (draft.trim().startsWith("/") && (await handleDesktopSlashCommand(draft))) {
+			localStorage.removeItem(submissionDraftKey);
+			if (getDesktopSnapshot().session?.id === submissionSessionId) setDraft("");
 			return;
 		}
 		if (draft.startsWith("!") && !draft.startsWith("!!")) {
 			const command = draft.slice(1).trim();
 			if (command) {
-				setSubmittingSessionId(submissionSessionId);
+				markSubmitting(submissionSessionId, true);
 				setActionError(undefined);
 				try {
 					const output = await executeBashCommand(command, false);
@@ -3763,7 +3825,7 @@ export function App() {
 				} catch (error) {
 					pushNotice("error", error instanceof Error ? error.message : String(error));
 				} finally {
-					setSubmittingSessionId((current) => (current === submissionSessionId ? undefined : current));
+					markSubmitting(submissionSessionId, false);
 				}
 			}
 			return;
@@ -3771,7 +3833,7 @@ export function App() {
 		if (draft.startsWith("!!")) {
 			const command = draft.slice(2).trim();
 			if (command) {
-				setSubmittingSessionId(submissionSessionId);
+				markSubmitting(submissionSessionId, true);
 				setActionError(undefined);
 				try {
 					const output = await executeBashCommand(command, true);
@@ -3780,26 +3842,33 @@ export function App() {
 				} catch (error) {
 					pushNotice("error", error instanceof Error ? error.message : String(error));
 				} finally {
-					setSubmittingSessionId((current) => (current === submissionSessionId ? undefined : current));
+					markSubmitting(submissionSessionId, false);
 				}
 			}
 			return;
 		}
-		if (session?.phase === "running") return;
-		setSubmittingSessionId(submissionSessionId);
+		if (getDesktopSnapshot().session?.id !== submissionSessionId) return;
+		if (session?.phase === "running" && attachments.length > 0) {
+			setActionError(t("noImagesWhileRunning"));
+			return;
+		}
+		markSubmitting(submissionSessionId, true);
 		setActionError(undefined);
 		try {
 			await submitPrompt(
+				submissionSessionId,
 				draft,
 				attachments.map((attachment) => attachment.id),
-				undefined,
+				behavior ?? (session?.phase === "running" ? "steer" : undefined),
 				[...selectedSessionReferenceLabelsRef.current],
 			);
 			clearSubmittedComposer(submissionSessionId, submissionDraftKey);
 		} catch (error) {
-			setActionError(error instanceof Error ? error.message : String(error));
+			if (getDesktopSnapshot().session?.id === submissionSessionId) {
+				setActionError(error instanceof Error ? error.message : String(error));
+			}
 		} finally {
-			setSubmittingSessionId((current) => (current === submissionSessionId ? undefined : current));
+			markSubmitting(submissionSessionId, false);
 		}
 	}
 
@@ -3808,7 +3877,7 @@ export function App() {
 		setAborting(true);
 		setActionError(undefined);
 		try {
-			await abortSession();
+			if (session?.id) await abortSession(session.id);
 		} catch (error) {
 			setActionError(error instanceof Error ? error.message : String(error));
 		} finally {
@@ -3866,11 +3935,12 @@ export function App() {
 
 	function confirmPermissionRisk(): void {
 		setPermissionRiskOpen(false);
-		void applyPermissionMode("full");
+		if (permissionRiskSessionRef.current) void applyPermissionMode("full", permissionRiskSessionRef.current);
+		permissionRiskSessionRef.current = undefined;
 	}
 
 	const blockedApproval = snapshot.pendingToolApprovals.find(
-		(approval) => !autoApprovesTool(permissionMode, approval.toolName),
+		(approval) => approval.sessionId === session?.id && !permitsTool(permissionMode, approval.toolName),
 	);
 	const deniedTool = blockedApproval ? undefined : lastDeniedTool(session?.messages);
 	const promptTool = blockedApproval?.toolName ?? deniedTool;
@@ -4317,11 +4387,12 @@ export function App() {
 
 	const handleOpenFile = useCallback(async (entry: DesktopWorkspaceEntry): Promise<void> => {
 		if (!isFileEntry(entry)) return;
-		const requestId = ++fileRequestId.current;
+		const requestId = ++fileOpenRequestId.current;
+		const workspacePath = getDesktopSnapshot().workspacePath;
 		setFileExplorerError(undefined);
 		try {
 			const preview = await readWorkspaceFile(entry.path);
-			if (requestId === fileRequestId.current) {
+			if (requestId === fileOpenRequestId.current && getDesktopSnapshot().workspacePath === workspacePath) {
 				setFileTabs((tabs) => {
 					if (tabs.some((tab) => tab.path === preview.path)) return tabs;
 					return [...tabs, { path: preview.path, preview }];
@@ -4330,7 +4401,7 @@ export function App() {
 				setInspectorOpen(true);
 			}
 		} catch (error) {
-			if (requestId === fileRequestId.current) {
+			if (requestId === fileOpenRequestId.current && getDesktopSnapshot().workspacePath === workspacePath) {
 				setFileExplorerError(error instanceof Error ? error.message : String(error));
 			}
 		}
@@ -5689,6 +5760,13 @@ export function App() {
 								{snapshot.pendingToolApprovals.map((approval) => (
 									<ToolApprovalCard
 										approval={approval}
+										onOpenSession={(sessionId) => {
+											const owner = snapshot.sessions.find((item) => item.id === sessionId);
+											if (owner)
+												void openSession({ sessionPath: owner.path }).catch((error: unknown) =>
+													setActionError(String(error)),
+												);
+										}}
 										key={approval.id}
 										onDecide={handleToolApproval}
 										resolving={resolvingApprovalId === approval.id}
@@ -5811,9 +5889,21 @@ export function App() {
 											type="button"
 											onClick={() => {
 												void (async () => {
-													const texts = session.pendingMessages.map((message) => message.text);
 													try {
-														await clearSessionQueue();
+														const queueSessionId = session.id;
+														const receipt = await clearSessionQueue(queueSessionId);
+														const texts = receipt.messages.map((message) => message.text);
+														if (!texts.length) return;
+														if (getDesktopSnapshot().session?.id !== queueSessionId) {
+															const key = `${DRAFT_STORAGE_PREFIX}${queueSessionId}`;
+															localStorage.setItem(
+																key,
+																[texts.join("\n\n"), localStorage.getItem(key)]
+																	.filter(Boolean)
+																	.join("\n\n"),
+															);
+															return;
+														}
 														setDraft((current) =>
 															current ? `${texts.join("\n\n")}\n\n${current}` : texts.join("\n\n"),
 														);
@@ -6151,6 +6241,7 @@ export function App() {
 									void handleDroppedImages(files);
 								}}
 								onKeyDown={(event) => {
+									if (isComposingInput(event.nativeEvent, composingRef.current)) return;
 									if (historyMenuOpen) {
 										if (event.key === "ArrowUp" || event.key === "ArrowDown") {
 											event.preventDefault();
@@ -6221,7 +6312,9 @@ export function App() {
 										!event.nativeEvent.isComposing
 									) {
 										event.preventDefault();
-										event.currentTarget.form?.requestSubmit();
+										if (event.altKey && session?.phase === "running")
+											void handleSubmit(undefined, "followUp");
+										else event.currentTarget.form?.requestSubmit();
 									}
 								}}
 								placeholder={
@@ -6479,7 +6572,27 @@ export function App() {
 										</button>
 									) : null}
 								</div>
-								{session?.phase === "running" ? null : (
+								{session?.phase === "running" ? (
+									<div className="composer-running-actions">
+										<button
+											className="quiet-button"
+											type="button"
+											disabled={!canSubmit || attachments.length > 0}
+											title={t("followUpShortcut")}
+											onClick={() => void handleSubmit(undefined, "followUp")}
+										>
+											{t("queueFollowUp")}
+										</button>
+										<button
+											className="accent-button"
+											type="submit"
+											disabled={!canSubmit || attachments.length > 0}
+											title={t("steerShortcut")}
+										>
+											{t("steerNow")}
+										</button>
+									</div>
+								) : (
 									<>
 										<ContextUsageRing
 											stats={snapshot.sessionStats}
@@ -6655,6 +6768,9 @@ export function App() {
 					</header>
 					<div className="right-panel-body">
 						<Inspector
+							key={`${snapshot.workspacePath ?? ""}:${activeTabPath ?? ""}`}
+							workspacePath={snapshot.workspacePath}
+							reloadSignal={explorerReloadSignal}
 							changedHint={changedFileHint}
 							onReloadChanged={() => {
 								setChangedFileHint(false);

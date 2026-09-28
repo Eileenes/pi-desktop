@@ -31,3 +31,11 @@ for (const assetReference of assetReferences) {
 	}
 	await access(assetPath);
 }
+
+// Runtime Dock icons are loaded from app.getAppPath(), including in the asar.
+for (const icon of [packageJson.build.icon, packageJson.build.mac.icon]) {
+	await access(resolve(appDirectory, icon));
+}
+if (!packageJson.build.files.includes("build/icon*.png")) {
+	throw new Error("Runtime application icons must be included in the packaged app.");
+}

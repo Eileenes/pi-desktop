@@ -43,6 +43,7 @@ export interface DesktopSessionSnapshot {
 	id: string;
 	name?: string;
 	phase: DesktopSessionPhase;
+	permissionMode?: DesktopPermissionMode;
 	pendingMessages: Array<{
 		behavior: "steer" | "followUp";
 		text: string;
@@ -87,6 +88,10 @@ export interface DesktopSessionInfo {
 
 export interface DesktopToolApproval {
 	id: string;
+	sessionId: string;
+	sessionName?: string;
+	workspacePath?: string;
+	expiresAt: number;
 	toolCallId: string;
 	toolName: string;
 	input: unknown;
@@ -580,7 +585,19 @@ export interface DesktopOpenWorkspacePathInput {
 	path: string;
 }
 
-export interface DesktopPromptInput {
+export interface DesktopSessionTargetInput {
+	sessionId: string;
+}
+
+export interface DesktopPromptReceipt extends DesktopSessionTargetInput {
+	requestId: string;
+}
+
+export interface DesktopQueueReceipt extends DesktopSessionTargetInput {
+	messages: DesktopSessionSnapshot["pendingMessages"];
+}
+
+export interface DesktopPromptInput extends DesktopPromptReceipt {
 	text: string;
 	attachmentIds?: string[];
 	/** Labels explicitly selected from the session mention menu. */
@@ -621,7 +638,7 @@ export interface DesktopProjectTrustInput {
  */
 export type DesktopPermissionMode = "ask" | "autoEdit" | "full";
 
-export interface DesktopPermissionModeInput {
+export interface DesktopPermissionModeInput extends DesktopSessionTargetInput {
 	mode: DesktopPermissionMode;
 }
 
@@ -771,9 +788,9 @@ export interface DesktopApi {
 		overwriteConflicts?: boolean,
 		targetDirectory?: string,
 	): Promise<DesktopImportedFileResult[]>;
-	prompt(input: DesktopPromptInput): Promise<DesktopSnapshot>;
-	abort(): Promise<DesktopSnapshot>;
-	clearQueue(): Promise<DesktopSnapshot>;
+	prompt(input: DesktopPromptInput): Promise<DesktopPromptReceipt>;
+	abort(input: DesktopSessionTargetInput): Promise<DesktopSnapshot>;
+	clearQueue(input: DesktopSessionTargetInput): Promise<DesktopQueueReceipt>;
 	openSession(input: DesktopOpenSessionInput): Promise<DesktopSnapshot>;
 	newSession(): Promise<DesktopSnapshot>;
 	navigateTree(input: DesktopNavigateTreeInput): Promise<DesktopSnapshot>;
@@ -845,7 +862,7 @@ export interface DesktopApi {
 	toggleWindowMaximize(): Promise<boolean>;
 	closeWindow(): Promise<void>;
 	/** Sets the approval policy for tool calls in new and running sessions. */
-	setPermissionMode(input: DesktopPermissionModeInput): Promise<void>;
+	setPermissionMode(input: DesktopPermissionModeInput): Promise<DesktopSnapshot>;
 	getModelsConfig(): Promise<DesktopProviderConfig[]>;
 	saveModelsConfig(input: DesktopSaveModelsConfigInput): Promise<DesktopSnapshot>;
 	getModelScope(): Promise<DesktopModelScope>;
@@ -894,6 +911,8 @@ export function isDesktopPromptInput(value: unknown): value is DesktopPromptInpu
 	if (
 		!keys.every(
 			(key) =>
+				key === "sessionId" ||
+				key === "requestId" ||
 				key === "text" ||
 				key === "attachmentIds" ||
 				key === "sessionReferenceLabels" ||
@@ -901,7 +920,8 @@ export function isDesktopPromptInput(value: unknown): value is DesktopPromptInpu
 		)
 	)
 		return false;
-	if (typeof input.text !== "string") return false;
+	if (typeof input.text !== "string" || input.text.length > 100_000) return false;
+	if (!isSessionId(input.sessionId) || !isSessionId(input.requestId)) return false;
 	if (
 		input.streamingBehavior !== undefined &&
 		input.streamingBehavior !== "steer" &&
@@ -1287,7 +1307,9 @@ export function isDesktopWorkspaceDirectoryPath(value: unknown): value is string
 
 export function isDesktopPermissionModeInput(value: unknown): value is DesktopPermissionModeInput {
 	return (
-		isExactRecord(value, ["mode"]) && (value.mode === "ask" || value.mode === "autoEdit" || value.mode === "full")
+		isExactRecord(value, ["sessionId", "mode"]) &&
+		isSessionId(value.sessionId) &&
+		(value.mode === "ask" || value.mode === "autoEdit" || value.mode === "full")
 	);
 }
 
@@ -1335,4 +1357,12 @@ export function isDesktopTerminalResizeInput(value: unknown): value is DesktopTe
 
 export function isDesktopTerminalCloseInput(value: unknown): value is DesktopTerminalCloseInput {
 	return isExactRecord(value, ["id"]) && isTerminalId(value.id);
+}
+
+function isSessionId(value: unknown): value is string {
+	return typeof value === "string" && value.length > 0 && value.length <= 200;
+}
+
+export function isDesktopSessionTargetInput(value: unknown): value is DesktopSessionTargetInput {
+	return isExactRecord(value, ["sessionId"]) && isSessionId(value.sessionId);
 }

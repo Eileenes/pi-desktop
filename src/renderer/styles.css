@@ -11644,3 +11644,28 @@ body.is-resizing-terminal {
 }
 
 
+
+/* Running input stays available alongside the stop control. */
+.composer-running-actions {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+.composer-running-actions button {
+	white-space: nowrap;
+	padding: 6px 10px;
+	font-size: 12px;
+}
+.approval-context {
+	display: grid;
+	justify-items: start;
+	gap: 6px;
+	margin: 10px 0;
+}
+.approval-context code {
+	overflow-wrap: anywhere;
+	font-size: 12px;
+}
+.approval-context small {
+	color: var(--text-muted);
+}

@@ -65,6 +65,7 @@
 		"icon": "build/icon.png",
 		"files": [
 			"dist/**/*",
+			"build/icon*.png",
 			"package.json",
 			"node_modules/@earendil-works/pi-coding-agent/**/*",
 			"node_modules/@earendil-works/pi-coding-agent/node_modules/**/*",
@@ -84,6 +85,7 @@
 			"releaseType": "release"
 		},
 		"mac": {
+			"icon": "build/icon-mac.png",
 			"artifactName": "Pi-Agent-${version}-${arch}.${ext}",
 			"target": [
 				"dmg",

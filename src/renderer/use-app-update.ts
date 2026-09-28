@@ -71,7 +71,11 @@ function applyDownloadState(state: DesktopUpdateDownloadState): void {
 			publish({ phase: "downloading", download: state });
 			return;
 		case "completed":
-			publish({ phase: "ready", download: state });
+			if (snapshot.phase === "installing") return;
+			publish({ phase: "installing", download: state, message: undefined });
+			void installUpdate().catch((error: unknown) =>
+				publish({ phase: "failed", message: error instanceof Error ? error.message : String(error) }),
+			);
 			return;
 		case "failed":
 			publish({ phase: "failed", download: state, message: state.message });

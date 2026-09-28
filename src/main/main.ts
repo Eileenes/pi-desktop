@@ -18,7 +18,7 @@ import {
 	nativeImage,
 	Tray,
 } from "electron";
-import electronUpdater from "electron-updater";
+import electronUpdater, { type CancellationToken } from "electron-updater";
 import type { Response as FetchResponse } from "undici-types";
 import {
 	type DesktopConfirmedPluginActionResult,
@@ -30,6 +30,7 @@ import {
 	type DesktopQueueReceipt,
 	type DesktopSnapshot,
 	type DesktopTerminalSession,
+	type DesktopUpdateDownloadState,
 	type DesktopWorkspaceChange,
 	isDesktopAddWorktreeInput,
 	isDesktopAuthenticationPromptResponseInput,
@@ -67,7 +68,7 @@ import {
 } from "../shared/contracts.ts";
 import { isNewerVersion } from "../shared/version.ts";
 import { DesktopAgentHost, type DesktopPromptImage } from "./desktop-agent-host.ts";
-import { DesktopUpdateDownloader, selectUpdateAssets } from "./desktop-updater.ts";
+import { DesktopUpdateDownloader, downloadElectronUpdate, selectUpdateAssets } from "./desktop-updater.ts";
 import { importDroppedFiles } from "./dropped-file-import.ts";
 import { getImageMimeType, imageExtensionFor } from "./image-mime.ts";
 import { loadWindowState, trackWindowState, type WindowStateTracker } from "./window-state.ts";
@@ -82,6 +83,9 @@ let closeQuits = false;
 let windowStateTracker: WindowStateTracker | undefined;
 let updateDownloader: DesktopUpdateDownloader | undefined;
 let latestReleaseAssets: ReturnType<typeof selectUpdateAssets> = [];
+let packagedDownloadState: DesktopUpdateDownloadState | undefined;
+let packagedDownloadToken: CancellationToken | undefined;
+let packagedUpdateReady = false;
 
 const TRAY_ICON_WHITE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><path fill="#1a1a1a" d="M3 5h8v1.8H7.8v1.4h2.9V10H7.8v3H3V5Zm11 0h1.8v1.8H14V5Zm0 2.6h1.8V13H14V7.6Z" opacity="0.9"/></svg>`;
 const TRAY_ICON_COLOR_BASE64 =
@@ -159,35 +163,44 @@ function sendWorkspaceChanges(changes: DesktopWorkspaceChange[]): void {
 function configureAutoUpdater(): void {
 	if (!app.isPackaged) return;
 	/*
-	 * The in-app button owns the download. electron-updater's silent
-	 * auto-download races that path and only reports failure to the console,
-	 * so a click looks like nothing happened.
+	 * The in-app button owns the download. electron-updater must not auto-download
+	 * in the background, or a click looks like nothing happened.
+	 * Once that button-driven download finishes, quitAndInstall replaces the app.
 	 */
 	autoUpdater.autoDownload = false;
-	autoUpdater.autoInstallOnAppQuit = false;
+	autoUpdater.autoInstallOnAppQuit = true;
+	autoUpdater.autoRunAppAfterInstall = true;
 	autoUpdater.logger = null;
-	autoUpdater.on("update-downloaded", async (info) => {
-		if (!mainWindow || mainWindow.isDestroyed()) return;
-		const result = await dialog.showMessageBox(mainWindow, {
-			type: "info",
-			buttons: ["立即重启安装", "稍后"],
-			defaultId: 0,
-			cancelId: 1,
-			title: "Pi Desktop 有新版本",
-			message: `版本 ${info.version} 已下载完成。`,
-			detail: "重启应用后将完成更新。",
-		});
-		if (result.response === 0) {
-			isQuitting = true;
-			autoUpdater.quitAndInstall(false, true);
-		}
-	});
 	autoUpdater.on("error", (error) => {
 		console.error("自动更新失败:", error);
 	});
-	void autoUpdater.checkForUpdates().catch((error: unknown) => {
-		console.error("自动更新检查失败:", error);
+}
+
+function publishPackagedDownloadState(state: DesktopUpdateDownloadState): void {
+	packagedDownloadState = state;
+	if (mainWindow && !mainWindow.isDestroyed()) {
+		mainWindow.webContents.send("pi-desktop:update-download-progress", state);
+	}
+}
+
+function applyDownloadedUpdate(): void {
+	if (!app.isPackaged || !packagedUpdateReady) {
+		throw new Error("请先下载更新安装包。");
+	}
+	isQuitting = true;
+	autoUpdater.quitAndInstall(true, true);
+}
+
+async function downloadPackagedUpdate(): Promise<DesktopUpdateDownloadState> {
+	if (packagedDownloadToken || updateDownloader?.isBusy()) {
+		throw new Error("已有更新下载正在进行，请先取消。");
+	}
+	packagedUpdateReady = false;
+	const state = await downloadElectronUpdate(autoUpdater, publishPackagedDownloadState, (token) => {
+		packagedDownloadToken = token;
 	});
+	if (state.phase === "completed") packagedUpdateReady = true;
+	return state;
 }
 
 function assertMainWindowSender(event: IpcMainInvokeEvent): void {
@@ -1153,19 +1166,30 @@ function registerIpc(): void {
 		if (!isDesktopUpdateDownloadInput(value)) {
 			throw new Error("无效的更新下载请求。");
 		}
+		if (app.isPackaged) {
+			return downloadPackagedUpdate();
+		}
 		if (!updateDownloader) throw new Error("更新组件尚未就绪。");
 		return updateDownloader.download(value.assetName, latestReleaseAssets);
 	});
 	ipcMain.handle("pi-desktop:cancel-update-download", (event): void => {
 		assertMainWindowSender(event);
+		if (packagedDownloadToken) {
+			packagedDownloadToken.cancel();
+			return;
+		}
 		updateDownloader?.cancel();
 	});
 	ipcMain.handle("pi-desktop:get-update-download-state", (event) => {
 		assertMainWindowSender(event);
-		return updateDownloader?.getState() ?? { phase: "idle" };
+		return packagedDownloadState ?? updateDownloader?.getState() ?? { phase: "idle" };
 	});
 	ipcMain.handle("pi-desktop:install-update", async (event): Promise<void> => {
 		assertMainWindowSender(event);
+		if (app.isPackaged) {
+			applyDownloadedUpdate();
+			return;
+		}
 		if (!updateDownloader) throw new Error("更新组件尚未就绪。");
 		await updateDownloader.install();
 	});

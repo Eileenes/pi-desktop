@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { DesktopUpdateDownloadState, DesktopUpdateInfo } from "../shared/contracts.ts";
 import {
+	cancelUpdateDownload,
 	checkForUpdates,
 	downloadUpdate,
 	getUpdateDownloadState,
@@ -8,7 +9,7 @@ import {
 	onUpdateDownloadProgress,
 } from "./desktop-store.ts";
 
-export type AppUpdatePhase = "idle" | "checking" | "available" | "downloading" | "ready" | "failed";
+export type AppUpdatePhase = "idle" | "checking" | "available" | "downloading" | "installing" | "ready" | "failed";
 
 export interface AppUpdateState {
 	phase: AppUpdatePhase;
@@ -19,6 +20,7 @@ export interface AppUpdateState {
 	message?: string;
 	check: () => void;
 	download: () => void;
+	cancel: () => void;
 	install: () => void;
 }
 
@@ -52,9 +54,15 @@ function readSnapshot(): Snapshot {
 	return snapshot;
 }
 
-/** Which asset the desktop would download for this machine. */
+const INSTALLER_ASSET = /\.(dmg|exe|appimage)$/iu;
+
+/** Native installer first; a zip is only the fallback. */
 function preferredAsset(info: DesktopUpdateInfo | undefined): string | undefined {
-	return info?.assets?.find((asset) => asset.sizeBytes > 0)?.name;
+	const assets = info?.assets ?? [];
+	return (
+		assets.find((asset) => INSTALLER_ASSET.test(asset.name) && asset.sizeBytes > 0) ??
+		assets.find((asset) => asset.sizeBytes > 0)
+	)?.name;
 }
 
 function applyDownloadState(state: DesktopUpdateDownloadState): void {
@@ -111,18 +119,30 @@ export function useAppUpdate(): AppUpdateState {
 	const download = useCallback(() => {
 		const assetName = preferredAsset(snapshot.info);
 		if (!assetName) {
-			publish({ phase: "failed", message: undefined });
+			publish({ phase: "failed", message: "no-installer" });
 			return;
 		}
-		publish({ phase: "downloading" });
+		publish({
+			phase: "downloading",
+			message: undefined,
+			download: { phase: "downloading", assetName, receivedBytes: 0 },
+		});
 		void downloadUpdate(assetName).then(applyDownloadState, (error: unknown) =>
 			publish({ phase: "failed", message: error instanceof Error ? error.message : String(error) }),
 		);
 	}, []);
-	const install = useCallback(() => {
-		void installUpdate().catch((error: unknown) =>
+	const cancel = useCallback(() => {
+		void cancelUpdateDownload().catch((error: unknown) =>
 			publish({ phase: "failed", message: error instanceof Error ? error.message : String(error) }),
 		);
+	}, []);
+	const install = useCallback(() => {
+		publish({ phase: "installing", message: undefined });
+		void installUpdate()
+			.then(() => publish({ phase: "ready", message: "opened" }))
+			.catch((error: unknown) =>
+				publish({ phase: "failed", message: error instanceof Error ? error.message : String(error) }),
+			);
 	}, []);
 
 	return {
@@ -136,6 +156,7 @@ export function useAppUpdate(): AppUpdateState {
 		...(current.message ? { message: current.message } : {}),
 		check,
 		download,
+		cancel,
 		install,
 	};
 }

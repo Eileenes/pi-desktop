@@ -158,8 +158,13 @@ function sendWorkspaceChanges(changes: DesktopWorkspaceChange[]): void {
 
 function configureAutoUpdater(): void {
 	if (!app.isPackaged) return;
-	autoUpdater.autoDownload = true;
-	autoUpdater.autoInstallOnAppQuit = true;
+	/*
+	 * The in-app button owns the download. electron-updater's silent
+	 * auto-download races that path and only reports failure to the console,
+	 * so a click looks like nothing happened.
+	 */
+	autoUpdater.autoDownload = false;
+	autoUpdater.autoInstallOnAppQuit = false;
 	autoUpdater.logger = null;
 	autoUpdater.on("update-downloaded", async (info) => {
 		if (!mainWindow || mainWindow.isDestroyed()) return;

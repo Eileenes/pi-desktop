@@ -1,12 +1,12 @@
-import { memo } from "react";
+import { type CSSProperties, memo } from "react";
 import { useI18n } from "./i18n.ts";
 import { updatePercent, useAppUpdate } from "./use-app-update.ts";
 
 function DownloadIcon() {
 	return (
 		<svg
-			width="13"
-			height="13"
+			width="14"
+			height="14"
 			viewBox="0 0 24 24"
 			fill="none"
 			stroke="currentColor"
@@ -21,53 +21,68 @@ function DownloadIcon() {
 }
 
 /**
- * A small download icon beside the version. Clicking starts the download; while
- * it runs the same icon shows progress and cannot be clicked again.
+ * Visible update status. The footer used to be an 18px icon whose only progress
+ * lived in a tooltip, so a click looked like nothing was downloading or installing.
  */
 export const UpdateButton = memo(function UpdateButton({ variant }: { variant: "footer" | "settings" }) {
 	const { t } = useI18n();
 	const update = useAppUpdate();
 	const percent = updatePercent(update);
-	const className = variant === "footer" ? "footer-update-button" : "settings-update-button";
+	const detailed = variant === "settings";
+	const percentLabel = percent === undefined ? "…" : `${percent}%`;
 
 	if (update.phase === "idle" || update.phase === "checking") return null;
 
 	if (update.phase === "downloading") {
-		const label =
-			percent === undefined
-				? t("updateDownloading", { percent: "…" })
-				: t("updateDownloading", { percent: String(percent) });
+		const label = t("updateDownloading", { percent: percentLabel });
 		return (
-			<button className={`${className} is-busy`} type="button" disabled aria-label={label} title={label}>
+			<output
+				className={`update-status is-downloading is-${variant}`}
+				style={{ "--update-progress": `${percent ?? 8}%` } as CSSProperties}
+			>
+				<span className="update-status-fill" aria-hidden="true" />
 				<DownloadIcon />
+				<span>{detailed ? label : percentLabel}</span>
+				<button className="update-status-cancel" type="button" onClick={() => update.cancel()}>
+					{t("cancelDownload")}
+				</button>
+			</output>
+		);
+	}
+
+	if (update.phase === "installing") {
+		return (
+			<button className={`update-status is-installing is-${variant}`} type="button" disabled>
+				{t("updateInstalling")}
 			</button>
 		);
 	}
 
 	if (update.phase === "ready") {
+		const opened = update.message === "opened";
 		return (
 			<button
-				className={className}
+				className={`update-status is-ready is-${variant}`}
 				type="button"
-				aria-label={t("updateInstallNow")}
-				title={t("updateInstallHint")}
+				title={opened ? t("updateOpenedHint") : t("updateInstallHint")}
 				onClick={() => update.install()}
 			>
-				<DownloadIcon />
+				{opened ? t("updateOpened") : t("updateInstallNow")}
 			</button>
 		);
 	}
 
 	if (update.phase === "failed") {
+		const detail =
+			update.message === "no-installer" ? t("noInstallerForPlatform") : (update.message ?? t("updateRetry"));
 		return (
 			<button
-				className={className}
+				className={`update-status is-failed is-${variant}`}
 				type="button"
-				aria-label={t("updateRetry")}
-				title={update.message ?? t("updateRetry")}
+				title={detail}
 				onClick={() => update.download()}
 			>
-				<DownloadIcon />
+				{detailed ? detail : t("updateRetry")}
 			</button>
 		);
 	}
@@ -75,8 +90,14 @@ export const UpdateButton = memo(function UpdateButton({ variant }: { variant: "
 	if (!update.latestVersion) return null;
 	const label = t("updateToVersion", { version: update.latestVersion });
 	return (
-		<button className={className} type="button" aria-label={label} title={label} onClick={() => update.download()}>
+		<button
+			className={`update-status is-available is-${variant}`}
+			type="button"
+			title={label}
+			onClick={() => update.download()}
+		>
 			<DownloadIcon />
+			<span>{detailed ? label : t("update")}</span>
 		</button>
 	);
 });

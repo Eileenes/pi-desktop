@@ -1,17 +1,6 @@
 import { memo, useCallback, useEffect, useState } from "react";
-import type { DesktopUpdateDownloadState, DesktopUpdateInfo } from "../shared/contracts.ts";
-import {
-	cancelUpdateDownload,
-	checkForUpdates,
-	downloadUpdate,
-	getUpdateDownloadState,
-	installUpdate,
-	onUpdateDownloadProgress,
-	openCustomCss,
-	openExternalUrl,
-	quitApp,
-	setCloseQuits,
-} from "./desktop-store.ts";
+import type { DesktopUpdateInfo } from "../shared/contracts.ts";
+import { checkForUpdates, openCustomCss, openExternalUrl, quitApp, setCloseQuits } from "./desktop-store.ts";
 import { useI18n } from "./i18n.ts";
 import { Modal } from "./modal.tsx";
 import { UpdateButton } from "./update-button.tsx";
@@ -63,12 +52,6 @@ const ACCENT_OPTIONS = [
 	{ value: "rose", label: "accentRose" },
 ] as const;
 
-function formatAssetSize(sizeBytes: number): string {
-	if (sizeBytes <= 0) return "";
-	if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(0)} KB`;
-	return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function ChoiceButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) {
 	return (
 		<button
@@ -98,8 +81,6 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 	const [update, setUpdate] = useState<DesktopUpdateInfo>();
 	const [checkingUpdate, setCheckingUpdate] = useState(true);
 	const [updateError, setUpdateError] = useState<string>();
-	const [downloadState, setDownloadState] = useState<DesktopUpdateDownloadState>({ phase: "idle" });
-	const [installError, setInstallError] = useState<string>();
 	const [cssBusy, setCssBusy] = useState(false);
 	const [cssError, setCssError] = useState<string>();
 
@@ -117,14 +98,6 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 	}, []);
 
 	useEffect(() => {
-		void getUpdateDownloadState()
-			.then(setDownloadState)
-			.catch(() => {});
-		const unsubscribe = onUpdateDownloadProgress(setDownloadState);
-		return unsubscribe;
-	}, []);
-
-	useEffect(() => {
 		void runUpdateCheck();
 	}, [runUpdateCheck]);
 
@@ -135,32 +108,6 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 		void setCloseQuits(next);
 	}
 
-	async function handleUpgrade(): Promise<void> {
-		if (!installerAsset) return;
-		setInstallError(undefined);
-		setDownloadState({ phase: "downloading", assetName: installerAsset.name, receivedBytes: 0 });
-		try {
-			const state = await downloadUpdate(installerAsset.name);
-			setDownloadState(state);
-			if (state.phase === "completed") await installUpdate();
-		} catch (error: unknown) {
-			setDownloadState({
-				phase: "failed",
-				assetName: installerAsset.name,
-				message: error instanceof Error ? error.message : String(error),
-			});
-		}
-	}
-
-	async function handleInstall(): Promise<void> {
-		setInstallError(undefined);
-		try {
-			await installUpdate();
-		} catch (error: unknown) {
-			setInstallError(error instanceof Error ? error.message : String(error));
-		}
-	}
-
 	const versionText = checkingUpdate ? t("checkingUpdate") : (update?.currentVersion ?? "…");
 	const latestText = update?.latestVersion ? `latest ${update.latestVersion}` : undefined;
 	const updateAvailable = update?.updateAvailable === true;
@@ -169,14 +116,6 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 	 * macOS, exe on Windows, AppImage on Linux) with the archive as a fallback —
 	 * so the version line offers a single update button instead of a picker.
 	 */
-	const assets = update?.assets ?? [];
-	const installerAsset = assets.find((asset) => /\.(dmg|exe|appimage)$/iu.test(asset.name)) ?? assets[0];
-	const downloading = downloadState.phase === "downloading";
-	const downloadProgress =
-		downloadState.phase === "downloading" && downloadState.totalBytes
-			? Math.min(100, Math.round((downloadState.receivedBytes / downloadState.totalBytes) * 100))
-			: undefined;
-
 	return (
 		<Modal title={PRODUCT_NAME} subtitle={t("localAiAgent")} className="app-settings-dialog" onClose={onClose}>
 			<div className="settings-meta-row">
@@ -207,31 +146,7 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 					</span>
 					{updateAvailable ? <span aria-hidden="true">↗</span> : null}
 				</button>
-				{updateAvailable ? (
-					<span className="settings-update-action">
-						{installerAsset ? (
-							downloadState.phase === "completed" && downloadState.assetName === installerAsset.name ? (
-								<button className="accent-button" type="button" onClick={() => void handleInstall()}>
-									{t("openInstaller")}
-								</button>
-							) : downloading ? (
-								<button
-									className="outline-button"
-									type="button"
-									onClick={() => void cancelUpdateDownload().catch(() => {})}
-								>
-									{t("cancelDownload")}
-								</button>
-							) : (
-								<button className="accent-button" type="button" onClick={() => void handleUpgrade()}>
-									{downloadState.phase === "failed" ? t("retryDownload") : t("update")}
-								</button>
-							)
-						) : (
-							<span className="settings-update-hint">{t("noInstallerForPlatform")}</span>
-						)}
-					</span>
-				) : null}
+				{updateAvailable ? <UpdateButton variant="settings" /> : null}
 				{!updateAvailable && !checkingUpdate ? <span className="settings-update-ok">{t("upToDate")}</span> : null}
 			</div>
 			{updateError ? (
@@ -242,25 +157,6 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 					</button>
 				</p>
 			) : null}
-			{downloading ? (
-				<div className="settings-update-progress" aria-live="polite">
-					<div className="settings-update-progress-track">
-						<div className="settings-update-progress-fill" style={{ width: `${downloadProgress ?? 0}%` }} />
-					</div>
-					<span>
-						{downloadProgress !== undefined
-							? `${downloadProgress}%`
-							: formatAssetSize(downloadState.receivedBytes)}
-					</span>
-				</div>
-			) : null}
-			{downloadState.phase === "completed" ? (
-				<p className="settings-update-hint" aria-live="polite">
-					{t("downloadCompleteHint", { name: downloadState.assetName })}
-				</p>
-			) : null}
-			{downloadState.phase === "failed" ? <p className="settings-update-error">{downloadState.message}</p> : null}
-			{installError ? <p className="settings-update-error">{installError}</p> : null}
 			<div className="app-settings-cards">
 				<section className="app-settings-card">
 					<strong>{t("language")}</strong>

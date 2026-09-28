@@ -1,6 +1,6 @@
-import { mkdir, open, rename, rm, stat } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
-import { type BrowserWindow, shell } from "electron";
+import { mkdir, open, realpath, rename, rm, stat } from "node:fs/promises";
+import { basename, dirname, join, sep } from "node:path";
+import { type BrowserWindow, net, shell } from "electron";
 import type { Response as FetchResponse } from "undici-types";
 import type { DesktopUpdateAsset, DesktopUpdateDownloadState } from "../shared/contracts.ts";
 
@@ -11,6 +11,16 @@ const PLATFORM_ASSET_PATTERNS: Record<string, RegExp[]> = {
 };
 
 const PROGRESS_EVENT_THROTTLE_MS = 250;
+
+const INSTALLER_ASSET = /\.(dmg|exe|appimage)$/iu;
+
+/** Prefer the native installer over a zip archive when both are published. */
+export function preferredUpdateAsset(assets: readonly DesktopUpdateAsset[]): DesktopUpdateAsset | undefined {
+	return (
+		assets.find((asset) => INSTALLER_ASSET.test(asset.name) && asset.sizeBytes > 0) ??
+		assets.find((asset) => asset.sizeBytes > 0)
+	);
+}
 
 /** Keep only installer assets for the current platform, dropping checksums and blockmaps. */
 export function selectUpdateAssets(
@@ -81,11 +91,13 @@ export class DesktopUpdateDownloader {
 		const controller = this.controller;
 		this.setState({ phase: "downloading", assetName, receivedBytes: 0 });
 		try {
-			const response = (await fetch(asset.url, {
-				redirect: "follow",
+			const response = (await net.fetch(asset.url, {
 				signal: controller.signal,
-				headers: { "User-Agent": "pi-agent-desktop" },
-			})) as FetchResponse;
+				headers: {
+					Accept: "application/octet-stream",
+					"User-Agent": "pi-agent-desktop",
+				},
+			} as NonNullable<Parameters<typeof net.fetch>[1]>)) as FetchResponse;
 			if (!response.ok) {
 				throw new Error(`下载失败（HTTP ${response.status}）。`);
 			}
@@ -99,11 +111,22 @@ export class DesktopUpdateDownloader {
 			const finalPath = join(this.updatesDirectory, asset.name);
 			const partPath = `${finalPath}.part`;
 			const handle = await open(partPath, "w", 0o600);
+			const reader = response.body.getReader();
 			let received = 0;
 			let lastEventAt = 0;
 			try {
-				for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-					await handle.write(chunk);
+				for (;;) {
+					const next = await reader.read();
+					if (next.done) break;
+					const chunk = next.value;
+					if (!chunk || chunk.byteLength === 0) continue;
+					let offset = 0;
+					while (offset < chunk.byteLength) {
+						const written = await handle.write(chunk, offset, chunk.byteLength - offset);
+						const bytesWritten = typeof written === "object" ? written.bytesWritten : written;
+						if (bytesWritten <= 0) throw new Error("写入安装包失败。");
+						offset += bytesWritten;
+					}
 					received += chunk.byteLength;
 					const now = Date.now();
 					if (now - lastEventAt >= PROGRESS_EVENT_THROTTLE_MS) {
@@ -147,7 +170,9 @@ export class DesktopUpdateDownloader {
 			throw new Error("请先下载更新安装包。");
 		}
 		const savedPath = this.state.savedPath;
-		if (dirname(savedPath) !== this.updatesDirectory || /^[A-Za-z0-9._-]+$/u.test(basename(savedPath)) === false) {
+		const [resolvedFile, resolvedRoot] = await Promise.all([realpath(savedPath), realpath(this.updatesDirectory)]);
+		const insideRoot = resolvedFile === resolvedRoot || resolvedFile.startsWith(`${resolvedRoot}${sep}`);
+		if (!insideRoot || dirname(resolvedFile) !== resolvedRoot || !/^[A-Za-z0-9._-]+$/u.test(basename(resolvedFile))) {
 			throw new Error("安装包路径无效。");
 		}
 		const fileStats = await stat(savedPath);

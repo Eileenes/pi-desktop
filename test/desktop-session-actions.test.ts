@@ -30,9 +30,14 @@ function managedSession(id: string) {
 			sessionName: id,
 			isStreaming: false,
 			isCompacting: false,
-			prompt: vi.fn(async (_text: string, options: { preflightResult?: (success: boolean) => void }) => {
-				options.preflightResult?.(true);
-			}),
+			prompt: vi.fn(
+				async (
+					_text: string,
+					options: { preflightResult?: (disposition: "started" | "queued" | "handled") => void },
+				) => {
+					options.preflightResult?.("started");
+				},
+			),
 			abort: vi.fn(async () => {}),
 			clearQueue: vi.fn(() => ({ steering: ["Use TypeScript"], followUp: ["Check the result"] })),
 			executeBash: vi.fn(async () => ({ exitCode: 0, output: "" })),
@@ -86,7 +91,7 @@ describe("desktop session action boundaries", () => {
 			finish = resolve;
 		});
 		first.session.prompt.mockImplementation(async (_text, options) => {
-			options.preflightResult?.(true);
+			options.preflightResult?.("started");
 			await run;
 		});
 		await expect(host.prompt("first", "request-1", "Inspect the code")).resolves.toEqual({
@@ -101,8 +106,7 @@ describe("desktop session action boundaries", () => {
 
 	it("propagates rejected input instead of treating it as a completed submission", async () => {
 		const { host, first } = await fixture();
-		first.session.prompt.mockImplementation(async (_text, options) => {
-			options.preflightResult?.(false);
+		first.session.prompt.mockImplementation(async () => {
 			throw new Error("No model configured");
 		});
 		await expect(host.prompt("first", "request-1", "hello")).rejects.toThrow("No model configured");
@@ -117,7 +121,7 @@ describe("desktop session action boundaries", () => {
 		});
 		first.session.prompt.mockImplementation(async (_text, options) => {
 			await preflight;
-			options.preflightResult?.(true);
+			options.preflightResult?.("started");
 		});
 		const original = host.prompt(first.id, "original", "hello");
 		await expect(host.prompt(first.id, "duplicate", "hello")).rejects.toThrow("确认中");
@@ -133,7 +137,7 @@ describe("desktop session action boundaries", () => {
 			fail = reject;
 		});
 		first.session.prompt.mockImplementation(async (_text, options) => {
-			options.preflightResult?.(true);
+			options.preflightResult?.("started");
 			await run;
 		});
 		const receipt = await host.prompt(first.id, "request", "hello");

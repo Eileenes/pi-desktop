@@ -8,7 +8,7 @@ describe("Pi prompt acceptance", () => {
 			finish = resolve;
 		});
 		const submission = startPromptSubmission(async (preflight) => {
-			preflight(true);
+			preflight("started");
 			await running;
 		});
 		const complete = vi.fn();
@@ -22,8 +22,7 @@ describe("Pi prompt acceptance", () => {
 
 	it("rejects acceptance with the original preflight error so the draft can be retained", async () => {
 		const failure = new Error("Missing model credentials");
-		const submission = startPromptSubmission(async (preflight) => {
-			preflight(false);
+		const submission = startPromptSubmission(async () => {
 			throw failure;
 		});
 		await Promise.all([
@@ -38,7 +37,7 @@ describe("Pi prompt acceptance", () => {
 			fail = reject;
 		});
 		const submission = startPromptSubmission(async (preflight) => {
-			preflight(true);
+			preflight("started");
 			await running;
 		});
 		const completion = expect(submission.completed).rejects.toThrow("Disconnected");

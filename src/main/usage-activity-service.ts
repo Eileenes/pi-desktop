@@ -71,7 +71,9 @@ function normalizeUsage(value: unknown): NormalizedUsage | undefined {
 }
 
 function usageForEntry(entry: SessionEntry): NormalizedUsage | undefined {
-	if (entry.type === "compaction" || entry.type === "branch_summary") return normalizeUsage(entry.usage);
+	if (entry.type === "compaction" || entry.type === "branch_summary" || entry.type === "usage") {
+		return normalizeUsage(entry.usage);
+	}
 	if (entry.type !== "message") return undefined;
 	if (entry.message.role !== "assistant" && entry.message.role !== "toolResult") return undefined;
 	return "usage" in entry.message ? normalizeUsage(entry.message.usage) : undefined;

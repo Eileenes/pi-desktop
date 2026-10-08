@@ -17,7 +17,7 @@ function usage(input: number, output: number, cacheRead: number, cacheWrite: num
 }
 
 describe("buildUsageActivity", () => {
-	it("counts assistant, tool-result, compaction, and branch-summary usage once", () => {
+	it("counts assistant, tool-result, compaction, branch-summary, and usage entries once", () => {
 		const day = new Date(2026, 0, 10, 12);
 		const timestamp = day.toISOString();
 		const result = buildUsageActivity(
@@ -59,6 +59,16 @@ describe("buildUsageActivity", () => {
 							summary: "branch summary",
 							usage: usage(2, 1, 4, 0),
 						}),
+						entry({
+							type: "usage",
+							id: "usage-1",
+							parentId: "branch-1",
+							timestamp,
+							kind: "cache_warm",
+							provider: "anthropic",
+							model: "claude-opus-4-5",
+							usage: usage(6, 0, 2, 1, 0.02),
+						}),
 					],
 				},
 			],
@@ -66,10 +76,10 @@ describe("buildUsageActivity", () => {
 		);
 
 		const bucket = result.buckets.find((item) => item.date === "2026-01-10");
-		expect(bucket?.tokens).toEqual({ input: 25, output: 8, cacheRead: 8, cacheWrite: 2, total: 43 });
-		expect(bucket?.cost).toBeCloseTo(0.4);
-		expect(bucket?.costKnownEvents).toBe(3);
-		expect(bucket?.usageEvents).toBe(4);
+		expect(bucket?.tokens).toEqual({ input: 31, output: 8, cacheRead: 10, cacheWrite: 3, total: 52 });
+		expect(bucket?.cost).toBeCloseTo(0.42);
+		expect(bucket?.costKnownEvents).toBe(4);
+		expect(bucket?.usageEvents).toBe(5);
 		expect(result.sessionsWithUsage).toBe(1);
 		expect(result.projectsWithUsage).toBe(1);
 	});

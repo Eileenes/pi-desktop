@@ -129,11 +129,7 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 	const versionText = checkingUpdate ? t("checkingUpdate") : (update?.currentVersion ?? "…");
 	const latestText = update?.latestVersion ? `latest ${update.latestVersion}` : undefined;
 	const updateAvailable = update?.updateAvailable === true;
-	/*
-	 * One installer is enough — the native package for this platform (dmg on
-	 * macOS, exe on Windows, AppImage on Linux) with the archive as a fallback —
-	 * so the version line offers a single update button instead of a picker.
-	 */
+	/* Version chip plus the shared update control (icon / percent / install). */
 	return (
 		<Modal title={PRODUCT_NAME} subtitle={t("localAiAgent")} className="w-[min(620px,100%)]" onClose={onClose}>
 			<div className="mb-3.5 flex flex-wrap items-center gap-2">

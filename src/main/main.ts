@@ -68,7 +68,7 @@ import {
 } from "../shared/contracts.ts";
 import { isNewerVersion } from "../shared/version.ts";
 import { DesktopAgentHost, type DesktopPromptImage } from "./desktop-agent-host.ts";
-import { DesktopUpdateDownloader, downloadElectronUpdate, selectUpdateAssets } from "./desktop-updater.ts";
+import { downloadElectronUpdate, selectUpdateAssets } from "./desktop-updater.ts";
 import { importDroppedFiles } from "./dropped-file-import.ts";
 import { getImageMimeType, imageExtensionFor } from "./image-mime.ts";
 import { loadWindowState, trackWindowState, type WindowStateTracker } from "./window-state.ts";
@@ -81,7 +81,6 @@ let tray: Tray | undefined;
 let isQuitting = false;
 let closeQuits = false;
 let windowStateTracker: WindowStateTracker | undefined;
-let updateDownloader: DesktopUpdateDownloader | undefined;
 let latestReleaseAssets: ReturnType<typeof selectUpdateAssets> = [];
 let packagedDownloadState: DesktopUpdateDownloadState | undefined;
 let packagedDownloadToken: CancellationToken | undefined;
@@ -163,12 +162,11 @@ function sendWorkspaceChanges(changes: DesktopWorkspaceChange[]): void {
 function configureAutoUpdater(): void {
 	if (!app.isPackaged) return;
 	/*
-	 * The in-app button owns the download. electron-updater must not auto-download
-	 * in the background, or a click looks like nothing happened.
-	 * Once that button-driven download finishes, quitAndInstall replaces the app.
+	 * The in-app icon owns the download, and the Update button owns install.
+	 * electron-updater must not auto-download or auto-install on quit.
 	 */
 	autoUpdater.autoDownload = false;
-	autoUpdater.autoInstallOnAppQuit = true;
+	autoUpdater.autoInstallOnAppQuit = false;
 	autoUpdater.autoRunAppAfterInstall = true;
 	autoUpdater.logger = null;
 	autoUpdater.on("error", (error) => {
@@ -177,6 +175,8 @@ function configureAutoUpdater(): void {
 }
 
 function publishPackagedDownloadState(state: DesktopUpdateDownloadState): void {
+	if (state.phase === "completed") packagedUpdateReady = true;
+	else if (state.phase !== "idle") packagedUpdateReady = false;
 	packagedDownloadState = state;
 	if (mainWindow && !mainWindow.isDestroyed()) {
 		mainWindow.webContents.send("pi-desktop:update-download-progress", state);
@@ -185,22 +185,20 @@ function publishPackagedDownloadState(state: DesktopUpdateDownloadState): void {
 
 function applyDownloadedUpdate(): void {
 	if (!app.isPackaged || !packagedUpdateReady) {
-		throw new Error("请先下载更新安装包。");
+		throw new Error("请先下载更新。");
 	}
 	isQuitting = true;
 	autoUpdater.quitAndInstall(true, true);
 }
 
 async function downloadPackagedUpdate(): Promise<DesktopUpdateDownloadState> {
-	if (packagedDownloadToken || updateDownloader?.isBusy()) {
+	if (packagedDownloadToken) {
 		throw new Error("已有更新下载正在进行，请先取消。");
 	}
 	packagedUpdateReady = false;
-	const state = await downloadElectronUpdate(autoUpdater, publishPackagedDownloadState, (token) => {
+	return downloadElectronUpdate(autoUpdater, publishPackagedDownloadState, (token) => {
 		packagedDownloadToken = token;
 	});
-	if (state.phase === "completed") packagedUpdateReady = true;
-	return state;
 }
 
 function assertMainWindowSender(event: IpcMainInvokeEvent): void {
@@ -1166,32 +1164,22 @@ function registerIpc(): void {
 		if (!isDesktopUpdateDownloadInput(value)) {
 			throw new Error("无效的更新下载请求。");
 		}
-		if (app.isPackaged) {
-			return downloadPackagedUpdate();
+		if (!app.isPackaged) {
+			throw new Error("自动更新仅在安装后的应用中可用。");
 		}
-		if (!updateDownloader) throw new Error("更新组件尚未就绪。");
-		return updateDownloader.download(value.assetName, latestReleaseAssets);
+		return downloadPackagedUpdate();
 	});
 	ipcMain.handle("pi-desktop:cancel-update-download", (event): void => {
 		assertMainWindowSender(event);
-		if (packagedDownloadToken) {
-			packagedDownloadToken.cancel();
-			return;
-		}
-		updateDownloader?.cancel();
+		packagedDownloadToken?.cancel();
 	});
 	ipcMain.handle("pi-desktop:get-update-download-state", (event) => {
 		assertMainWindowSender(event);
-		return packagedDownloadState ?? updateDownloader?.getState() ?? { phase: "idle" };
+		return packagedDownloadState ?? { phase: "idle" };
 	});
 	ipcMain.handle("pi-desktop:install-update", async (event): Promise<void> => {
 		assertMainWindowSender(event);
-		if (app.isPackaged) {
-			applyDownloadedUpdate();
-			return;
-		}
-		if (!updateDownloader) throw new Error("更新组件尚未就绪。");
-		await updateDownloader.install();
+		applyDownloadedUpdate();
 	});
 	ipcMain.handle("pi-desktop:toggle-skill", async (event, value: unknown): Promise<DesktopSnapshot> => {
 		assertMainWindowSender(event);
@@ -1352,9 +1340,6 @@ if (!hasSingleInstanceLock) {
 				mainWindow.webContents.send("pi-desktop:terminal-exit", { id, exitCode });
 			}
 		});
-		updateDownloader = new DesktopUpdateDownloader(join(app.getPath("userData"), "updates"), () =>
-			mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
-		);
 		mainWindow = createWindow();
 		createTray();
 		configureAutoUpdater();

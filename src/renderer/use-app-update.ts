@@ -54,28 +54,13 @@ function readSnapshot(): Snapshot {
 	return snapshot;
 }
 
-const INSTALLER_ASSET = /\.(dmg|exe|appimage)$/iu;
-
-/** Native installer first; a zip is only the fallback. */
-function preferredAsset(info: DesktopUpdateInfo | undefined): string | undefined {
-	const assets = info?.assets ?? [];
-	return (
-		assets.find((asset) => INSTALLER_ASSET.test(asset.name) && asset.sizeBytes > 0) ??
-		assets.find((asset) => asset.sizeBytes > 0)
-	)?.name;
-}
-
 function applyDownloadState(state: DesktopUpdateDownloadState): void {
 	switch (state.phase) {
 		case "downloading":
 			publish({ phase: "downloading", download: state });
 			return;
 		case "completed":
-			if (snapshot.phase === "installing") return;
-			publish({ phase: "installing", download: state, message: undefined });
-			void installUpdate().catch((error: unknown) =>
-				publish({ phase: "failed", message: error instanceof Error ? error.message : String(error) }),
-			);
+			publish({ phase: "ready", download: state, message: undefined });
 			return;
 		case "failed":
 			publish({ phase: "failed", download: state, message: state.message });
@@ -89,6 +74,10 @@ async function runCheck(): Promise<void> {
 	publish({ phase: "checking", message: undefined });
 	try {
 		const info = await checkForUpdates();
+		if (snapshot.phase === "downloading" || snapshot.phase === "installing" || snapshot.phase === "ready") {
+			publish({ info });
+			return;
+		}
 		publish({
 			info,
 			phase: info.updateAvailable && info.latestVersion ? "available" : "idle",
@@ -98,7 +87,7 @@ async function runCheck(): Promise<void> {
 		// service rate-limiting an unauthenticated request — so it only reaches the
 		// console, and the affordance stays hidden.
 		console.warn("Update check failed", error);
-		publish({ phase: "idle", message: undefined });
+		if (snapshot.phase === "checking") publish({ phase: "idle", message: undefined });
 	}
 }
 
@@ -121,17 +110,12 @@ export function useAppUpdate(): AppUpdateState {
 
 	const check = useCallback(() => void runCheck(), []);
 	const download = useCallback(() => {
-		const assetName = preferredAsset(snapshot.info);
-		if (!assetName) {
-			publish({ phase: "failed", message: "no-installer" });
-			return;
-		}
 		publish({
 			phase: "downloading",
 			message: undefined,
-			download: { phase: "downloading", assetName, receivedBytes: 0 },
+			download: { phase: "downloading", assetName: "app-update", receivedBytes: 0 },
 		});
-		void downloadUpdate(assetName).then(applyDownloadState, (error: unknown) =>
+		void downloadUpdate("app-update").then(applyDownloadState, (error: unknown) =>
 			publish({ phase: "failed", message: error instanceof Error ? error.message : String(error) }),
 		);
 	}, []);
@@ -142,11 +126,9 @@ export function useAppUpdate(): AppUpdateState {
 	}, []);
 	const install = useCallback(() => {
 		publish({ phase: "installing", message: undefined });
-		void installUpdate()
-			.then(() => publish({ phase: "ready", message: "opened" }))
-			.catch((error: unknown) =>
-				publish({ phase: "failed", message: error instanceof Error ? error.message : String(error) }),
-			);
+		void installUpdate().catch((error: unknown) =>
+			publish({ phase: "failed", message: error instanceof Error ? error.message : String(error) }),
+		);
 	}, []);
 
 	return {

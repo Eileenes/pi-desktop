@@ -187,8 +187,10 @@ export async function toggleSkillFile(
 
 async function fetchJson(url: string, headers?: Record<string, string>): Promise<unknown> {
 	const response = (await fetch(url, {
-		cache: "no-store",
-		...(headers ? { headers } : {}),
+		headers: {
+			"cache-control": "no-store",
+			...headers,
+		},
 		signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
 	})) as FetchResponse;
 	if (!response.ok) throw new Error(`HTTP ${response.status}`);

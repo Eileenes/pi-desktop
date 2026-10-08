@@ -1,5 +1,9 @@
+import type { PromptOptions } from "@earendil-works/pi-coding-agent";
+
+type PromptPreflight = NonNullable<PromptOptions["preflightResult"]>;
+
 /** Separate Pi's input acceptance from the lifetime of the agent run. */
-export function startPromptSubmission(run: (accepted: (success: boolean) => void) => Promise<void>): {
+export function startPromptSubmission(run: (accepted: PromptPreflight) => Promise<void>): {
 	accepted: Promise<void>;
 	completed: Promise<void>;
 } {
@@ -11,9 +15,10 @@ export function startPromptSubmission(run: (accepted: (success: boolean) => void
 	});
 	const completed = Promise.resolve()
 		.then(() =>
-			run((success) => {
-				// Pi reports false just before throwing the original preflight error.
-				if (success) resolveAccepted();
+			run(() => {
+				// Pi only reports a disposition after the prompt is accepted
+				// ("started" | "queued" | "handled"). Rejections throw without this callback.
+				resolveAccepted();
 			}),
 		)
 		.then(

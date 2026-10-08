@@ -14,16 +14,16 @@ const STATUS_LABELS: Record<DesktopGitChange["status"], string> = {
 };
 
 function statusClass(status: DesktopGitChange["status"]): string {
-	if (status === "deleted" || status === "conflict") return "is-danger";
-	if (status === "added" || status === "untracked") return "is-success";
-	return "is-accent";
+	if (status === "deleted" || status === "conflict") return "text-[color:var(--danger)]";
+	if (status === "added" || status === "untracked") return "text-[color:var(--success)]";
+	return "text-[color:var(--accent)]";
 }
 
 function diffLineClass(line: string): string {
-	if (line.startsWith("+++") || line.startsWith("---")) return "diff-head";
-	if (line.startsWith("@@")) return "diff-hunk";
-	if (line.startsWith("+")) return "diff-add";
-	if (line.startsWith("-")) return "diff-del";
+	if (line.startsWith("+++") || line.startsWith("---")) return "font-semibold text-[color:var(--muted)]";
+	if (line.startsWith("@@")) return "text-[color:var(--accent)]";
+	if (line.startsWith("+")) return "text-[color:var(--success)]";
+	if (line.startsWith("-")) return "text-[color:var(--danger)]";
 	return "";
 }
 
@@ -96,8 +96,8 @@ export const SourceControl = memo(function SourceControl() {
 	}, []);
 
 	return (
-		<div className="source-control">
-			<div className="sidebar-section-title">
+		<div className="flex min-h-0 flex-1 flex-col">
+			<div className="mt-3.5 flex min-h-[34px] items-center justify-between py-1 pr-2 pl-1.5 text-[length:var(--text-md)] font-semibold tracking-[0.12em] text-[color:var(--muted)]">
 				<span>{t("changesWithCount", { count: changes.length })}</span>
 				<Button
 					size="icon"
@@ -109,29 +109,46 @@ export const SourceControl = memo(function SourceControl() {
 					↻
 				</Button>
 			</div>
-			{error ? <p className="sidebar-error">{error}</p> : null}
-			{loading ? <p className="sidebar-loading">{t("loadingGitStatus")}</p> : null}
-			<div className="change-list">
+			{error ? (
+				<p className="mx-4 mb-2 text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--danger)]">{error}</p>
+			) : null}
+			{loading ? (
+				<p className="mx-4 mb-2 text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--muted)]">
+					{t("loadingGitStatus")}
+				</p>
+			) : null}
+			<div className="min-h-0 flex-1 overflow-auto px-2 pb-2">
 				{changes.map((change) => (
 					<Button
 						variant="bare"
 						key={change.path}
-						className={`change-row ${activePath === change.path ? "is-selected" : ""}`}
+						className={`flex w-full items-center gap-2 rounded-[var(--radius-s)] border-0 bg-transparent px-2 py-[5px] text-left font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] text-[color:var(--text-dim)] hover:bg-[var(--surface-3)] hover:text-[color:var(--text)] [&>span:last-child]:truncate ${activePath === change.path ? "bg-[color-mix(in_oklab,var(--ds-accent)_14%,transparent)] text-[color:var(--text)]" : ""}`}
 						onClick={() => void openDiff(change.path)}
 					>
-						<span className={`change-status ${statusClass(change.status)}`}>{STATUS_LABELS[change.status]}</span>
+						<span className={`w-3.5 shrink-0 text-center font-semibold ${statusClass(change.status)}`}>
+							{STATUS_LABELS[change.status]}
+						</span>
 						<span>{change.path}</span>
 					</Button>
 				))}
 				{!loading && !error && changes.length === 0 ? (
-					<p className="sidebar-loading">{t("noUncommittedChanges")}</p>
+					<p className="mx-4 mb-2 text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--muted)]">
+						{t("noUncommittedChanges")}
+					</p>
 				) : null}
 			</div>
 			{tabs.length ? (
-				<div className="diff-panel">
-					<div className="diff-tabs" role="tablist" aria-label={t("diffFiles")}>
+				<div className="flex max-h-[45%] shrink-0 flex-col border-t border-[var(--border-subtle)]">
+					<div
+						className="flex overflow-x-auto border-b border-[var(--border-subtle)]"
+						role="tablist"
+						aria-label={t("diffFiles")}
+					>
 						{tabs.map((tab) => (
-							<div className={`diff-tab ${activePath === tab.path ? "is-active" : ""}`} key={tab.path}>
+							<div
+								className={`flex shrink-0 items-center border-r border-[var(--border-subtle)] ${activePath === tab.path ? "bg-[var(--bg)] text-[color:var(--text)]" : "bg-[var(--surface-recessed)] text-[color:var(--muted)]"}`}
+								key={tab.path}
+							>
 								<Button
 									variant="bare"
 									role="tab"
@@ -151,13 +168,23 @@ export const SourceControl = memo(function SourceControl() {
 							</div>
 						))}
 					</div>
-					<div className="diff-panel-header">
-						<strong>{activePath}</strong>
+					<div className="px-4 py-2">
+						<strong className="block truncate font-[family-name:var(--font-mono)] text-[length:var(--text-2xs)] font-medium text-[color:var(--text-dim)]">
+							{activePath}
+						</strong>
 					</div>
-					{activeTab?.loading ? <p className="sidebar-loading">{t("loadingDiff")}</p> : null}
-					{activeTab?.error ? <p className="sidebar-error">{activeTab.error}</p> : null}
+					{activeTab?.loading ? (
+						<p className="mx-4 mb-2 text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--muted)]">
+							{t("loadingDiff")}
+						</p>
+					) : null}
+					{activeTab?.error ? (
+						<p className="mx-4 mb-2 text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--danger)]">
+							{activeTab.error}
+						</p>
+					) : null}
 					{activeTab && !activeTab.loading && !activeTab.error ? (
-						<pre className="diff-view">
+						<pre className="m-0 flex-1 overflow-auto pb-3 font-[family-name:var(--font-mono)] text-[length:var(--text-2xs)] leading-[1.55] whitespace-pre text-[color:var(--text-dim)] [&>code]:whitespace-pre">
 							<code>
 								{(activeTab.content || t("noTextDiff")).split("\n").map((line, index) => (
 									// biome-ignore lint/suspicious/noArrayIndexKey: diff 行顺序固定、不可重排

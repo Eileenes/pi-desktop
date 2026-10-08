@@ -10,6 +10,11 @@
 	animation: modal-backdrop-in var(--motion-duration-normal) var(--motion-ease-out) both;
 }
 
+.modal-backdrop.is-start {
+	align-items: start;
+	padding-top: clamp(48px, 16vh, 140px);
+}
+
 .modal-panel {
 	display: flex;
 	flex-direction: column;

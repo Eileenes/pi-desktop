@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useState } from "react";
+import { type CSSProperties, memo, useCallback, useEffect, useState } from "react";
 import type { DesktopUpdateInfo } from "../shared/contracts.ts";
 import { checkForUpdates, openCustomCss, openExternalUrl, quitApp, setCloseQuits } from "./desktop-store.ts";
 import { useI18n } from "./i18n.ts";
@@ -40,6 +40,34 @@ export type AppAccent = (typeof APP_ACCENTS)[number];
 export function isAppAccent(value: string | null): value is AppAccent {
 	return value !== null && (APP_ACCENTS as readonly string[]).includes(value);
 }
+
+const ACCENT_SWATCH_DARK: Record<AppAccent, string> = {
+	mono: "#fff",
+	blue: "#7aaaff",
+	sky: "#38bdf8",
+	indigo: "#818cf8",
+	violet: "#a78bfa",
+	cyan: "#22d3ee",
+	teal: "#2dd4bf",
+	green: "#4ade80",
+	amber: "#fbbf24",
+	orange: "#fb923c",
+	rose: "#fb7185",
+};
+
+const ACCENT_SWATCH_LIGHT: Record<AppAccent, string> = {
+	mono: "#1a1c1f",
+	blue: "#4176e6",
+	sky: "#0284c7",
+	indigo: "#4f46e5",
+	violet: "#6d28d9",
+	cyan: "#0e7490",
+	teal: "#0f766e",
+	green: "#15803d",
+	amber: "#b45309",
+	orange: "#c2410c",
+	rose: "#be123c",
+};
 
 const ACCENT_OPTIONS = [
 	{ value: "mono", label: "accentMono" },
@@ -107,21 +135,21 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 	 * so the version line offers a single update button instead of a picker.
 	 */
 	return (
-		<Modal title={PRODUCT_NAME} subtitle={t("localAiAgent")} className="app-settings-dialog" onClose={onClose}>
-			<div className="settings-meta-row">
+		<Modal title={PRODUCT_NAME} subtitle={t("localAiAgent")} className="w-[min(620px,100%)]" onClose={onClose}>
+			<div className="mb-3.5 flex flex-wrap items-center gap-2">
 				<Button
 					variant="bare"
-					className="settings-meta-chip"
+					className="inline-flex max-w-full items-center gap-1.5 rounded-[var(--radius-xs)] border border-[var(--border-subtle)] px-2.5 py-1.5 text-[color:var(--muted)]"
 					title={t("openRepoHint")}
 					onClick={() => void openExternalUrl(`https://github.com/${REPOSITORY}`)}
 				>
-					<span>{t("repository")}</span>
-					<span className="is-value">{REPOSITORY}</span>
+					<span className="font-medium opacity-70">{t("repository")}</span>
+					<span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{REPOSITORY}</span>
 					<span aria-hidden="true">↗</span>
 				</Button>
 				<Button
 					variant="bare"
-					className={`settings-meta-chip ${updateAvailable ? "is-emphasized" : ""}`}
+					className={`inline-flex max-w-full items-center gap-1.5 rounded-[var(--radius-xs)] border px-2.5 py-1.5 ${updateAvailable ? "border-[var(--accent-strong)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] font-bold text-[color:var(--accent-strong)]" : "border-[var(--border-subtle)] text-[color:var(--muted)]"}`}
 					title={
 						latestText
 							? t("chipTitleLatest", { version: versionText, latest: latestText })
@@ -137,66 +165,95 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 					{updateAvailable ? <span aria-hidden="true">↗</span> : null}
 				</Button>
 				{updateAvailable ? <UpdateButton variant="settings" /> : null}
-				{!updateAvailable && !checkingUpdate ? <span className="settings-update-ok">{t("upToDate")}</span> : null}
+				{!updateAvailable && !checkingUpdate ? (
+					<span className="text-[length:var(--text-sm)] text-[color:var(--success)]">{t("upToDate")}</span>
+				) : null}
 			</div>
 			{updateError ? (
-				<p className="settings-update-error" aria-live="polite">
+				<p
+					className="-mt-1.5 mb-3 flex items-center justify-between gap-2 rounded-[var(--radius-s)] border border-[var(--danger-border)] px-2.5 py-1.5 text-[color:var(--error-text)]"
+					aria-live="polite"
+				>
 					{updateError}
 					<Button size="sm" variant="outline" onClick={() => void runUpdateCheck()}>
 						{t("retry")}
 					</Button>
 				</p>
 			) : null}
-			<div className="app-settings-cards">
-				<section className="app-settings-card">
-					<strong>{t("language")}</strong>
-					<p>{t("languageDescription")}</p>
-					<Segmented variant="tiles" aria-label={t("language")}>
-						<Segment active={language === "zh-CN"} onClick={() => setLanguage("zh-CN")}>
-							简体中文
-						</Segment>
-						<Segment active={language === "en"} onClick={() => setLanguage("en")}>
-							English
-						</Segment>
-					</Segmented>
+			<div className="grid gap-3">
+				<section className="rounded-[var(--radius-lg)] bg-[var(--ds-tile)] px-4 py-3.5">
+					<strong className="text-[length:var(--text-md)] font-semibold">{t("language")}</strong>
+					<p className="mt-1 mb-0 text-[length:var(--text-xs)] leading-normal text-[color:var(--muted)]">
+						{t("languageDescription")}
+					</p>
+					<div className="mt-2.5">
+						<Segmented variant="tiles" aria-label={t("language")}>
+							<Segment active={language === "zh-CN"} onClick={() => setLanguage("zh-CN")}>
+								简体中文
+							</Segment>
+							<Segment active={language === "en"} onClick={() => setLanguage("en")}>
+								English
+							</Segment>
+						</Segmented>
+					</div>
 				</section>
-				<section className="app-settings-card">
-					<strong>{t("appearance")}</strong>
-					<p>{t("appearanceDescription")}</p>
-					<Segmented variant="tiles" aria-label={t("appearance")}>
-						<Segment active={theme === "light"} onClick={() => onChangeTheme("light")}>
-							{t("light")}
-						</Segment>
-						<Segment active={theme === "dark"} onClick={() => onChangeTheme("dark")}>
-							{t("dark")}
-						</Segment>
-					</Segmented>
-					<div className="accent-setting">
-						<span>
+				<section className="rounded-[var(--radius-lg)] bg-[var(--ds-tile)] px-4 py-3.5">
+					<strong className="text-[length:var(--text-md)] font-semibold">{t("appearance")}</strong>
+					<p className="mt-1 mb-0 text-[length:var(--text-xs)] leading-normal text-[color:var(--muted)]">
+						{t("appearanceDescription")}
+					</p>
+					<div className="mt-2.5">
+						<Segmented variant="tiles" aria-label={t("appearance")}>
+							<Segment active={theme === "light"} onClick={() => onChangeTheme("light")}>
+								{t("light")}
+							</Segment>
+							<Segment active={theme === "dark"} onClick={() => onChangeTheme("dark")}>
+								{t("dark")}
+							</Segment>
+						</Segmented>
+					</div>
+					<div className="mt-3 grid gap-1.5">
+						<span className="flex items-baseline justify-between gap-2 text-[length:var(--text-xs)] font-semibold text-[color:var(--muted)]">
 							{t("accentColor")}
-							<em>{t(ACCENT_OPTIONS.find((option) => option.value === accent)?.label ?? "accentMono")}</em>
+							<em className="not-italic font-medium text-[color:var(--text-primary)]">
+								{t(ACCENT_OPTIONS.find((option) => option.value === accent)?.label ?? "accentMono")}
+							</em>
 						</span>
-						<div className="accent-swatch-row">
+						<div className="flex flex-wrap gap-2">
 							{ACCENT_OPTIONS.map((option) => (
 								<Button
 									variant="bare"
-									className={`accent-swatch is-${option.value} ${accent === option.value ? "is-active" : ""}`}
+									className={`inline-flex size-7 items-center justify-center rounded-full border-2 p-0 ${accent === option.value ? "border-[var(--swatch-color)]" : "border-transparent"}`}
 									key={option.value}
 									aria-label={t(option.label)}
 									aria-pressed={accent === option.value}
 									title={t(option.label)}
+									style={
+										{
+											"--swatch-color": (theme === "light" ? ACCENT_SWATCH_LIGHT : ACCENT_SWATCH_DARK)[
+												option.value
+											],
+										} as CSSProperties
+									}
 									onClick={() => onChangeAccent(option.value)}
 								>
-									<span className="accent-swatch-color" aria-hidden="true" />
+									<span
+										className="size-[18px] shrink-0 rounded-full bg-[var(--swatch-color)] shadow-[inset_0_0_0_0.5px_color-mix(in_oklab,var(--ds-text-primary)_18%,transparent)]"
+										aria-hidden="true"
+									/>
 								</Button>
 							))}
 						</div>
-						<small>{t("accentColorHint")}</small>
+						<small className="text-[length:var(--text-xs)] leading-normal text-[color:var(--ds-text-muted)]">
+							{t("accentColorHint")}
+						</small>
 					</div>
-					<div className="custom-css-row">
-						<span>
-							<strong>{t("customCss")}</strong>
-							<small>{t("customCssHint")}</small>
+					<div className="mt-3 flex items-center justify-between gap-3">
+						<span className="grid gap-0.5">
+							<strong className="text-[length:var(--text-sm)]">{t("customCss")}</strong>
+							<small className="text-[length:var(--text-xs)] leading-normal text-[color:var(--muted)]">
+								{t("customCssHint")}
+							</small>
 						</span>
 						<Button
 							variant="outline"
@@ -215,36 +272,46 @@ export const AppSettingsModal = memo(function AppSettingsModal({
 							{cssBusy ? t("opening") : t("openCustomCss")}
 						</Button>
 					</div>
-					{cssError ? <p className="sidebar-error">{cssError}</p> : null}
+					{cssError ? (
+						<p className="mx-4 mb-2 text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--danger)]">
+							{cssError}
+						</p>
+					) : null}
 				</section>
-				<section className="app-settings-card">
-					<strong>{t("desktopApp")}</strong>
-					<p>{t("desktopAppDescription")}</p>
-					<div className="app-settings-options">
-						<div className="toggle-row">
-							<span>
-								<strong>{t("notifyOnComplete")}</strong>
-								<small>{t("notifyHint")}</small>
+				<section className="rounded-[var(--radius-lg)] bg-[var(--ds-tile)] px-4 py-3.5">
+					<strong className="text-[length:var(--text-md)] font-semibold">{t("desktopApp")}</strong>
+					<p className="mt-1 mb-0 text-[length:var(--text-xs)] leading-normal text-[color:var(--muted)]">
+						{t("desktopAppDescription")}
+					</p>
+					<div className="mt-3 grid gap-3">
+						<div className="flex items-center justify-between gap-3">
+							<span className="grid gap-0.5">
+								<strong className="text-[length:var(--text-sm)]">{t("notifyOnComplete")}</strong>
+								<small className="text-[length:var(--text-xs)] text-[color:var(--muted)]">
+									{t("notifyHint")}
+								</small>
 							</span>
 							<Switch checked={notifyOnComplete} onCheckedChange={onToggleNotify} />
 						</div>
-						<div className="toggle-row">
-							<span>
-								<strong>{t("closeQuits")}</strong>
-								<small>{t("closeQuitsHint")}</small>
+						<div className="flex items-center justify-between gap-3">
+							<span className="grid gap-0.5">
+								<strong className="text-[length:var(--text-sm)]">{t("closeQuits")}</strong>
+								<small className="text-[length:var(--text-xs)] text-[color:var(--muted)]">
+									{t("closeQuitsHint")}
+								</small>
 							</span>
 							<Switch checked={closeQuits} onCheckedChange={handleToggleCloseQuits} />
 						</div>
-						<div className="toggle-row">
-							<span>
-								<strong>{t("appUpdate")}</strong>
-								<small className="settings-version-line">
+						<div className="flex items-center justify-between gap-3">
+							<span className="grid gap-0.5">
+								<strong className="text-[length:var(--text-sm)]">{t("appUpdate")}</strong>
+								<small className="inline-flex items-center gap-1 text-[length:var(--text-xs)] text-[color:var(--muted)]">
 									<UpdateButton variant="settings" />
 									{t("currentVersionLabel")} v{__APP_VERSION__}
 								</small>
 							</span>
 						</div>
-						<Button variant="outline" className="settings-quit" type="button" onClick={() => void quitApp()}>
+						<Button variant="outline" className="justify-self-start" type="button" onClick={() => void quitApp()}>
 							{t("quitPi")}
 						</Button>
 					</div>

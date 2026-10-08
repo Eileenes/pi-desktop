@@ -3,6 +3,8 @@ import type { DesktopSessionInfo } from "../shared/contracts.ts";
 import { useI18n } from "./i18n.ts";
 import { Icon } from "./icons.tsx";
 import { Button } from "./ui/button.tsx";
+import { Field } from "./ui/field.tsx";
+import { Modal } from "./ui/modal.tsx";
 
 /*
  * Session search, as a dialog rather than a field in the sidebar.
@@ -83,81 +85,83 @@ export const SearchDialog = memo(function SearchDialog({
 	};
 
 	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions: 点击遮罩关闭搜索对话框是标准交互
-		<div
-			className="search-overlay"
-			role="presentation"
-			onClick={(event) => {
-				// Only a click on the scrim dismisses; the dialog owns the rest.
-				if (event.target === event.currentTarget) onClose();
-			}}
+		<Modal
+			title={t("searchSessionsAria")}
+			hideHeader
+			align="start"
+			className="w-[min(100%,620px)] max-h-[min(460px,100%)]"
+			bodyClassName="flex min-h-0 flex-col overflow-hidden p-0"
+			onClose={onClose}
 		>
-			<div className="search-dialog" role="dialog" aria-modal="true" aria-label={t("searchSessionsAria")}>
-				<div className="search-input-row">
-					<Icon name="search" size={15} />
-					<input
-						ref={inputRef}
-						className="search-input"
-						value={query}
-						placeholder={t("searchSessions")}
-						aria-label={t("searchSessionsAria")}
-						onChange={(event) => {
-							setQuery(event.target.value);
-							setActive(0);
-						}}
-						onKeyDown={(event) => {
-							if (event.key === "Escape") {
-								event.preventDefault();
-								onClose();
-								return;
-							}
-							if (event.key === "ArrowDown") {
-								event.preventDefault();
-								setActive((current) => Math.min(current + 1, Math.max(hits.length - 1, 0)));
-								return;
-							}
-							if (event.key === "ArrowUp") {
-								event.preventDefault();
-								setActive((current) => Math.max(current - 1, 0));
-								return;
-							}
-							if (event.key === "Enter") {
-								event.preventDefault();
-								open(hits[active]);
-							}
-						}}
-					/>
-					<Button className="search-close" size="sm" type="button" aria-label={t("close")} onClick={onClose}>
-						Esc
-					</Button>
-				</div>
-				<div className="search-results">
-					{groups.length ? (
-						groups.map((group) => (
-							<div key={group.project}>
-								<div className="search-group-label">{group.project}</div>
-								{group.hits.map((hit) => (
-									<Button
-										variant="bare"
-										key={hit.session.id}
-										className={`search-item${hit.index === active ? " is-active" : ""}`}
-										onMouseEnter={() => setActive(hit.index)}
-										onClick={() => open(hit)}
-									>
-										<Icon name="history" size={15} />
-										<span className="search-item-title">{hit.title}</span>
-										{hit.snippet && hit.snippet !== hit.title ? (
-											<span className="search-item-meta">{hit.snippet}</span>
-										) : null}
-									</Button>
-								))}
-							</div>
-						))
-					) : (
-						<p className="search-empty">{t("noMatchingSessions")}</p>
-					)}
-				</div>
+			<div className="flex shrink-0 items-center gap-2.5 px-4 pt-3.5 pb-2 text-[color:var(--ds-text-muted)]">
+				<Icon name="search" size={15} />
+				<Field
+					ref={inputRef}
+					className="min-h-0 bg-transparent p-0 text-[length:var(--text-base-plus)] shadow-none"
+					value={query}
+					placeholder={t("searchSessions")}
+					aria-label={t("searchSessionsAria")}
+					onChange={(event) => {
+						setQuery(event.target.value);
+						setActive(0);
+					}}
+					onKeyDown={(event) => {
+						if (event.key === "ArrowDown") {
+							event.preventDefault();
+							setActive((current) => Math.min(current + 1, Math.max(hits.length - 1, 0)));
+							return;
+						}
+						if (event.key === "ArrowUp") {
+							event.preventDefault();
+							setActive((current) => Math.max(current - 1, 0));
+							return;
+						}
+						if (event.key === "Enter") {
+							event.preventDefault();
+							open(hits[active]);
+						}
+					}}
+				/>
+				<Button size="sm" type="button" aria-label={t("close")} onClick={onClose}>
+					Esc
+				</Button>
 			</div>
-		</div>
+			<div className="min-h-0 overflow-y-auto p-1.5">
+				{groups.length ? (
+					groups.map((group) => (
+						<div key={group.project}>
+							<div className="px-2.5 pt-2.5 pb-1 text-[length:var(--text-2xs)] font-medium text-[color:var(--ds-text-muted)]">
+								{group.project}
+							</div>
+							{group.hits.map((hit) => (
+								<Button
+									variant="bare"
+									key={hit.session.id}
+									className={`flex w-full items-center gap-2.5 rounded-[var(--radius-md-plus)] px-2.5 py-2 text-left text-[length:var(--text-md-plus)] leading-[var(--leading-compact)] ${hit.index === active ? "bg-[var(--ds-bg-hover)] text-[color:var(--ds-text-primary)]" : "text-[color:var(--ds-text-secondary)]"}`}
+									onMouseEnter={() => setActive(hit.index)}
+									onClick={() => open(hit)}
+								>
+									<span className="shrink-0 text-[color:var(--ds-text-muted)]">
+										<Icon name="history" size={15} />
+									</span>
+									<span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+										{hit.title}
+									</span>
+									{hit.snippet && hit.snippet !== hit.title ? (
+										<span className="max-w-[45%] min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[length:var(--text-sm)] text-[color:var(--ds-text-muted)]">
+											{hit.snippet}
+										</span>
+									) : null}
+								</Button>
+							))}
+						</div>
+					))
+				) : (
+					<p className="m-0 text-[length:var(--text-sm)] leading-[1.55] text-[color:var(--muted)]">
+						{t("noMatchingSessions")}
+					</p>
+				)}
+			</div>
+		</Modal>
 	);
 });

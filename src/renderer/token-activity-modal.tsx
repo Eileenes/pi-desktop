@@ -135,6 +135,14 @@ function monthSummaries(buckets: readonly DesktopUsageActivityBucket[]): MonthSu
 	return [...byMonth.values()].slice(-12);
 }
 
+const HEATMAP_LEVELS = [
+	"bg-[var(--ds-heatmap-empty)]",
+	"bg-[color-mix(in_srgb,var(--accent)_22%,var(--ds-heatmap-empty))]",
+	"bg-[color-mix(in_srgb,var(--accent)_43%,var(--ds-heatmap-empty))]",
+	"bg-[color-mix(in_srgb,var(--accent)_66%,var(--ds-heatmap-empty))]",
+	"bg-[var(--accent)]",
+] as const;
+
 function cellId(date: string): string {
 	return `token-activity-day-${date}`;
 }
@@ -244,10 +252,11 @@ export const TokenActivityModal = memo(function TokenActivityModal({ onClose }: 
 		<Modal
 			title={t("tokenActivity")}
 			subtitle={activity ? t("tokenActivityRange", { from: activity.from, to: activity.to }) : undefined}
-			className="token-activity-modal"
+			className="max-h-[min(82vh,820px)] w-[min(980px,calc(100vw-32px))]"
+			bodyClassName="grid gap-[var(--space-4)] px-[var(--space-5)] pt-[var(--space-4)] pb-[var(--space-5)]"
 			onClose={onClose}
 		>
-			<div className="token-activity-toolbar">
+			<div className="flex items-center justify-between gap-[var(--space-3)]">
 				<Segmented aria-label={t("tokenActivityViewAria")}>
 					{tabs.map((item) => (
 						<Segment key={item.id} role="tab" active={view === item.id} onClick={() => setView(item.id)}>
@@ -264,11 +273,19 @@ export const TokenActivityModal = memo(function TokenActivityModal({ onClose }: 
 					{activity || error ? t("refresh") : t("tokenActivityLoading")}
 				</Button>
 			</div>
-			{error ? <p className="token-activity-state is-error">{t("tokenActivityLoadError", { error })}</p> : null}
-			{!activity && !error ? <p className="token-activity-state">{t("tokenActivityLoading")}</p> : null}
+			{error ? (
+				<p className="m-0 py-7 text-center text-[length:var(--text-sm)] text-[color:var(--error-text)]">
+					{t("tokenActivityLoadError", { error })}
+				</p>
+			) : null}
+			{!activity && !error ? (
+				<p className="m-0 py-7 text-center text-[length:var(--text-sm)] text-[color:var(--muted)]">
+					{t("tokenActivityLoading")}
+				</p>
+			) : null}
 			{activity ? (
 				<>
-					<div className="token-activity-cards">
+					<div className="grid grid-cols-4 gap-[var(--space-2)]">
 						<ActivityCard
 							label={t("tokenActivityToday")}
 							value={formatCompactToken(today?.tokens.total ?? 0, locale)}
@@ -287,10 +304,10 @@ export const TokenActivityModal = memo(function TokenActivityModal({ onClose }: 
 						/>
 					</div>
 					{view === "daily" ? (
-						<section className="token-activity-daily" role="tabpanel">
-							<div className="token-heatmap-surface" ref={heatmapSurfaceRef}>
+						<section className="grid min-w-0 gap-[var(--space-3)] overflow-x-auto pb-0.5" role="tabpanel">
+							<div className="relative min-w-[700px] overflow-hidden p-[5px]" ref={heatmapSurfaceRef}>
 								<div
-									className="token-heatmap-months"
+									className="grid h-4 min-w-0 gap-[3px] px-px text-[length:var(--text-2xs)] leading-none text-[color:var(--muted)] [&>span]:whitespace-nowrap"
 									style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(12px, 1fr))` }}
 								>
 									{columns.flatMap((column, columnIndex) => {
@@ -312,7 +329,7 @@ export const TokenActivityModal = memo(function TokenActivityModal({ onClose }: 
 									})}
 								</div>
 								<div
-									className="token-heatmap-grid"
+									className="grid min-w-0 grid-flow-col grid-rows-[repeat(7,minmax(12px,1fr))] gap-[3px]"
 									style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(12px, 1fr))` }}
 								>
 									{columns.flatMap((column) =>
@@ -324,7 +341,7 @@ export const TokenActivityModal = memo(function TokenActivityModal({ onClose }: 
 											if (!bucket)
 												return (
 													<span
-														className="token-heatmap-spacer"
+														className="aspect-square min-h-3 min-w-0 w-full rounded-[var(--radius-3xs)] border-0 bg-transparent p-0"
 														key={`empty-${columnIdentity}-${WEEKDAY_IDS[rowIndex]}`}
 													/>
 												);
@@ -336,7 +353,7 @@ export const TokenActivityModal = memo(function TokenActivityModal({ onClose }: 
 													id={cellId(bucket.date)}
 													key={bucket.date}
 													tabIndex={isSelected ? 0 : -1}
-													className={`token-heatmap-cell level-${intensity(bucket.tokens.total, ceiling)}${isSelected ? " is-selected" : ""}`}
+													className={`aspect-square min-h-3 min-w-0 w-full rounded-[var(--radius-3xs)] border-0 p-0 transition-[outline-color,background] duration-150 ${HEATMAP_LEVELS[intensity(bucket.tokens.total, ceiling)] ?? HEATMAP_LEVELS[0]} ${isSelected ? "relative z-[1] outline outline-2 outline-offset-1 outline-[var(--text)]" : "focus-visible:relative focus-visible:z-[1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--text)]"}`}
 													aria-label={t("tokenActivityDayAria", {
 														date: formatDay(bucket.date, locale),
 														tokens: tokenText,
@@ -354,10 +371,13 @@ export const TokenActivityModal = memo(function TokenActivityModal({ onClose }: 
 								</div>
 								{hoveredDay ? <HoverTooltip hoveredDay={hoveredDay} locale={locale} /> : null}
 							</div>
-							<div className="token-activity-legend" aria-hidden="true">
+							<div
+								className="flex min-w-[700px] items-center justify-end gap-1 text-[length:var(--text-2xs)] text-[color:var(--muted)] [&>span:first-child]:mr-[3px] [&>span:last-child]:ml-[3px]"
+								aria-hidden="true"
+							>
 								<span>{t("tokenActivityLess")}</span>
 								{[0, 1, 2, 3, 4].map((level) => (
-									<i key={level} className={`level-${level}`} />
+									<i key={level} className={`size-3 rounded-[var(--radius-3xs)] ${HEATMAP_LEVELS[level]}`} />
 								))}
 								<span>{t("tokenActivityMore")}</span>
 							</div>
@@ -365,15 +385,15 @@ export const TokenActivityModal = memo(function TokenActivityModal({ onClose }: 
 						</section>
 					) : null}
 					{view === "weekly" ? (
-						<section className="token-activity-weekly" role="tabpanel">
-							<div className="token-weekly-chart">
+						<section className="grid min-w-0 gap-[var(--space-3)]" role="tabpanel">
+							<div className="flex h-[190px] items-end gap-[3px] border-b border-[var(--border-subtle)] px-0.5 pt-3">
 								{weekly.map((week) => {
 									const height = weeklyCeiling ? Math.max(3, (week.tokens.total / weeklyCeiling) * 100) : 0;
 									return (
 										<Button
 											variant="bare"
 											key={week.start}
-											className="token-weekly-bar"
+											className="max-w-[18px] min-w-[5px] flex-1 cursor-default rounded-t-[var(--radius-3xs)] border-0 bg-[color-mix(in_srgb,var(--accent)_70%,var(--surface-2))] p-0 transition-[background,transform] duration-150 hover:scale-y-[1.03] hover:bg-[var(--accent)] hover:outline hover:outline-2 hover:outline-offset-2 hover:outline-[var(--text)] focus-visible:scale-y-[1.03] focus-visible:bg-[var(--accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--text)]"
 											style={{ height: `${height}%` }}
 											aria-label={t("tokenActivityWeekAria", {
 												range: dateRangeLabel(week.start, week.end, locale),
@@ -384,33 +404,43 @@ export const TokenActivityModal = memo(function TokenActivityModal({ onClose }: 
 									);
 								})}
 							</div>
-							<div className="token-weekly-scale">
+							<div className="flex justify-between text-[length:var(--text-xs)] text-[color:var(--muted)]">
 								<span>{t("tokenActivityWeeklyHint")}</span>
-								<strong>{formatCompactToken(weeklyCeiling, locale)}</strong>
+								<strong className="font-[family-name:var(--font-mono)] font-medium text-[color:var(--text-dim)]">
+									{formatCompactToken(weeklyCeiling, locale)}
+								</strong>
 							</div>
 						</section>
 					) : null}
 					{view === "cumulative" ? (
-						<section className="token-activity-cumulative" role="tabpanel">
-							<div className="token-cumulative-list">
+						<section className="grid min-w-0 gap-[var(--space-3)]" role="tabpanel">
+							<div className="grid gap-[9px]">
 								{monthly.map((month) => {
 									const width = monthlyCeiling ? (month.tokens.total / monthlyCeiling) * 100 : 0;
 									return (
-										<div className="token-cumulative-row" key={month.month}>
-											<span>
+										<div
+											className="grid grid-cols-[74px_minmax(0,1fr)_70px] items-center gap-[var(--space-3)]"
+											key={month.month}
+										>
+											<span className="text-[length:var(--text-xs)] text-[color:var(--muted)]">
 												{new Intl.DateTimeFormat(locale, { year: "numeric", month: "short" }).format(
 													dateFromKey(`${month.month}-01`),
 												)}
 											</span>
-											<div className="token-cumulative-track">
-												<i style={{ width: `${width}%` }} />
+											<div className="h-2.5 overflow-hidden rounded-[var(--radius-full)] bg-[var(--surface-2)]">
+												<i
+													className="block h-full rounded-[inherit] bg-[color-mix(in_srgb,var(--accent)_70%,var(--surface-2))]"
+													style={{ width: `${width}%` }}
+												/>
 											</div>
-											<strong>{formatCompactToken(month.tokens.total, locale)}</strong>
+											<strong className="text-right font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] font-medium text-[color:var(--text-dim)]">
+												{formatCompactToken(month.tokens.total, locale)}
+											</strong>
 										</div>
 									);
 								})}
 							</div>
-							<div className="token-cumulative-breakdown">
+							<div className="grid grid-cols-4 gap-[var(--space-2)] border-t border-[var(--border-subtle)] pt-[var(--space-2)]">
 								<BreakdownItem
 									label={t("tokenInput")}
 									value={activity.tokens.input}
@@ -438,7 +468,7 @@ export const TokenActivityModal = memo(function TokenActivityModal({ onClose }: 
 							</div>
 						</section>
 					) : null}
-					<p className="token-activity-footnote">
+					<p className="m-0 text-[length:var(--text-xs)] leading-[1.55] text-[color:var(--muted)]">
 						{t("tokenActivityPrivacy", {
 							sessions: activity.sessionsScanned,
 							projects: activity.projectsWithUsage,
@@ -456,21 +486,27 @@ export const TokenActivityModal = memo(function TokenActivityModal({ onClose }: 
 function HoverTooltip({ hoveredDay, locale }: { hoveredDay: HoveredDay; locale: string }) {
 	return (
 		<output
-			className={`token-heatmap-tooltip is-${hoveredDay.placement}`}
+			className={`absolute z-[2] grid w-[236px] pointer-events-none gap-0.5 whitespace-nowrap rounded-[var(--radius-s)] border border-[color-mix(in_srgb,var(--border-strong)_86%,transparent)] bg-[color-mix(in_srgb,var(--surface-1)_94%,black)] px-2.5 py-2 text-[color:var(--text)] shadow-[var(--shadow-float)] ${hoveredDay.placement === "above" ? "-translate-x-1/2 -translate-y-full" : "-translate-x-1/2"}`}
 			style={{ left: hoveredDay.left, top: hoveredDay.top }}
 		>
-			<span>{formatDay(hoveredDay.bucket.date, locale)}</span>
-			<strong>{formatToken(hoveredDay.bucket.tokens.total, locale)} Token</strong>
+			<span className="text-[length:var(--text-xs)] text-[color:var(--muted)]">
+				{formatDay(hoveredDay.bucket.date, locale)}
+			</span>
+			<strong className="font-[family-name:var(--font-mono)] text-[length:var(--text-md)] font-semibold">
+				{formatToken(hoveredDay.bucket.tokens.total, locale)} Token
+			</strong>
 		</output>
 	);
 }
 
 function ActivityCard({ label, value }: { label: string; value: string }) {
 	return (
-		<div className="token-activity-card">
-			<span>{label}</span>
-			<strong>{value}</strong>
-			<small>Token</small>
+		<div className="grid min-w-0 gap-px rounded-[var(--radius-m)] border border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--surface-1)_88%,var(--surface-recessed))] px-3 py-2.5">
+			<span className="text-[length:var(--text-xs)] text-[color:var(--muted)]">{label}</span>
+			<strong className="overflow-hidden font-[family-name:var(--font-mono)] text-[length:var(--text-xl)] font-semibold text-ellipsis whitespace-nowrap text-[color:var(--text)]">
+				{value}
+			</strong>
+			<small className="text-[length:var(--text-xs)] text-[color:var(--muted)]">Token</small>
 		</div>
 	);
 }
@@ -478,12 +514,19 @@ function ActivityCard({ label, value }: { label: string; value: string }) {
 function DayDetails({ bucket, locale }: { bucket: DesktopUsageActivityBucket; locale: string }) {
 	const { t } = useI18n();
 	return (
-		<aside className="token-day-details" aria-live="polite">
-			<div>
-				<span>{formatDay(bucket.date, locale)}</span>
-				<strong>{formatToken(bucket.tokens.total, locale)} Token</strong>
+		<aside
+			className="grid min-w-[700px] grid-cols-[minmax(180px,0.8fr)_minmax(0,2fr)] gap-[var(--space-4)] rounded-[var(--radius-m)] border border-[var(--border-subtle)] bg-[var(--surface-recessed)] p-3"
+			aria-live="polite"
+		>
+			<div className="grid content-center gap-[3px]">
+				<span className="text-[length:var(--text-xs)] text-[color:var(--muted)]">
+					{formatDay(bucket.date, locale)}
+				</span>
+				<strong className="font-[family-name:var(--font-mono)] text-[length:var(--text-lg)] text-[color:var(--text)]">
+					{formatToken(bucket.tokens.total, locale)} Token
+				</strong>
 			</div>
-			<dl>
+			<dl className="m-0 grid grid-cols-3 gap-x-4 gap-y-[9px]">
 				<DetailItem label={t("tokenInput")} value={formatToken(bucket.tokens.input, locale)} />
 				<DetailItem label={t("cacheRead")} value={formatToken(bucket.tokens.cacheRead, locale)} />
 				<DetailItem label={t("tokenOutput")} value={formatToken(bucket.tokens.output, locale)} />
@@ -499,9 +542,11 @@ function DayDetails({ bucket, locale }: { bucket: DesktopUsageActivityBucket; lo
 
 function DetailItem({ label, value }: { label: string; value: string }) {
 	return (
-		<div>
-			<dt>{label}</dt>
-			<dd>{value}</dd>
+		<div className="grid gap-px">
+			<dt className="text-[length:var(--text-xs)] text-[color:var(--muted)]">{label}</dt>
+			<dd className="m-0 font-[family-name:var(--font-mono)] text-[length:var(--text-sm)] text-[color:var(--text-dim)]">
+				{value}
+			</dd>
 		</div>
 	);
 }
@@ -519,10 +564,12 @@ function BreakdownItem({
 }) {
 	const percentage = total ? (value / total) * 100 : 0;
 	return (
-		<div>
-			<span>{label}</span>
-			<strong>{formatCompactToken(value, locale)}</strong>
-			<small>{percentage.toFixed(1)}%</small>
+		<div className="grid gap-px">
+			<span className="text-[length:var(--text-xs)] text-[color:var(--muted)]">{label}</span>
+			<strong className="font-[family-name:var(--font-mono)] text-[length:var(--text-md)] font-medium text-[color:var(--text-dim)]">
+				{formatCompactToken(value, locale)}
+			</strong>
+			<small className="text-[length:var(--text-xs)] text-[color:var(--muted)]">{percentage.toFixed(1)}%</small>
 		</div>
 	);
 }

@@ -6,8 +6,8 @@ Pi Desktop styles the way Codex / DSH do: **tokens + a few primitives**, not a n
 
 1. **Tokens** — `src/renderer/ui/tokens.css` (`--ds-*`, type, radius, motion).
 2. **Primitives** — this folder: `Button`, `Menu`, `Modal`, `Field`, `Switch`, `Segmented`. Each owns its CSS.
-3. **Shell** — `styles.css` (app frame). `sidebar.css`, `chat.css`, `composer.css`, `files.css`.
-4. **Pages** — `pages.css` (settings, models, plugins, skills, dialogs).
+3. **Shell** — `styles.css` (app frame).
+4. **Pages** — Tailwind utilities on existing primitives (settings, models, plugins, skills, dialogs).
 5. **Markdown / terminal** — `markdown.css`, `terminal-panel.css`.
 
 ## Adding UI

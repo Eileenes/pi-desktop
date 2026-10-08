@@ -1,6 +1,7 @@
 import { memo, useCallback, useMemo } from "react";
 import { type BranchNode, buildBranchTree } from "../shared/branch-tree.ts";
 import type { DesktopSessionTreeNode } from "../shared/contracts.ts";
+import { NATIVE_TOOLBAR_ACTIVE, NATIVE_TOOLBAR_BUTTON } from "./chrome-classes.ts";
 import { useI18n } from "./i18n.ts";
 import { Icon } from "./icons.tsx";
 import { Button } from "./ui/button.tsx";
@@ -73,23 +74,38 @@ function TreeNodeView({
 		<div>
 			<Button
 				variant="bare"
-				className={`branch-tree-node ${isActive ? "is-active" : ""}`}
+				className="relative flex w-full min-h-[26px] items-center rounded-[var(--radius-2xs)] border-0 bg-transparent px-2 py-[3px] text-left text-[length:var(--text-xs)] text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] focus-visible:bg-[var(--hover)] focus-visible:text-[color:var(--text)]"
 				onClick={() => onSelect(representative.entry.id)}
 			>
-				<span className="branch-tree-guides" aria-hidden="true">
+				<span className="inline-flex min-w-4 self-stretch" aria-hidden="true">
 					{parentLines.map((hasLine, index) => (
-						<span className={hasLine ? "is-line" : ""} key={`${index}-${hasLine}`} />
+						<span
+							className={`relative block w-4 ${hasLine ? "after:absolute after:inset-y-0 after:left-[7px] after:w-px after:bg-[var(--border-subtle)] after:content-['']" : ""}`}
+							key={`${index}-${hasLine}`}
+						/>
 					))}
-					<span className={`branch-tree-connector ${isLast ? "is-last" : ""}`} />
+					<span
+						className={`relative w-4 before:absolute before:top-1/2 before:left-[7px] before:h-px before:w-2.5 before:bg-[var(--border-subtle)] before:content-[''] after:absolute after:left-[7px] after:w-px after:bg-[var(--border-subtle)] after:content-[''] ${isLast ? "after:top-0 after:bottom-1/2" : "after:inset-y-0"}`}
+					/>
 				</span>
-				<span className={`branch-tree-dot ${isActive ? "is-active" : isOnPath ? "is-path" : ""}`} />
+				<span
+					className={`mr-1.5 size-[7px] shrink-0 rounded-full border ${isActive ? "border-[var(--accent)] bg-[var(--accent)]" : isOnPath ? "border-[var(--text-dim)] bg-[var(--text-muted)]" : "border-[var(--text-dim)] bg-transparent"}`}
+				/>
 				{role === "user" || role === "assistant" ? (
-					<span className={`branch-tree-role ${role === "user" ? "is-user" : ""}`}>
+					<span
+						className={`mr-[5px] rounded-[var(--radius-3xs)] border px-1 font-[family-name:var(--font-mono)] text-[length:var(--text-2xs)] leading-4 ${role === "user" ? "border-[color-mix(in_srgb,var(--accent)_35%,var(--border-subtle))] text-[color:var(--accent)]" : "border-[var(--border-subtle)] text-[color:var(--muted)]"}`}
+					>
 						{role === "user" ? "U" : "A"}
 					</span>
 				) : null}
-				{compressed.skipped > 0 ? <span className="branch-tree-skipped">+{compressed.skipped}</span> : null}
-				<span className={`branch-tree-label ${isActive ? "is-active" : isOnPath ? "is-path" : ""}`}>
+				{compressed.skipped > 0 ? (
+					<span className="mr-[5px] text-[length:var(--text-2xs)] text-[color:var(--muted)]">
+						+{compressed.skipped}
+					</span>
+				) : null}
+				<span
+					className={`min-w-0 truncate ${isActive ? "font-medium text-[color:var(--text)]" : isOnPath ? "text-[color:var(--text-muted)]" : ""}`}
+				>
 					{labelFor(representative)}
 				</span>
 			</Button>
@@ -126,10 +142,10 @@ export const BranchNavigator = memo(function BranchNavigator({
 	const select = useCallback((entryId: string) => onLeafChange(entryId), [onLeafChange]);
 
 	return (
-		<div className="branch-navigator">
+		<div className="relative">
 			<Button
 				size="sm"
-				className={`native-toolbar-button ${open ? "is-active" : ""}`}
+				className={`${NATIVE_TOOLBAR_BUTTON} ${open ? NATIVE_TOOLBAR_ACTIVE : ""}`}
 				aria-label={t("branches")}
 				title={t("branches")}
 				disabled={!hasContent || !hasSession}
@@ -141,12 +157,16 @@ export const BranchNavigator = memo(function BranchNavigator({
 				<span>{t("branches")}</span>
 			</Button>
 			{open ? (
-				<div className="branch-popover" role="menu" aria-label={t("branches")}>
-					<div className="branch-popover-header">
+				<div
+					className="absolute top-full right-0 left-0 z-40 min-w-[280px] max-h-[min(70vh,680px)] overflow-hidden rounded-[var(--radius-m)] border border-[var(--border-subtle)] bg-[var(--surface-2)] shadow-[var(--shadow-float)]"
+					role="menu"
+					aria-label={t("branches")}
+				>
+					<div className="flex items-baseline justify-between gap-4 border-b border-[var(--border-subtle)] px-4 pt-3.5 pb-2.5 [&>strong]:text-[length:var(--text-sm)] [&>strong]:font-semibold [&>strong]:text-[color:var(--text)] [&>small]:text-[length:var(--text-xs)] [&>small]:text-[color:var(--muted)]">
 						<strong>{t("sessionBranchTree")}</strong>
 						<small>{t("branchTreeHint")}</small>
 					</div>
-					<div className="branch-list">
+					<div className="grid max-h-[min(56vh,540px)] overflow-auto px-3.5 py-2.5">
 						{hasContent && first ? (
 							(first.children.length > 1 ? first.children : [first]).map((node, index, nodes) => (
 								<TreeNodeView
@@ -160,10 +180,10 @@ export const BranchNavigator = memo(function BranchNavigator({
 								/>
 							))
 						) : (
-							<p className="branch-tree-empty">{reason}</p>
+							<p className="m-0 p-2.5 text-[length:var(--text-xs)] text-[color:var(--muted)] italic">{reason}</p>
 						)}
 					</div>
-					<div className="branch-popover-footer">
+					<div className="border-t border-[var(--border-subtle)] px-2.5 py-1.5">
 						<Button size="sm" variant="outline" type="button" onClick={onFork}>
 							{t("forkAsSession")}
 						</Button>

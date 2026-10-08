@@ -98,7 +98,10 @@ function ProviderMark({ providerId, name }: { providerId: string; name: string }
 		color: "var(--text)",
 	};
 	return (
-		<span className="models-provider-mark" style={{ "--provider-color": mark.color } as CSSProperties}>
+		<span
+			className="grid size-5 shrink-0 place-items-center rounded-[var(--radius-2xs)] border border-[color-mix(in_srgb,var(--provider-color,var(--text))_30%,transparent)] bg-[color-mix(in_srgb,var(--provider-color,var(--surface-3))_12%,var(--surface-3))] text-[length:var(--text-2xs)] font-bold text-[var(--provider-color,var(--text))]"
+			style={{ "--provider-color": mark.color } as CSSProperties}
+		>
 			{mark.label}
 		</span>
 	);
@@ -139,18 +142,23 @@ function ThinkingLevelMapEditor({
 	}
 
 	return (
-		<div className="models-thinking-map">
+		<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
 			{THINKING_LEVELS.map((level) => {
 				const hasValue = value !== undefined && Object.hasOwn(value, level);
 				const raw = value?.[level];
 				const state = !hasValue ? "omit" : raw === null ? "null" : "string";
 				const customValue = typeof raw === "string" ? raw : "";
 				return (
-					<label key={level}>
-						<span className={`models-thinking-level-name is-${state}`}>
+					<label
+						className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]"
+						key={level}
+					>
+						<span
+							className={`inline-flex items-center gap-1.5 ${state === "null" ? "text-[color:var(--text-dim)] line-through" : "text-[color:var(--muted)]"}`}
+						>
 							<span
-								className="models-thinking-level-dot"
-								style={{ "--thinking-color": THINKING_LEVEL_COLORS[level] } as CSSProperties}
+								className={`size-1.5 shrink-0 rounded-full ${state === "null" ? "opacity-30" : ""}`}
+								style={{ background: THINKING_LEVEL_COLORS[level] }}
 							/>
 							{level}
 						</span>
@@ -162,11 +170,18 @@ function ThinkingLevelMapEditor({
 								{t("disabledBtn")}
 							</Segment>
 						</Segmented>
-						<span className={`models-thinking-custom ${state === "string" ? "is-active" : ""}`}>
-							<Button variant="bare" onClick={() => setLevel(level, customValue || level)}>
+						<span
+							className={`flex min-w-0 overflow-hidden rounded-[var(--radius-s)] border ${state === "string" ? "border-[var(--accent-strong)]" : "border-[var(--border-subtle)]"}`}
+						>
+							<Button
+								variant="bare"
+								className={`shrink-0 whitespace-nowrap px-2 py-1 text-[length:var(--text-2xs)] ${state === "string" ? "bg-[var(--accent)] font-semibold text-[color:var(--on-accent)]" : "bg-[var(--surface-recessed)] text-[color:var(--muted)]"}`}
+								onClick={() => setLevel(level, customValue || level)}
+							>
 								{t("customBtn")}
 							</Button>
 							<Field
+								className="min-w-0 w-[12ch] rounded-none border-0 border-l border-[var(--border-subtle)] bg-[var(--surface-recessed)] px-2 py-1 text-[length:var(--text-2xs)]"
 								value={customValue}
 								placeholder={level}
 								maxLength={10}
@@ -209,16 +224,24 @@ const AuthenticationDeviceCode = memo(function AuthenticationDeviceCode({
 		}
 	};
 	return (
-		<div className="models-auth-device-code">
-			<div>
-				<span>{t("deviceCode")}</span>
-				<strong>{code}</strong>
+		<div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-0.75 rounded-[var(--radius-s)] border border-[color-mix(in_srgb,var(--accent)_30%,var(--border-subtle))] px-2.75 py-2.5">
+			<div className="grid min-w-0 gap-0.5">
+				<span className="text-[length:var(--text-2xs)] text-[color:var(--text-dim)]">{t("deviceCode")}</span>
+				<strong className="font-[family-name:var(--font-mono)] text-[length:var(--text-lg-plus)] leading-tight tracking-[0.08em] text-[color:var(--text)]">
+					{code}
+				</strong>
 			</div>
 			<Button size="sm" variant="outline" type="button" onClick={() => void copyCode()}>
 				{copied ? t("copied") : t("copy")}
 			</Button>
 			{remainingSeconds !== undefined ? (
-				<small className={remainingSeconds === 0 ? "is-expired" : ""}>
+				<small
+					className={
+						remainingSeconds === 0
+							? "col-span-full text-[length:var(--text-2xs)] text-[color:var(--danger)]"
+							: "col-span-full text-[length:var(--text-2xs)] text-[color:var(--text-dim)]"
+					}
+				>
 					{remainingSeconds === 0
 						? t("codeExpired")
 						: t("codeValidity", { minutes: Math.ceil(remainingSeconds / 60) })}
@@ -580,26 +603,29 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 		<Modal
 			title={t("models")}
 			subtitle="~/.pi/agent/models.json"
-			className="models-modal"
+			className="h-[min(78vh,760px)] max-h-[calc(100dvh-16px)] w-[min(900px,100%)] overflow-hidden"
+			bodyClassName="flex min-h-0 flex-col overflow-hidden p-0"
 			onClose={providerSetupInProgress || settingUpProvider ? () => undefined : requestClose}
 		>
-			<div className="models-layout">
-				<aside className="models-tree">
-					<div className="models-tree-scroll">
+			<div className="flex min-h-0 flex-1 max-md:flex-col">
+				<aside className="flex w-[230px] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--surface-recessed)_88%,var(--surface-1))] max-md:max-h-[220px] max-md:w-full max-md:border-r-0 max-md:border-b">
+					<div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
 						<Button
 							variant="bare"
-							className={`models-tree-item scope ${selection?.type === "scope" ? "is-active" : ""}`}
+							className={`flex w-full min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-[length:var(--text-sm)] text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] ${selection?.type === "scope" ? "bg-[var(--hover-strong)] font-semibold text-[color:var(--text)]" : ""}`}
 							onClick={() => setSelection({ type: "scope" })}
 						>
 							<span>{t("modelScopeTitle")}</span>
-							<small>enabledModels</small>
+							<small className="ml-auto font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] text-[color:var(--muted)]">
+								enabledModels
+							</small>
 						</Button>
-						<div className="models-tree-divider" />
+						<div className="mx-2 my-1.5 border-t border-[var(--border-subtle)]" />
 						{providers.map((provider) => (
 							<Button
 								variant="bare"
 								key={provider.id}
-								className={`models-tree-item provider ${selectedProviderId === provider.id ? "is-connected" : ""}`}
+								className={`flex w-full min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-[length:var(--text-sm)] text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] ${selectedProviderId === provider.id ? "text-[color:var(--success)]" : ""}`}
 								onClick={() => {
 									onChangeProvider(provider.id);
 									setSelection({ type: "managed", providerId: provider.id });
@@ -609,16 +635,21 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								<ProviderMark providerId={provider.id} name={provider.name} />
 								<span>{provider.name}</span>
 								{provider.configured ? (
-									<span className="models-connected-dot" title={t("connectedDot")} />
+									<span
+										className="ml-auto size-1.5 rounded-full bg-[var(--success)]"
+										title={t("connectedDot")}
+									/>
 								) : null}
 							</Button>
 						))}
-						{providers.length && config.length ? <div className="models-tree-divider" /> : null}
+						{providers.length && config.length ? (
+							<div className="mx-2 my-1.5 border-t border-[var(--border-subtle)]" />
+						) : null}
 						{config.map((provider) => (
-							<div key={provider.id} className="models-tree-group">
+							<div key={provider.id} className="mb-1">
 								<Button
 									variant="bare"
-									className={`models-tree-item provider ${selection?.type === "provider" && selection.providerId === provider.id ? "is-active" : ""}`}
+									className={`flex w-full min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-[length:var(--text-sm)] text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] ${selection?.type === "provider" && selection.providerId === provider.id ? "bg-[var(--hover-strong)] font-semibold text-[color:var(--text)]" : ""}`}
 									onClick={() => {
 										setSelection({ type: "provider", providerId: provider.id });
 										resetDiscovery();
@@ -631,59 +662,75 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									<Button
 										variant="bare"
 										key={`${model.id}-${index}`}
-										className={`models-tree-item model ${selection?.type === "model" && selection.providerId === provider.id && selection.modelIndex === index ? "is-active" : ""}`}
+										className={`flex w-full min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-[length:var(--text-sm)] text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] pl-[26px] text-[length:var(--text-xs)] ${selection?.type === "model" && selection.providerId === provider.id && selection.modelIndex === index ? "bg-[var(--hover-strong)] font-semibold text-[color:var(--text)]" : ""}`}
 										onClick={() =>
 											setSelection({ type: "model", providerId: provider.id, modelIndex: index })
 										}
 									>
 										<span>{model.name ?? model.id}</span>
-										{model.reasoning ? <span className="models-reasoning-badge">T</span> : null}
+										{model.reasoning ? (
+											<span className="shrink-0 rounded-[var(--radius-3xs)] bg-[color-mix(in_oklab,var(--ds-purple)_12%,transparent)] px-1 py-px text-[length:var(--text-2xs)] font-bold text-[color-mix(in_oklab,var(--ds-purple)_80%,transparent)]">
+												T
+											</span>
+										) : null}
 									</Button>
 								))}
 							</div>
 						))}
-						{!loading && config.length === 0 ? <p className="modal-empty">{t("noCustomProviders")}</p> : null}
+						{!loading && config.length === 0 ? (
+							<p className="m-0 text-[length:var(--text-sm)] leading-[1.55] text-[color:var(--muted)]">
+								{t("noCustomProviders")}
+							</p>
+						) : null}
 					</div>
-					<Button
-						variant="outline"
-						className="models-add-provider"
-						type="button"
-						onClick={() => {
-							setProviderPickerQuery("");
-							setProviderPickerOpen(true);
-						}}
-					>
-						{t("addProvider")}
-					</Button>
+					<div className="shrink-0 border-t border-[var(--border-subtle)] p-2">
+						<Button
+							variant="outline"
+							type="button"
+							onClick={() => {
+								setProviderPickerQuery("");
+								setProviderPickerOpen(true);
+							}}
+						>
+							{t("addProvider")}
+						</Button>
+					</div>
 				</aside>
 
-				<section className="models-detail">
+				<section className="min-w-0 flex-1 overflow-y-auto p-[18px]">
 					{selection?.type === "scope" ? (
-						<div className="models-detail-form models-scope-form">
-							<div className="models-detail-heading">
+						<div className="grid max-w-[610px] gap-4">
+							<div className="flex items-center justify-between text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.06em] text-[color:var(--muted)]">
 								<span>{t("modelScopeTitle")}</span>
-								<span className="models-auth-badge">{t("globalSetting")}</span>
+								<span className="rounded-full bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] px-1.5 py-0.5 text-[length:var(--text-2xs)] text-[color:var(--accent)]">
+									{t("globalSetting")}
+								</span>
 							</div>
-							<p className="models-managed-description">
+							<p className="text-[length:var(--text-xs)] leading-normal text-[color:var(--muted)]">
 								{t("scopeDescription1")} <code>:thinking</code> {t("scopeDescription2")}
 								<code>anthropic/*:high</code>
 								{t("scopeDescription3")}
 							</p>
 							<Field
 								as="textarea"
+								className="min-h-[164px] font-[family-name:var(--font-mono)] leading-[1.55]"
 								value={modelScopeText}
 								placeholder={"anthropic/*:high\nopenai/gpt-5*"}
 								spellCheck={false}
 								onChange={(event) => setModelScopeText(event.target.value)}
 							/>
 							{modelScopeWarnings.length ? (
-								<output className="models-scope-warnings">
+								<output className="grid gap-1.5 rounded-[var(--radius-s)] border border-[color-mix(in_srgb,var(--warning)_30%,transparent)] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] px-2.5 py-2 text-[color:var(--warning)]">
 									{modelScopeWarnings.map((warning) => (
 										<p key={warning}>{warning}</p>
 									))}
 								</output>
 							) : null}
-							{modelScopeError ? <p className="sidebar-error">{modelScopeError}</p> : null}
+							{modelScopeError ? (
+								<p className="mx-4 mb-2 text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--danger)]">
+									{modelScopeError}
+								</p>
+							) : null}
 							<Button
 								variant="primary"
 								type="button"
@@ -696,15 +743,17 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</Button>
 						</div>
 					) : managedProvider ? (
-						<div className="models-detail-form">
-							<div className="models-detail-heading">
+						<div className="grid max-w-[610px] gap-4">
+							<div className="flex items-center justify-between text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.06em] text-[color:var(--muted)]">
 								<span>{managedProvider.name}</span>
-								<span className="models-auth-badge">
+								<span className="rounded-full bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] px-1.5 py-0.5 text-[length:var(--text-2xs)] text-[color:var(--accent)]">
 									{managedProvider.credentialType === "oauth" ? "OAuth" : "API Key"}
 								</span>
 							</div>
-							<p className="models-managed-description">{t("connectedProviderDescription")}</p>
-							<div className="models-managed-actions">
+							<p className="text-[length:var(--text-xs)] leading-normal text-[color:var(--muted)]">
+								{t("connectedProviderDescription")}
+							</p>
+							<div className="flex flex-wrap gap-2">
 								{managedProvider.supportsApiKey && managedProvider.supportsOAuth ? (
 									<Button variant="outline" type="button" onClick={() => setAuthProvider(managedProvider)}>
 										{t("switchAuthMethod")}
@@ -759,14 +808,14 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</div>
 						</div>
 					) : selectedProvider && selection?.type === "provider" ? (
-						<div className="models-detail-form">
-							<div className="models-detail-heading">
+						<div className="grid max-w-[610px] gap-4">
+							<div className="flex items-center justify-between text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.06em] text-[color:var(--muted)]">
 								<span>{t("provider")}</span>
 								<Button size="sm" type="button" onClick={removeProvider}>
 									{t("delete")}
 								</Button>
 							</div>
-							<label>
+							<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
 								{t("providerName")}
 								<Field
 									defaultValue={selectedProvider.id}
@@ -774,7 +823,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									onBlur={(event) => renameProvider(event.target.value)}
 								/>
 							</label>
-							<label>
+							<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
 								{t("displayName")}
 								<Field
 									value={selectedProvider.name ?? ""}
@@ -787,10 +836,10 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									}
 								/>
 							</label>
-							<label>
+							<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
 								Base URL
 								<Field
-									className="mono"
+									className="font-[family-name:var(--font-mono)]"
 									value={selectedProvider.baseUrl ?? ""}
 									placeholder="https://api.example.com/v1"
 									onChange={(event) => {
@@ -802,11 +851,11 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									}}
 								/>
 							</label>
-							<label>
+							<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
 								API Key
-								<div className="models-secret-input">
+								<div className="relative">
 									<Field
-										className="mono"
+										className="pr-11 font-[family-name:var(--font-mono)]"
 										type={showProviderApiKey ? "text" : "password"}
 										value={selectedProvider.apiKey ?? ""}
 										placeholder={t("apiKeyPlaceholder")}
@@ -821,7 +870,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									/>
 									<Button
 										size="sm"
-										className="models-secret-toggle"
+										className="absolute top-1/2 right-1.5 min-w-[34px] -translate-y-1/2 rounded-[var(--radius-3xs)] border-0 bg-transparent px-1 py-0.5 text-[length:var(--text-2xs)] text-[color:var(--text-dim)]"
 										aria-label={showProviderApiKey ? t("hideApiKey") : t("showApiKey")}
 										title={showProviderApiKey ? t("hideApiKey") : t("showApiKey")}
 										onClick={() => setShowProviderApiKey((visible) => !visible)}
@@ -831,7 +880,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								</div>
 								<small>{t("apiKeyHint")}</small>
 							</label>
-							<label>
+							<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
 								API
 								<Field
 									as="select"
@@ -848,7 +897,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									))}
 								</Field>
 							</label>
-							<div className="models-discovery">
+							<div className="grid gap-2 border-t border-[var(--border-subtle)] pt-3.5">
 								{discovery.phase !== "success" ? (
 									<Button
 										variant="outline"
@@ -859,7 +908,11 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 										{discovery.phase === "loading" ? t("fetchingModels") : t("fetchModelsFromProvider")}
 									</Button>
 								) : null}
-								{discovery.phase === "error" ? <p className="sidebar-error">{discovery.message}</p> : null}
+								{discovery.phase === "error" ? (
+									<p className="mx-4 mb-2 text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--danger)]">
+										{discovery.message}
+									</p>
+								) : null}
 								{discovery.phase === "success" ? (
 									<>
 										<Field
@@ -867,8 +920,8 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 											placeholder={t("filterModelsCount", { count: discovery.models.length })}
 											onChange={(event) => setDiscoveryQuery(event.target.value)}
 										/>
-										<div className="discovery-results">
-											<label className="discovery-select-all">
+										<div className="max-h-[200px] overflow-auto rounded-[var(--radius-s)] border border-[var(--border-subtle)] bg-[var(--surface-recessed)] text-[length:var(--text-xs)]">
+											<label className="flex items-center gap-1.5">
 												<input
 													type="checkbox"
 													checked={allShownDiscoveredSelected}
@@ -880,7 +933,10 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 											{shownDiscovered.map((id) => {
 												const added = selectedProvider.models?.some((model) => model.id === id) ?? false;
 												return (
-													<label key={id}>
+													<label
+														className="flex items-center gap-1.5 text-[length:var(--text-xs)] text-[color:var(--text-dim)]"
+														key={id}
+													>
 														<input
 															type="checkbox"
 															disabled={added}
@@ -899,7 +955,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 												);
 											})}
 										</div>
-										<div className="discovery-footer">
+										<div className="flex items-center justify-between gap-2 text-[length:var(--text-xs)] text-[color:var(--muted)]">
 											<span>{t("fetchedModelsCount", { count: discovery.models.length })}</span>
 											<Button
 												variant="primary"
@@ -920,10 +976,10 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</Button>
 						</div>
 					) : selectedProvider && selectedModel ? (
-						<div className="models-detail-form">
-							<div className="models-detail-heading">
+						<div className="grid max-w-[610px] gap-4">
+							<div className="flex items-center justify-between text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.06em] text-[color:var(--muted)]">
 								<span>{t("models")}</span>
-								<div className="models-heading-actions">
+								<div className="flex items-center gap-2">
 									<Button
 										variant="outline"
 										type="button"
@@ -938,18 +994,26 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								</div>
 							</div>
 							{modelTest.phase !== "idle" && modelTest.phase !== "loading" ? (
-								<p className={`model-test-result is-${modelTest.phase}`}>{modelTest.message}</p>
+								<p
+									className={
+										modelTest.phase === "error"
+											? "text-[length:var(--text-xs)] text-[color:var(--danger)]"
+											: "text-[length:var(--text-xs)] text-[color:var(--success)]"
+									}
+								>
+									{modelTest.message}
+								</p>
 							) : null}
-							<div className="models-form-grid">
-								<label>
+							<div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+								<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
 									{t("idLabel")}
 									<Field
-										className="mono"
+										className="font-[family-name:var(--font-mono)]"
 										value={selectedModel.id}
 										onChange={(event) => updateModel((model) => ({ ...model, id: event.target.value }))}
 									/>
 								</label>
-								<label>
+								<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
 									{t("nameLabel")}
 									<Field
 										value={selectedModel.name ?? ""}
@@ -960,7 +1024,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									/>
 								</label>
 							</div>
-							<label>
+							<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
 								{t("apiOverride")}
 								<Field
 									as="select"
@@ -975,8 +1039,8 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									))}
 								</Field>
 							</label>
-							<div className="models-checks">
-								<label>
+							<div className="flex gap-5">
+								<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
 									<input
 										type="checkbox"
 										checked={selectedModel.reasoning ?? false}
@@ -986,7 +1050,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									/>
 									{t("reasoningLabel")}
 								</label>
-								<label>
+								<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
 									<input
 										type="checkbox"
 										checked={selectedModel.input?.includes("image") ?? false}
@@ -1000,7 +1064,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									{t("imageInputLabel")}
 								</label>
 								{selectedModel.reasoning ? (
-									<label>
+									<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
 										<input
 											type="checkbox"
 											checked={hasDeepSeekThinkingCompat(selectedModel)}
@@ -1020,7 +1084,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									{catalogFill.state === "loading" ? t("querying") : t("fillFromCatalog")}
 								</Button>
 								<a
-									className="models-catalog-source"
+									className="text-[length:var(--text-2xs)] text-[color:var(--muted)] no-underline hover:text-[color:var(--accent)]"
 									href="https://github.com/anomalyco/models.dev"
 									onClick={(event) => {
 										event.preventDefault();
@@ -1036,13 +1100,13 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								) : null}
 							</div>
 							{catalogFill.state === "success" ? (
-								<p className="model-test-result is-success">{t("catalogFilled")}</p>
+								<p className="text-[length:var(--text-xs)] text-[color:var(--success)]">{t("catalogFilled")}</p>
 							) : catalogFill.state === "error" ? (
-								<p className="model-test-result is-error">{catalogFill.message}</p>
+								<p className="text-[length:var(--text-xs)] text-[color:var(--danger)]">{catalogFill.message}</p>
 							) : null}
 							{selectedModel.reasoning ? (
-								<div className="models-thinking-map-section">
-									<div className="models-field-title models-thinking-map-heading">
+								<div className="border-t border-[var(--border-subtle)] pt-3.5">
+									<div className="mb-2 flex items-center justify-between text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.06em] text-[color:var(--muted)]">
 										<span>Thinking level map</span>
 										{selectedModel.thinkingLevelMap ? (
 											<Button
@@ -1060,8 +1124,8 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									/>
 								</div>
 							) : null}
-							<div className="models-form-grid">
-								<label>
+							<div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+								<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
 									{t("contextWindowLabel")}
 									<Field
 										type="number"
@@ -1075,7 +1139,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 										}
 									/>
 								</label>
-								<label>
+								<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
 									{t("maxTokensLabel")}
 									<Field
 										type="number"
@@ -1091,10 +1155,15 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								</label>
 							</div>
 							<div>
-								<p className="models-field-title">{t("costLabel")}</p>
-								<div className="models-cost-grid">
+								<p className="mb-2 text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.06em] text-[color:var(--muted)]">
+									{t("costLabel")}
+								</p>
+								<div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
 									{COST_FIELDS.map((field) => (
-										<label key={field}>
+										<label
+											className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]"
+											key={field}
+										>
 											{field}
 											<Field
 												type="number"
@@ -1114,7 +1183,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</div>
 						</div>
 					) : (
-						<div className="models-empty-detail">
+						<div className="grid justify-items-start gap-2 px-5 py-12 text-[color:var(--muted)]">
 							<strong>{t("setupProvidersTitle")}</strong>
 							<p>{t("setupProvidersHint")}</p>
 							<Button variant="primary" type="button" onClick={addProvider}>
@@ -1125,20 +1194,24 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 				</section>
 			</div>
 			{providerSetupInProgress || settingUpProvider ? (
-				<div className="models-auth-overlay">
+				<div className="absolute inset-0 z-[12] grid place-items-center bg-black/40 p-[18px]">
 					<div
-						className="models-auth-panel"
+						className="grid w-[min(460px,100%)] gap-3.5 rounded-[var(--radius-l)] border border-[var(--border-strong)] bg-[var(--surface-1)] p-[18px] shadow-[var(--shadow-float)]"
 						role="dialog"
 						aria-modal="true"
 						aria-label={t("connectProviderTitle")}
 					>
-						<div className="models-auth-heading">
-							<strong>{t("connectProviderTitle")}</strong>
-							<span>{t("connectProviderHint")}</span>
+						<div className="grid gap-1">
+							<strong className="text-[length:var(--text-base)] text-[color:var(--text)]">
+								{t("connectProviderTitle")}
+							</strong>
+							<span className="text-[length:var(--text-xs)] text-[color:var(--muted)]">
+								{t("connectProviderHint")}
+							</span>
 						</div>
 						{authenticationPrompt ? (
 							<form
-								className="models-auth-prompt"
+								className="grid gap-2"
 								onSubmit={(event) => {
 									event.preventDefault();
 									void onSubmitAuthentication(authenticationPrompt.id, authenticationResponse);
@@ -1184,7 +1257,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								</Button>
 							</form>
 						) : (
-							<div className="models-auth-waiting">
+							<div className="grid gap-2">
 								{authenticationNotice ? <p>{authenticationNotice}</p> : <p>{t("waitingForProvider")}</p>}
 								{authenticationUserCode ? (
 									<AuthenticationDeviceCode
@@ -1206,11 +1279,15 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 				</div>
 			) : null}
 
-			<footer className="models-footer">
+			<footer className="flex items-center gap-2 border-t border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--accent)_4%,var(--surface-1))] px-4 py-2.5">
 				{saveError ? (
-					<span className="sidebar-error">{saveError}</span>
+					<span className="mr-auto text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--danger)]">
+						{saveError}
+					</span>
 				) : (
-					<span>{hasChanges ? t("unsavedChanges") : t("configSaved")}</span>
+					<span className="mr-auto text-[length:var(--text-xs)] text-[color:var(--muted)]">
+						{hasChanges ? t("unsavedChanges") : t("configSaved")}
+					</span>
 				)}
 				<Button
 					variant="outline"
@@ -1232,7 +1309,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 			{providerPickerOpen ? (
 				// biome-ignore lint/a11y/noStaticElementInteractions: 点击遮罩关闭嵌套对话框
 				<div
-					className="models-nested-backdrop"
+					className="absolute inset-0 z-10 grid place-items-center bg-black/35 p-4"
 					onKeyDown={(event) => {
 						if (event.key === "Escape") {
 							event.preventDefault();
@@ -1245,18 +1322,26 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 						if (event.target === event.currentTarget) setProviderPickerOpen(false);
 					}}
 				>
-					<div className="models-provider-picker" role="dialog" aria-modal="true" aria-label={t("addProvider")}>
-						<div className="models-provider-picker-search">{t("addProvider")}</div>
+					<div
+						className="max-h-[72%] w-[min(820px,100%)] overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg)] shadow-[0_8px_32px_rgb(0_0_0_/_22%)]"
+						role="dialog"
+						aria-modal="true"
+						aria-label={t("addProvider")}
+					>
+						<div className="border-b border-[var(--border-subtle)] px-3.5 py-2.5 text-[length:var(--text-md)] text-[color:var(--text)]">
+							{t("addProvider")}
+						</div>
 						<Field
-							className="models-provider-picker-input"
+							className="mx-3.5 mt-3 w-[calc(100%-28px)]"
 							ref={providerPickerInputRef}
 							value={providerPickerQuery}
 							placeholder={t("filterProviders")}
 							onChange={(event) => setProviderPickerQuery(event.target.value)}
 						/>
-						<div className="models-provider-picker-grid">
+						<div className="grid max-h-[420px] grid-cols-2 gap-2 overflow-auto p-3.5">
 							<Button
 								variant="bare"
+								className="flex min-w-0 items-center gap-2 rounded-[var(--radius-xs)] border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2.5 text-left text-[color:var(--text)] hover:border-[var(--accent)] hover:bg-[var(--hover)] disabled:opacity-50"
 								onClick={() => {
 									addProvider();
 									setProviderPickerOpen(false);
@@ -1266,7 +1351,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									<strong>{t("customEndpointTitle")}</strong>
 									<small>{t("customEndpointSubtitle")}</small>
 								</span>
-								<b>＋</b>
+								<b className="grid size-[26px] place-items-center rounded-[var(--radius-2xs)] bg-[var(--hover)] text-[length:var(--text-2xs)] text-[color:var(--text-dim)]">
+									＋
+								</b>
 							</Button>
 							{providers
 								.filter((provider) => {
@@ -1281,6 +1368,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								.map((provider) => (
 									<Button
 										variant="bare"
+										className="flex min-w-0 items-center gap-2 rounded-[var(--radius-xs)] border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2.5 text-left text-[color:var(--text)] hover:border-[var(--accent)] hover:bg-[var(--hover)] disabled:opacity-50"
 										key={provider.id}
 										disabled={settingUpProvider || providerSetupInProgress}
 										onClick={() => {
@@ -1310,7 +1398,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 			{authProvider ? (
 				<Modal
 					title={t("connectAuthTitle", { name: authProvider.name })}
-					className="confirm-dialog"
+					className="w-[min(420px,100%)] max-h-none"
 					footerClassName="is-end"
 					onClose={() => setAuthProvider(undefined)}
 					footer={
@@ -1349,7 +1437,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 			{confirmDiscard ? (
 				<Modal
 					title={t("discardChangesTitle")}
-					className="confirm-dialog"
+					className="w-[min(420px,100%)] max-h-none"
 					footerClassName="is-end"
 					onClose={() => setConfirmDiscard(false)}
 					footer={

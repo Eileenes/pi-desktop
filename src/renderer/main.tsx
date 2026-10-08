@@ -3,14 +3,10 @@ import { createRoot } from "react-dom/client";
 import { App } from "./app.tsx";
 import { isAppAccent } from "./app-settings-modal.tsx";
 import "./ui/tokens.css";
+import "./tailwind.css";
 import "./styles.css";
-import "./sidebar.css";
-import "./chat.css";
-import "./composer.css";
-import "./files.css";
 import "./markdown.css";
 import "./terminal-panel.css";
-import "./pages.css";
 
 // Paint the persisted/system theme before React mounts so the Electron window
 // never flashes the opposite palette while the renderer hydrates.

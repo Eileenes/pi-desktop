@@ -348,3 +348,38 @@
 	color: inherit;
 	white-space: pre-wrap;
 }
+
+.md-inline-code{
+	padding: 1.5px 5px;
+	border-radius: var(--radius-3xs);
+	color: var(--text-dim);
+	background: var(--surface-3);
+	font-size: var(--text-md);
+}
+
+.math-inline{
+	overflow-wrap: normal;
+}
+
+.math-display{
+	max-width: 100%;
+	margin: 10px 0 14px;
+	overflow-x: auto;
+	overflow-y: hidden;
+	padding: 4px 2px;
+}
+
+.md-image{
+	color: var(--muted);
+	font-style: italic;
+}
+
+.mermaid-loading,
+.mermaid-block.is-error p{
+	display: grid;
+	min-height: 72px;
+	margin: 0;
+	place-items: center;
+	color: var(--muted);
+	font-size: var(--text-sm);
+}

@@ -11,7 +11,7 @@
  * How CSS is added (same as Codex/DSH):
  * 1. Tokens live here in :root. Screens consume tokens, they do not invent colours.
  * 2. Shared controls live in src/renderer/ui/.
- * 3. Workbench layout is styles.css. Settings/dialogs are pages.css.
+ * 3. Workbench layout is styles.css. Settings/dialogs use Tailwind utilities.
  *
  * Accent remains user-selectable. Chrome stays monochrome. Dark is default.
  */
@@ -571,49 +571,16 @@ html{
 	accent-color: var(--accent);
 }
 
-:root[data-theme="light"] .accent-swatch.is-blue{
-	--swatch-color: #4176e6;
-}
 
-:root[data-theme="light"] .accent-swatch.is-sky{
-	--swatch-color: #0284c7;
-}
 
-:root[data-theme="light"] .accent-swatch.is-indigo{
-	--swatch-color: #4f46e5;
-}
 
-:root[data-theme="light"] .accent-swatch.is-violet{
-	--swatch-color: #6d28d9;
-}
 
-:root[data-theme="light"] .accent-swatch.is-cyan{
-	--swatch-color: #0e7490;
-}
 
-:root[data-theme="light"] .accent-swatch.is-teal{
-	--swatch-color: #0f766e;
-}
 
-:root[data-theme="light"] .accent-swatch.is-green{
-	--swatch-color: #15803d;
-}
 
-:root[data-theme="light"] .accent-swatch.is-amber{
-	--swatch-color: #b45309;
-}
 
-:root[data-theme="light"] .accent-swatch.is-orange{
-	--swatch-color: #c2410c;
-}
 
-:root[data-theme="light"] .accent-swatch.is-rose{
-	--swatch-color: #be123c;
-}
 
-:root[data-theme="light"] .accent-swatch.is-mono{
-	--swatch-color: #1a1c1f;
-}
 
 /*
  * Codex-style hierarchy consolidation

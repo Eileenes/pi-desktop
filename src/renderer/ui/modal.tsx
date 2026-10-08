@@ -12,6 +12,7 @@ interface ModalProps {
 	title: string;
 	subtitle?: string;
 	className?: string;
+	bodyClassName?: string;
 	/** Action row under the body (cancel / save / confirm). */
 	footer?: ReactNode;
 	footerClassName?: string;
@@ -20,6 +21,10 @@ interface ModalProps {
 	onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
 	/** Blocks backdrop click, Escape, and the header close control. */
 	closeDisabled?: boolean;
+	/** Skip the title row; `title` still names the dialog for assistive tech. */
+	hideHeader?: boolean;
+	/** Command palettes sit near the top; settings dialogs stay centered. */
+	align?: "center" | "start";
 	children: ReactNode;
 }
 
@@ -27,11 +32,14 @@ export const Modal = memo(function Modal({
 	title,
 	subtitle,
 	className,
+	bodyClassName,
 	footer,
 	footerClassName,
 	onClose,
 	onSubmit,
 	closeDisabled = false,
+	hideHeader = false,
+	align = "center",
 	children,
 }: ModalProps) {
 	const { t } = useI18n();
@@ -96,10 +104,12 @@ export const Modal = memo(function Modal({
 		};
 	}, []);
 
+	const bodyClass = bodyClassName ? `modal-body ${bodyClassName}` : "modal-body";
+
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: 点击背景关闭模态框是标准交互
 		<div
-			className="modal-backdrop"
+			className={`modal-backdrop${align === "start" ? " is-start" : ""}`}
 			onMouseDown={(event) => {
 				if (!closeDisabled && event.target === event.currentTarget) onClose();
 			}}
@@ -112,25 +122,27 @@ export const Modal = memo(function Modal({
 				aria-modal="true"
 				aria-label={title}
 			>
-				<header className="modal-header">
-					<div className="modal-heading">
-						<h2 className="modal-title">{title}</h2>
-						{subtitle ? <code className="modal-subtitle">{subtitle}</code> : null}
-					</div>
-					<Button size="icon" type="button" aria-label={t("close")} disabled={closeDisabled} onClick={onClose}>
-						×
-					</Button>
-				</header>
+				{hideHeader ? null : (
+					<header className="modal-header">
+						<div className="modal-heading">
+							<h2 className="modal-title">{title}</h2>
+							{subtitle ? <code className="modal-subtitle">{subtitle}</code> : null}
+						</div>
+						<Button size="icon" type="button" aria-label={t("close")} disabled={closeDisabled} onClick={onClose}>
+							×
+						</Button>
+					</header>
+				)}
 				{onSubmit ? (
 					<form className="modal-form" onSubmit={onSubmit}>
-						<div className="modal-body">{children}</div>
+						<div className={bodyClass}>{children}</div>
 						{footer ? (
 							<footer className={`modal-footer${footerClassName ? ` ${footerClassName}` : ""}`}>{footer}</footer>
 						) : null}
 					</form>
 				) : (
 					<>
-						<div className="modal-body">{children}</div>
+						<div className={bodyClass}>{children}</div>
 						{footer ? (
 							<footer className={`modal-footer${footerClassName ? ` ${footerClassName}` : ""}`}>{footer}</footer>
 						) : null}

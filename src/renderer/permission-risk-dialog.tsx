@@ -24,7 +24,8 @@ export const PermissionRiskDialog = memo(function PermissionRiskDialog({
 	return (
 		<Modal
 			title={t("permissionRiskTitle")}
-			className="permission-risk-dialog"
+			className="w-[min(460px,100%)]"
+			bodyClassName="grid gap-3.5 overflow-visible"
 			footerClassName="is-end"
 			onClose={onCancel}
 			footer={
@@ -38,9 +39,9 @@ export const PermissionRiskDialog = memo(function PermissionRiskDialog({
 				</>
 			}
 		>
-			<div className="permission-risk-notice">
+			<div className="flex items-start gap-2.5">
 				<svg
-					className="permission-risk-icon"
+					className="mt-px shrink-0 text-[color:var(--ds-error)]"
 					width="18"
 					height="18"
 					viewBox="0 0 24 24"
@@ -55,10 +56,17 @@ export const PermissionRiskDialog = memo(function PermissionRiskDialog({
 					<path d="M12 8v5" />
 					<circle cx="12" cy="16.5" r="0.9" fill="currentColor" stroke="none" />
 				</svg>
-				<p>{t("permissionRiskBody")}</p>
+				<p className="m-0 text-[length:var(--text-sm-plus)] leading-[1.6] text-[color:var(--ds-text-secondary)]">
+					{t("permissionRiskBody")}
+				</p>
 			</div>
-			<label className="permission-risk-ack">
-				<input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />
+			<label className="flex cursor-pointer items-center gap-2 text-[length:var(--text-sm-plus)] text-[color:var(--ds-text-primary)]">
+				<input
+					className="size-[15px] shrink-0 accent-[var(--ds-accent)]"
+					type="checkbox"
+					checked={acknowledged}
+					onChange={(event) => setAcknowledged(event.target.checked)}
+				/>
 				<span>{t("permissionRiskAcknowledge")}</span>
 			</label>
 		</Modal>

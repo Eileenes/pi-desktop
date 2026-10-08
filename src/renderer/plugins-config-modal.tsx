@@ -266,16 +266,18 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 			<Button
 				variant="bare"
 				key={packageKey(pkg)}
-				className={`plugin-package-row ${selectedKey === packageKey(pkg) ? "is-active" : ""}`}
+				className={`grid w-full grid-cols-[7px_minmax(0,1fr)] items-start gap-2 rounded-[var(--radius-2xs)] p-2 text-left text-[color:var(--text-dim)] hover:bg-[var(--hover)] ${selectedKey === packageKey(pkg) ? "bg-[var(--hover-strong)]" : ""}`}
 				title={pkg.source}
 				onClick={() => setSelectedKey(packageKey(pkg))}
 			>
-				<span className={`plugin-status-dot is-${pkg.status}`} />
-				<span className="plugin-package-copy">
+				<span
+					className={`mt-1.5 size-[7px] rounded-full ${pkg.status === "loaded" ? "bg-[var(--accent)]" : pkg.status === "installed" ? "bg-[var(--warning)]" : pkg.status === "error" || pkg.status === "missing" ? "bg-[var(--danger)]" : "bg-[var(--muted)]"}`}
+				/>
+				<span className="grid min-w-0 gap-0.5">
 					<strong>{pkg.source}</strong>
 					<small>{resourceSummary(pkg, t)}</small>
 					{pkg.version || pkg.configuredVersion ? <small>{versionSummary(pkg, t)}</small> : null}
-					{pkg.filtered ? <small className="plugin-filtered-label">{t("filteredLabel")}</small> : null}
+					{pkg.filtered ? <small className="text-[color:var(--warning)]">{t("filteredLabel")}</small> : null}
 				</span>
 			</Button>
 		);
@@ -285,11 +287,12 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 		<Modal
 			title={t("plugins")}
 			subtitle={cwdLabel}
-			className="resource-config-modal plugin-config-modal"
+			className="h-[min(78vh,760px)] max-h-[calc(100dvh-16px)] w-[min(900px,100%)] overflow-hidden"
+			bodyClassName="flex min-h-0 flex-col overflow-hidden p-0"
 			onClose={onClose}
 		>
 			{workspacePath && !projectResourcesLoaded ? (
-				<output className="plugin-trust-banner">
+				<output className="flex items-baseline gap-2 border-b border-[var(--border-subtle)] px-[18px] py-2 text-[length:var(--text-sm)] text-[color:var(--text-dim)] max-md:flex-col max-md:items-start">
 					<strong>{t("projectNotTrustedTitle")}</strong>
 					<span>{t("projectNotTrustedHint")}</span>
 					{onTrustProject ? (
@@ -299,22 +302,32 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 					) : null}
 				</output>
 			) : null}
-			<div className="resource-config-layout">
-				<aside className="resource-config-sidebar">
-					<div className="resource-config-scroll">
-						{loading ? <p className="modal-empty">{t("loadingPlugins")}</p> : null}
+			<div className="flex min-h-0 flex-1 max-md:flex-col">
+				<aside className="flex w-[230px] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--surface-recessed)_88%,var(--surface-1))] max-md:max-h-[220px] max-md:w-full max-md:border-r-0 max-md:border-b">
+					<div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
+						{loading ? (
+							<p className="px-3 py-7 text-center text-[length:var(--text-sm)] text-[color:var(--muted)]">
+								{t("loadingPlugins")}
+							</p>
+						) : null}
 						{groupedPackages.map((group) => (
-							<div className="plugin-package-group" key={group.scope}>
-								<div className="settings-group-label">{SCOPE_LABEL[group.scope]}</div>
+							<div className="mt-1" key={group.scope}>
+								<div className="px-2 pt-2.5 pb-1 text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.06em] text-[color:var(--muted)]">
+									{SCOPE_LABEL[group.scope]}
+								</div>
 								{group.packages.map(renderPackageRow)}
 							</div>
 						))}
-						{!loading && packages.length === 0 ? <p className="modal-empty">{t("noPlugins")}</p> : null}
+						{!loading && packages.length === 0 ? (
+							<p className="px-3 py-7 text-center text-[length:var(--text-sm)] text-[color:var(--muted)]">
+								{t("noPlugins")}
+							</p>
+						) : null}
 					</div>
-					<div className="resource-config-sidebar-footer">
+					<div className="shrink-0 border-t border-[var(--border-subtle)] p-2">
 						<Button
 							variant="bare"
-							className={`resource-config-add ${selectedKey === "add" ? "is-active" : ""}`}
+							className={`flex w-full min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-[length:var(--text-sm)] text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] ${selectedKey === "add" ? "bg-[var(--hover-strong)] font-semibold text-[color:var(--text)]" : ""}`}
 							onClick={() => {
 								setSelectedKey("add");
 								setError(undefined);
@@ -328,10 +341,10 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 						</Button>
 					</div>
 				</aside>
-				<section className="resource-config-detail">
+				<section className="min-w-0 flex-1 overflow-y-auto p-[18px]">
 					{selectedKey === "add" ? (
-						<div className="resource-add-panel plugin-add-panel">
-							<div className="plugin-add-heading">
+						<div className="flex min-h-full max-w-[660px] flex-col gap-[18px]">
+							<div className="flex items-start justify-between gap-4">
 								<div>
 									<strong>{t("addPlugin").replace(/^＋\s*/u, "")}</strong>
 									<code>{installLocation(installScope, workspacePath)}</code>
@@ -352,7 +365,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 							</div>
 							<label>
 								{t("sourceLabel")}
-								<div className="plugin-source-picker">
+								<div className="flex gap-2">
 									<Field
 										ref={installInputRef}
 										className="mono"
@@ -392,7 +405,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 									</Button>
 								</div>
 							</label>
-							<div className="plugin-install-actions">
+							<div className="flex flex-wrap items-center gap-2.5">
 								<Segmented aria-label={t("installScopeLabel")}>
 									<Segment active={installScope === "user"} onClick={() => setInstallScope("user")}>
 										{t("global")}
@@ -415,22 +428,31 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 									{busyAction === "install" ? t("installing") : t("installPluginAction")}
 								</Button>
 							</div>
-							<div className="plugin-example-list">
+							<div className="grid gap-1.5">
 								<span>{t("examplesLabel")}</span>
 								{["npm:@scope/pi-plugin", "git:https://github.com/user/repo", "/absolute/path/to/plugin"].map(
 									(example) => (
-										<Button variant="bare" key={example} onClick={() => setInstallSource(example)}>
+										<Button
+											variant="bare"
+											className="w-full min-h-8 overflow-hidden rounded-[var(--radius-2xs)] border border-[var(--border-subtle)] px-2 py-1.5 text-left text-[color:var(--muted)]"
+											key={example}
+											onClick={() => setInstallSource(example)}
+										>
 											{example}
 										</Button>
 									),
 								)}
 							</div>
-							{error ? <p className="plugin-action-message is-error">{error}</p> : null}
+							{error ? (
+								<p className="m-0 text-[length:var(--text-sm)] whitespace-pre-wrap text-[color:var(--danger)]">
+									{error}
+								</p>
+							) : null}
 						</div>
 					) : selected ? (
-						<div className="plugin-detail">
-							<div className="plugin-detail-heading">
-								<div className="plugin-detail-identity">
+						<div className="flex max-w-[680px] flex-col gap-5">
+							<div className="flex flex-wrap items-start justify-between gap-3">
+								<div className="flex min-w-[180px] flex-1 items-center gap-2">
 									<Switch
 										checked={selected.enabled}
 										aria-label={selected.enabled ? t("disable") : t("enable")}
@@ -448,16 +470,24 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 											)
 										}
 									/>
-									<span className={`resource-scope-tag ${selected.scope === "project" ? "is-project" : ""}`}>
+									<span
+										className={`rounded-[var(--radius-3xs)] px-1.5 py-px text-[length:var(--text-2xs)] font-semibold tracking-wide ${selected.scope === "project" ? "bg-[color-mix(in_oklab,var(--ds-purple)_12%,transparent)] text-[color-mix(in_oklab,var(--ds-purple)_85%,transparent)]" : "bg-[var(--overlay-7)] text-[color:var(--text-dim)]"}`}
+									>
 										{detailScopeLabel(selected.scope)}
 									</span>
-									{!selected.enabled ? <span className="plugin-state-tag">{t("statusDisabled")}</span> : null}
+									{!selected.enabled ? (
+										<span className="rounded-[var(--radius-3xs)] bg-[var(--overlay-7)] px-1.5 py-px text-[length:var(--text-2xs)] whitespace-nowrap text-[color:var(--muted)]">
+											{t("statusDisabled")}
+										</span>
+									) : null}
 									{selected.enabled && selected.filtered ? (
-										<span className="plugin-state-tag is-warning">{t("filteredLabel")}</span>
+										<span className="rounded-[var(--radius-3xs)] bg-[color-mix(in_srgb,var(--warning)_12%,transparent)] px-1.5 py-px text-[length:var(--text-2xs)] whitespace-nowrap text-[color:var(--warning)]">
+											{t("filteredLabel")}
+										</span>
 									) : null}
 									<code title={selected.source}>{selected.source}</code>
 								</div>
-								<div className="resource-detail-actions">
+								<div className="flex flex-wrap gap-2">
 									<Button
 										variant="outline"
 										type="button"
@@ -517,37 +547,52 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 									</Button>
 								</div>
 							</div>
-							<div className="resource-meta-grid plugin-meta-grid">
+							<div className="grid max-w-none grid-cols-[minmax(96px,130px)_minmax(0,1fr)] items-baseline gap-x-3.5 gap-y-2 rounded-[var(--radius-s)] border border-[var(--border-subtle)] p-3.5">
 								<span>{t("statusLabel")}</span>
-								<strong className={`is-${selected.status}`}>{statusLabel(selected.status, t)}</strong>
+								<strong
+									className={`font-medium ${selected.status === "installed" ? "text-[color:var(--warning)]" : selected.status === "error" || selected.status === "missing" ? "text-[color:var(--danger)]" : selected.status === "disabled" ? "text-[color:var(--muted)]" : "text-[color:var(--text-dim)]"}`}
+								>
+									{statusLabel(selected.status, t)}
+								</strong>
 								<span>{t("versionLabel")}</span>
 								<strong>{versionSummary(selected, t)}</strong>
 								<span>{t("packageNameLabel")}</span>
-								<strong className="is-mono">{selected.packageName ?? t("unknown")}</strong>
+								<strong className="font-[family-name:var(--font-mono)] text-[length:var(--text-sm)] font-medium [overflow-wrap:anywhere]">
+									{selected.packageName ?? t("unknown")}
+								</strong>
 								<span>{t("resourcesLabel")}</span>
 								<strong>{resourceSummary(selected, t)}</strong>
 								<span>{t("installedPathLabel")}</span>
-								<strong className={`is-mono ${selected.installedPath ? "" : "is-error"}`}>
+								<strong
+									className={
+										selected.installedPath
+											? "font-[family-name:var(--font-mono)] text-[length:var(--text-sm)] font-medium [overflow-wrap:anywhere]"
+											: "font-[family-name:var(--font-mono)] text-[length:var(--text-sm)] font-medium text-[color:var(--danger)] [overflow-wrap:anywhere]"
+									}
+								>
 									{selected.installedPath ? shortenPath(selected.installedPath) : t("missingInstallPath")}
 								</strong>
 								<span>CWD</span>
-								<strong className="is-mono">{cwdLabel}</strong>
+								<strong className="font-[family-name:var(--font-mono)] text-[length:var(--text-sm)] font-medium [overflow-wrap:anywhere]">
+									{cwdLabel}
+								</strong>
 							</div>
-							<div className="plugin-resources-section">
+							<div className="grid gap-2">
 								<strong>{t("resolvedResources")}</strong>
-								<div className="plugin-resource-browser">
+								<div>
 									{RESOURCE_GROUPS.map(([kind, labelKey]) => {
 										const paths = selected.resources[kind];
 										if (!paths.length) return null;
 										return (
-											<div className="plugin-resource-group" key={kind}>
-												<span className="plugin-resource-kind">{t(labelKey)}</span>
+											<div
+												className="grid gap-1.5 border-t border-[var(--border-subtle)] py-3 first:border-t-0 first:pt-0 last:pb-0"
+												key={kind}
+											>
+												<span className="text-[length:var(--text-2xs)] font-bold uppercase tracking-wide text-[color:var(--muted)]">
+													{t(labelKey)}
+												</span>
 												{paths.map((resource) => (
-													<span
-														className="plugin-resource-entry"
-														key={resource.path}
-														title={resource.path}
-													>
+													<span className="grid min-w-0 gap-px" key={resource.path} title={resource.path}>
 														<code>{resource.name}</code>
 														<small>{displayResourcePath(resource.relativePath, workspacePath)}</small>
 													</span>
@@ -556,39 +601,52 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 										);
 									})}
 									{Object.values(selected.resources).every((paths) => paths.length === 0) ? (
-										<p className="modal-empty">
+										<p className="px-3 py-7 text-center text-[length:var(--text-sm)] text-[color:var(--muted)]">
 											{selected.enabled ? t("noResourcesFound") : t("statusDisabled")}
 										</p>
 									) : null}
 								</div>
 							</div>
 							{selected.diagnostics.length ? (
-								<div className="plugin-diagnostics">
+								<div className="grid gap-1.5">
 									{selected.diagnostics.map((diagnostic, index) => (
-										<p className={`is-${diagnostic.type}`} key={`${diagnostic.message}-${index}`}>
+										<p
+											className={`m-0 rounded-[var(--radius-2xs)] bg-[var(--overlay-5)] px-2 py-1.5 text-[length:var(--text-xs)] text-[color:var(--text-dim)] ${diagnostic.type === "error" ? "text-[color:var(--danger)]" : diagnostic.type === "warning" ? "text-[color:var(--warning)]" : ""}`}
+											key={`${diagnostic.message}-${index}`}
+										>
 											{diagnostic.message}
 											{diagnostic.path ? <code>{diagnostic.path}</code> : null}
 										</p>
 									))}
 								</div>
 							) : null}
-							{success ? <p className="plugin-action-message is-success">{success}</p> : null}
-							{error ? <p className="plugin-action-message is-error">{error}</p> : null}
+							{success ? (
+								<p className="m-0 text-[length:var(--text-sm)] whitespace-pre-wrap text-[color:var(--success)]">
+									{success}
+								</p>
+							) : null}
+							{error ? (
+								<p className="m-0 text-[length:var(--text-sm)] whitespace-pre-wrap text-[color:var(--danger)]">
+									{error}
+								</p>
+							) : null}
 						</div>
 					) : (
-						<div className="settings-empty-state">{t("selectPluginHint")}</div>
+						<div className="px-3 py-7 text-center text-[length:var(--text-sm)] text-[color:var(--muted)]">
+							{t("selectPluginHint")}
+						</div>
 					)}
 				</section>
 			</div>
-			<footer className="models-footer plugin-footer">
-				<div>
+			<footer className="flex items-center gap-2 border-t border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--accent)_4%,var(--surface-1))] px-4 py-2.5">
+				<div className="mr-auto min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[length:var(--text-xs)] text-[color:var(--muted)]">
 					{error ? (
-						<span className="is-error">{error}</span>
+						<span className="text-[color:var(--danger)]">{error}</span>
 					) : success ? (
-						<span className="is-success">{success}</span>
+						<span className="text-[color:var(--success)]">{success}</span>
 					) : diagnosticCount ? (
 						<span
-							className={`plugin-diagnostic-count ${diagnosticSummary.hasError ? "is-error" : "is-warning"}`}
+							className={`text-[length:var(--text-xs)] ${diagnosticSummary.hasError ? "text-[color:var(--error-text)]" : "text-[color:var(--warning)]"}`}
 							title={diagnosticSummary.title}
 						>
 							{t("diagnosticCount", { count: diagnosticCount })}

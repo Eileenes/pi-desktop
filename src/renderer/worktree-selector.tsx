@@ -168,23 +168,26 @@ export const WorktreeSection = memo(function WorktreeSection({
 		: worktrees;
 
 	return (
-		<div className="worktree-section">
+		<div className="mt-0.5 grid">
 			<MenuHeading>Worktrees</MenuHeading>
 			{worktrees.length >= 8 ? (
 				<Field
-					className="worktree-filter"
+					className="box-border mx-2 mt-1 mb-1.5 w-[calc(100%-16px)] rounded-[var(--radius-2xs)] border border-[var(--border-subtle)] bg-[var(--surface-2)] px-2 py-1.5 font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] text-[color:var(--text)] outline-none focus:border-[var(--accent)]"
 					value={worktreeFilter}
 					onChange={(event) => setWorktreeFilter(event.target.value)}
 					placeholder={t("filterWorktrees")}
 					aria-label={t("filterWorktrees")}
 				/>
 			) : null}
-			<div className="worktree-list">
+			<div className="grid max-h-[180px] overflow-auto py-0.5">
 				{visibleWorktrees.map((tree) => (
-					<div className={`worktree-row ${tree.path === workspacePath ? "is-current" : ""}`} key={tree.path}>
+					<div
+						className={`group relative flex items-stretch hover:bg-[var(--hover)] ${tree.path === workspacePath ? "bg-[var(--hover)]" : ""}`}
+						key={tree.path}
+					>
 						<Button
 							variant="bare"
-							className="worktree-row-main"
+							className={`grid min-w-0 flex-1 gap-px rounded-[var(--radius-2xs)] border-0 bg-transparent px-2 py-1.5 text-left group-hover:text-[color:var(--text)] [&>span]:text-[length:var(--text-sm)] [&>span]:font-medium [&>small]:truncate [&>small]:font-[family-name:var(--font-mono)] [&>small]:text-[length:var(--text-xs)] [&>small]:text-[color:var(--muted)] ${tree.path === workspacePath ? "text-[color:var(--text)]" : "text-[color:var(--text-dim)]"}`}
 							onClick={() => {
 								if (tree.path !== workspacePath) onSwitch(tree.path);
 							}}
@@ -197,7 +200,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 						</Button>
 						{!tree.isMain ? (
 							confirmRemovePath === tree.path ? (
-								<div className="worktree-confirm-remove">
+								<div className="flex items-center gap-[3px] pr-1">
 									<Button
 										size="sm"
 										variant="danger"
@@ -223,7 +226,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 							) : (
 								<Button
 									size="icon"
-									className="worktree-remove compact"
+									className="mr-[5px] self-center border-0 bg-transparent px-[5px] py-0.5 text-[color:var(--muted)] hover:text-[color:var(--danger)] focus-visible:text-[color:var(--danger)]"
 									disabled={!projectTrusted}
 									title={!projectTrusted ? t("trustProjectFirst") : undefined}
 									aria-label={t("removeWorktreeAria", { branch: displayBranch(tree.branch) })}
@@ -238,9 +241,13 @@ export const WorktreeSection = memo(function WorktreeSection({
 						) : null}
 					</div>
 				))}
-				{visibleWorktrees.length === 0 ? <p className="worktree-empty">{t("noMatchingWorktrees")}</p> : null}
+				{visibleWorktrees.length === 0 ? (
+					<p className="mx-2.5 my-[7px] text-[length:var(--text-xs)] text-[color:var(--muted)]">
+						{t("noMatchingWorktrees")}
+					</p>
+				) : null}
 			</div>
-			<div className="worktree-add">
+			<div className="flex gap-1.5 border-t border-[var(--border-subtle)] px-2.5 py-2 [&>.ui-field]:min-w-0 [&>.ui-field]:flex-1">
 				<Field
 					placeholder={t("newBranchName")}
 					value={branchDraft}
@@ -264,9 +271,9 @@ export const WorktreeSection = memo(function WorktreeSection({
 				</Button>
 			</div>
 			{branches.local.length || branches.remote.length ? (
-				<label className="worktree-branch-switcher">
+				<label className="mx-2.5 mb-2 grid gap-1 text-[length:var(--text-2xs)] text-[color:var(--muted)] [&>.ui-field]:w-full">
 					<span>{t("switchCurrentBranch")}</span>
-					<div className="worktree-branch-controls">
+					<div className="flex min-w-0 items-center gap-1 [&>.ui-field]:min-w-0 [&>.ui-field]:flex-1">
 						<Field
 							as="select"
 							defaultValue=""
@@ -296,7 +303,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 						</Field>
 						<Button
 							variant="outline"
-							className="worktree-fetch"
+							className="px-[7px] py-1 text-[length:var(--text-2xs)] whitespace-nowrap"
 							type="button"
 							disabled={busy || fetchingBranches || !projectTrusted}
 							title={!projectTrusted ? t("trustProjectFirst") : t("fetchLatestRemoteHint")}
@@ -307,7 +314,9 @@ export const WorktreeSection = memo(function WorktreeSection({
 					</div>
 				</label>
 			) : null}
-			{error ? <p className="worktree-error">{error}</p> : null}
+			{error ? (
+				<p className="m-0 px-3 pb-2 text-[length:var(--text-2xs)] text-[color:var(--danger)]">{error}</p>
+			) : null}
 		</div>
 	);
 });

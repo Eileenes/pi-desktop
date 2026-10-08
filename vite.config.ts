@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -15,7 +16,7 @@ export default defineConfig({
 	base: "./",
 	define: { __APP_VERSION__: JSON.stringify(shellVersion) },
 	root: fileURLToPath(new URL("./src/renderer", import.meta.url)),
-	plugins: [react()],
+	plugins: [react(), tailwindcss()],
 	build: {
 		outDir: fileURLToPath(new URL("./dist/renderer", import.meta.url)),
 		emptyOutDir: true,

@@ -24,9 +24,9 @@ export const ExtensionCustomPanel = memo(function ExtensionCustomPanel({
 	useEffect(() => inputRef.current?.focus(), []);
 
 	return (
-		<div className="extension-custom-backdrop">
+		<div className="fixed inset-0 z-[120] grid place-items-center bg-[rgb(0_0_0/28%)] p-5 backdrop-blur-[2px]">
 			<div
-				className="extension-custom-panel"
+				className="relative flex max-h-[min(760px,calc(100vh-40px))] w-[min(920px,100%)] flex-col overflow-hidden rounded-[var(--ds-panel-radius)] border-0 bg-[var(--surface-1)] shadow-[0_0_0_0.5px_var(--ds-border-default),var(--ds-shadow-dialog)]"
 				role="dialog"
 				aria-modal="true"
 				aria-label={t("extensionPanel")}
@@ -35,7 +35,7 @@ export const ExtensionCustomPanel = memo(function ExtensionCustomPanel({
 			>
 				<textarea
 					ref={inputRef}
-					className="extension-custom-input"
+					className="pointer-events-none absolute size-px opacity-0"
 					aria-label={t("extensionPanelInput")}
 					autoCapitalize="off"
 					autoComplete="off"
@@ -73,14 +73,19 @@ export const ExtensionCustomPanel = memo(function ExtensionCustomPanel({
 						if (text) onInput(id, asBracketedPaste(text));
 					}}
 				/>
-				<header className="extension-custom-header">
-					<strong>{t("extensionPanel")}</strong>
-					<span>{t("extensionPanelHint")}</span>
+				<header className="flex items-center gap-3 border-b border-[var(--border-subtle)] px-3 py-2.5">
+					<strong className="text-[length:var(--text-md)]">{t("extensionPanel")}</strong>
+					<span className="flex-1 text-[length:var(--text-xs)] text-[color:var(--text-muted)]">
+						{t("extensionPanelHint")}
+					</span>
 					<Button size="sm" type="button" onClick={() => onInput(id, "\x03")}>
 						{t("close")}
 					</Button>
 				</header>
-				<pre className="extension-custom-terminal" aria-live="polite">
+				<pre
+					className="m-0 min-h-40 overflow-auto bg-[var(--surface-1)] px-4 pt-3.5 pb-[18px] font-[family-name:var(--font-mono)] text-[length:var(--text-sm)] leading-[var(--leading-body)] whitespace-pre text-[color:var(--text)] [tab-size:2]"
+					aria-live="polite"
+				>
 					{displayLines.map((line, lineIndex) => (
 						<div key={`${lineIndex}-${line}`}>
 							{parseAnsiLine(line).map((segment, segmentIndex) => (
@@ -99,14 +104,19 @@ export const ExtensionCustomPanel = memo(function ExtensionCustomPanel({
 
 export const ExtensionWidgetStack = memo(function ExtensionWidgetStack({
 	widgets,
+	className,
 }: {
 	widgets: DesktopExtensionWidget[];
+	className?: string;
 }) {
 	if (!widgets.length) return null;
 	return (
-		<div className="extension-widget-stack">
+		<div className={["grid gap-[5px] px-2.5 pb-[7px]", className].filter(Boolean).join(" ")}>
 			{widgets.map((widget) => (
-				<div className="extension-widget" key={widget.key}>
+				<div
+					className="overflow-x-auto rounded-[var(--radius-xs)] border border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--surface-2)_84%,transparent)] px-2 py-[7px] font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] leading-[var(--leading-body)] whitespace-pre text-[color:var(--text-dim)]"
+					key={widget.key}
+				>
 					{widget.lines.map((line, lineIndex) => (
 						<div key={`${lineIndex}-${line}`}>
 							{parseAnsiLine(line).map((segment, segmentIndex) => (

@@ -22,7 +22,8 @@ export const ProjectTrustDialog = memo(function ProjectTrustDialog({
 	return (
 		<Modal
 			title={t("trustDialogTitle")}
-			className="trust-dialog"
+			className="w-[min(460px,100%)]"
+			bodyClassName="flex items-start gap-3"
 			closeDisabled={busy}
 			footerClassName="is-end"
 			onClose={onCancel}
@@ -37,27 +38,30 @@ export const ProjectTrustDialog = memo(function ProjectTrustDialog({
 				</>
 			}
 		>
-			<div className="trust-dialog-body">
-				<svg
-					width="20"
-					height="20"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="var(--warning, #b87503)"
-					strokeWidth="2"
-					strokeLinecap="round"
-					strokeLinejoin="round"
-					aria-hidden="true"
-				>
-					<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
-					<path d="M12 8v4" />
-					<path d="M12 16h.01" />
-				</svg>
-				<div>
-					<p>{t("trustDescription")}</p>
-					<code>{workspacePath}</code>
-					{error ? <p className="trust-dialog-error">{error}</p> : null}
-				</div>
+			<svg
+				className="mt-0.5 shrink-0"
+				width="20"
+				height="20"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="var(--warning, #b87503)"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+				aria-hidden="true"
+			>
+				<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+				<path d="M12 8v4" />
+				<path d="M12 16h.01" />
+			</svg>
+			<div className="min-w-0">
+				<p className="m-0 mb-2 text-[length:var(--text-sm-plus)] leading-[1.6] text-[color:var(--ds-text-secondary)]">
+					{t("trustDescription")}
+				</p>
+				<code className="block font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] text-[color:var(--ds-text-muted)] [overflow-wrap:anywhere]">
+					{workspacePath}
+				</code>
+				{error ? <p className="mt-2 text-[color:var(--ds-error)]">{error}</p> : null}
 			</div>
 		</Modal>
 	);

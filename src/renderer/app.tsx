@@ -27,6 +27,7 @@ import { parseAnsiLine } from "./ansi.ts";
 import { type AppAccent, AppSettingsModal, isAppAccent } from "./app-settings-modal.tsx";
 import { BranchNavigator } from "./branch-navigator.tsx";
 import { BrandMark } from "./brand-mark.tsx";
+import { FILE_TREE_ROW, NATIVE_TOOLBAR_ACTIVE, NATIVE_TOOLBAR_BUTTON } from "./chrome-classes.ts";
 import {
 	formatExtensionStatusLine,
 	getComposerThinkingLevels,
@@ -370,6 +371,34 @@ const THINKING_LEVEL_DESCRIPTION_KEYS: Record<DesktopThinkingLevel, TranslationK
 };
 
 const COMPACT_COMPOSER_MEDIA_QUERY = "(max-width: 640px)";
+const COMPOSER_SLASH_MENU =
+	"absolute right-0 bottom-[calc(100%+8px)] left-0 z-50 grid max-h-[min(56vh,460px)] overflow-auto rounded-[var(--radius-lg)] border-[0.5px] border-[var(--ds-border-default)] bg-[color-mix(in_oklab,var(--ds-bg-elevated-opaque)_82%,transparent)] p-[5px] shadow-[0_0_0_0.5px_var(--ds-border-subtle),var(--ds-shadow-dialog)] backdrop-blur-[18px] backdrop-saturate-125 supports-[corner-shape:superellipse(1.5)]:[corner-shape:superellipse(1.5)]";
+const COMPOSER_SLASH_HEADER =
+	"sticky top-0 z-[1] flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-[7px]";
+const COMPOSER_SLASH_HEADER_LABEL =
+	"text-[length:var(--text-2xs)] font-semibold tracking-[0.06em] text-[color:var(--muted)] uppercase";
+const COMPOSER_SLASH_HEADER_HINT = "text-[length:var(--text-2xs)] text-[color:var(--muted)]";
+const COMPOSER_SLASH_EMPTY = "m-0 px-3.5 py-2.5 text-[length:var(--text-xs)] text-[color:var(--muted)]";
+const COMPOSER_SLASH_COMMAND =
+	"flex w-full items-center gap-2 border-0 bg-transparent px-3 py-2 text-left text-[length:var(--text-sm-plus)] text-[color:var(--text-dim)] hover:bg-[var(--overlay-5)] [&>span]:truncate";
+const COMPOSER_SLASH_COMMAND_SELECTED = "bg-[var(--overlay-5)] text-[color:var(--text)]";
+const COMPOSER_SLASH_COMMAND_GRID =
+	"grid min-h-[54px] grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_auto] gap-x-2 gap-y-0.5 rounded-[var(--radius-xs)] border border-transparent px-2.5 py-2 text-left text-[length:var(--text-sm-plus)] text-[color:var(--text-dim)] hover:border-[var(--border-subtle)] hover:bg-[var(--overlay-5)] [&>code]:col-span-full [&>code]:font-[family-name:var(--font-mono)] [&>code]:text-[length:var(--text-xs)] [&>code]:text-[color:var(--text)] [&>span]:col-start-1 [&>span]:text-[color:var(--text-dim)] [&>small]:col-start-2 [&>small]:justify-self-end [&>small]:text-[length:var(--text-2xs)] [&>small]:text-[color:var(--muted)] [&>small]:uppercase";
+const COMPOSER_CONTROL_MENU =
+	"absolute bottom-[calc(100%+6px)] z-40 grid max-h-80 min-w-[220px] max-w-[min(320px,80vw)] overflow-auto [&_.app-menu-copy]:whitespace-normal [&_.app-menu-hint]:whitespace-normal";
+const SIDEBAR_HOVER_CARD =
+	"fixed z-[80] grid w-max min-w-[220px] max-w-[320px] rounded-[var(--radius-md)] bg-[var(--ds-bg-elevated-opaque)] p-1.5 text-[color:var(--text-primary)] shadow-[var(--ds-elevation-stroke),var(--ds-shadow-dialog)]";
+const SIDEBAR_HOVER_TITLE =
+	"flex min-w-0 items-center gap-2 rounded-[var(--radius-xs)] border-0 bg-transparent px-2 py-1.5 text-left text-[length:var(--text-sm)] font-[var(--font-weight-medium)] [&>span]:truncate [&>small]:ml-auto [&>small]:whitespace-nowrap [&>small]:text-[length:var(--text-xs)] [&>small]:text-[color:var(--text-tertiary)]";
+const SIDEBAR_HOVER_ROW =
+	"flex min-w-0 items-center gap-2 rounded-[var(--radius-xs)] border-0 bg-transparent px-2 py-1.5 text-left text-[length:var(--text-sm)] text-[color:var(--text-secondary)] [&>span]:truncate";
+const SIDEBAR_HOVER_DIVIDER = "mx-2 my-1 h-px bg-[var(--border-subtle)]";
+const SIDEBAR_EMPTY =
+	"grid justify-items-start gap-2.5 px-5 py-[26px] text-[color:var(--muted)] [&>svg]:mb-1 [&>svg]:text-[color:var(--muted)] [&>strong]:text-[length:var(--text-md)] [&>strong]:font-semibold [&>strong]:text-[color:var(--text)] [&>p]:mb-1.5 [&>p]:text-[length:var(--text-sm)] [&>p]:leading-[1.55]";
+const SIDEBAR_SESSION_MORE_MENU =
+	"absolute top-[calc(100%+2px)] right-1 z-[45] grid min-w-[150px] max-w-[240px] rounded-[var(--radius-xs)] border border-[var(--border-subtle)] bg-[var(--surface-1)] p-1 shadow-[var(--shadow-float)] [&_button]:overflow-hidden [&_button]:rounded-[var(--radius-2xs)] [&_button]:border-0 [&_button]:bg-transparent [&_button]:px-2.5 [&_button]:py-[7px] [&_button]:text-left [&_button]:text-[length:var(--text-sm)] [&_button]:text-ellipsis [&_button]:whitespace-nowrap [&_button]:text-[color:var(--text)] [&_button:hover:not(:disabled)]:bg-[var(--ds-bg-hover)] [&_button:disabled]:opacity-50 [&_button.is-danger]:text-[color:var(--ds-error)]";
+const SIDEBAR_PROJECT_ACTION =
+	"inline-flex size-6 items-center justify-center rounded-[var(--radius-sm)] border-0 bg-transparent p-0 text-[color:var(--muted)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] [&>svg]:block";
 
 function subscribeCompactComposer(onStoreChange: () => void): () => void {
 	const media = window.matchMedia(COMPACT_COMPOSER_MEDIA_QUERY);
@@ -994,23 +1023,29 @@ const ToolApprovalCard = memo(function ToolApprovalCard({
 	}, []);
 	const seconds = Math.max(0, Math.ceil((approval.expiresAt - now) / 1000));
 	return (
-		<article className="approval-card">
-			<div className="card-heading">
+		<article className="approval-card grid gap-3.5 rounded-[var(--radius-lg)] border-[0.5px] border-[var(--ds-border-subtle)] bg-[var(--surface-2)] p-4 shadow-[var(--shadow-float)] supports-[corner-shape:superellipse(1.5)]:[corner-shape:superellipse(1.5)]">
+			<div className="flex items-center justify-between gap-3 [&>div>h3]:mt-1 [&>div>h3]:mb-0 [&>div>h3]:text-[length:var(--text-lg-plus)] [&>div>h3]:font-semibold [&>div>h3]:tracking-[-0.01em]">
 				<div>
-					<p className="section-kicker">{t("toolApproval")}</p>
+					<p className="m-0 text-[length:var(--text-xs)] font-medium text-[color:var(--muted)]">
+						{t("toolApproval")}
+					</p>
 					<h3>{approval.toolName}</h3>
 				</div>
-				<span className="card-id">{approval.toolCallId.slice(0, 8)}</span>
+				<span className="font-[family-name:var(--font-mono)] text-[length:var(--text-2xs)] text-[color:var(--muted)]">
+					{approval.toolCallId.slice(0, 8)}
+				</span>
 			</div>
-			<div className="approval-context">
+			<div className="my-2.5 grid justify-items-start gap-1.5 [&>code]:text-[12px] [&>code]:[overflow-wrap:anywhere] [&>small]:text-[color:var(--text-muted)]">
 				<Button variant="outline" type="button" onClick={() => onOpenSession(approval.sessionId)}>
 					{approval.sessionName ?? approval.sessionId}
 				</Button>
 				{approval.workspacePath ? <code>{approval.workspacePath}</code> : null}
 				<small>{t("approvalExpires", { seconds })}</small>
 			</div>
-			<pre>{inputText}</pre>
-			<div className="card-actions">
+			<pre className="m-0 max-h-[180px] overflow-auto rounded-[var(--radius-s)] border border-[var(--border-subtle)] bg-[var(--surface-recessed)] p-3 font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] leading-[1.55] text-[color:var(--text-dim)]">
+				{inputText}
+			</pre>
+			<div className="flex items-center justify-end gap-3">
 				<Button
 					variant="outline"
 					type="button"
@@ -1103,22 +1138,34 @@ const EditDiffView = memo(function EditDiffView({
 }) {
 	const { t } = useI18n();
 	return (
-		<div className="edit-diff edit-diff-split">
-			<div className="edit-diff-head">
+		<div className="my-1 ml-5 max-h-[560px] overflow-auto rounded-[var(--radius-xs)] border border-[var(--border-subtle)] bg-[var(--surface-recessed)] font-[family-name:var(--font-mono)] text-[length:var(--text-xs)]">
+			<div className="sticky top-0 z-[1] grid grid-cols-2 border-b border-[var(--border-subtle)] bg-[var(--surface-recessed)] text-[color:var(--muted)] [&>span]:px-2.5 [&>span]:py-1.5 [&>span+span]:border-l [&>span+span]:border-[var(--border-subtle)]">
 				<span>{t("oldContent")}</span>
 				<span>{t("newContent")}</span>
 			</div>
 			{lines.map((line, index) => (
 				// biome-ignore lint/suspicious/noArrayIndexKey: diff 行顺序固定
-				<div className="edit-diff-row" key={index}>
-					<div className={`edit-diff-side ${line.kind === "add" ? "is-empty" : "is-del"}`}>
-						<span className="edit-diff-num">{line.oldLine ?? ""}</span>
-						<span className="edit-diff-marker">{line.kind === "del" ? "−" : " "}</span>
+				<div className="grid min-h-[22px] grid-cols-2 items-stretch" key={index}>
+					<div
+						className={`grid min-w-0 grid-cols-[36px_16px_minmax(0,1fr)] items-baseline border-b border-[rgb(255_255_255/3%)] [&>code]:min-w-0 [&>code]:pr-2.5 [&>code]:break-all [&>code]:whitespace-pre-wrap ${line.kind === "add" ? "bg-[rgb(255_255_255/2%)] text-transparent" : "bg-[color-mix(in_oklab,var(--ds-error)_13%,transparent)] text-[color:var(--text-dim)] [&>code]:line-through [&>code]:decoration-[color-mix(in_oklab,var(--ds-error)_40%,transparent)]"}`}
+					>
+						<span className="pr-2 text-right text-[color:var(--muted)] select-none">{line.oldLine ?? ""}</span>
+						<span
+							className={`text-center select-none ${line.kind === "del" ? "text-[color:var(--danger)]" : "text-[color:var(--muted)]"}`}
+						>
+							{line.kind === "del" ? "−" : " "}
+						</span>
 						<code>{line.kind === "add" ? " " : line.text || " "}</code>
 					</div>
-					<div className={`edit-diff-side ${line.kind === "del" ? "is-empty" : "is-add"}`}>
-						<span className="edit-diff-num">{line.newLine ?? ""}</span>
-						<span className="edit-diff-marker">{line.kind === "add" ? "+" : " "}</span>
+					<div
+						className={`grid min-w-0 grid-cols-[36px_16px_minmax(0,1fr)] items-baseline border-b border-l border-[var(--border-subtle)] border-b-[rgb(255_255_255/3%)] [&>code]:min-w-0 [&>code]:pr-2.5 [&>code]:break-all [&>code]:whitespace-pre-wrap ${line.kind === "del" ? "bg-[rgb(255_255_255/2%)] text-transparent" : "bg-[color-mix(in_oklab,var(--ds-success)_12%,transparent)] text-[color:var(--text)]"}`}
+					>
+						<span className="pr-2 text-right text-[color:var(--muted)] select-none">{line.newLine ?? ""}</span>
+						<span
+							className={`text-center select-none ${line.kind === "add" ? "text-[color:var(--success)]" : "text-[color:var(--muted)]"}`}
+						>
+							{line.kind === "add" ? "+" : " "}
+						</span>
 						<code>{line.kind === "del" ? " " : line.text || " "}</code>
 					</div>
 				</div>
@@ -1166,9 +1213,15 @@ const TranscriptBlock = memo(function TranscriptBlock({ block }: { block: Deskto
 	if (block.type === "text") return <MarkdownBody text={block.text} />;
 	if (block.type === "image") {
 		return block.thumbnailDataUrl ? (
-			<img className="message-image-thumbnail" src={block.thumbnailDataUrl} alt={block.label} />
+			<img
+				className="block max-h-[240px] max-w-[min(240px,100%)] rounded-[var(--radius-xs)] border border-[color-mix(in_srgb,var(--accent)_18%,transparent)] object-contain"
+				src={block.thumbnailDataUrl}
+				alt={block.label}
+			/>
 		) : (
-			<span className="message-image-label">{block.label}</span>
+			<span className="inline-block rounded-[var(--radius-2xs)] border border-[var(--border-subtle)] px-2 py-[5px] text-[length:var(--text-xs)] text-[color:var(--muted)]">
+				{block.label}
+			</span>
 		);
 	}
 	if (block.type === "thinking") {
@@ -1176,19 +1229,30 @@ const TranscriptBlock = memo(function TranscriptBlock({ block }: { block: Deskto
 		const preview = lastMeaningfulLine(thinkingText) || thinkingText;
 		if (!thinkingText) return null;
 		return (
-			<div className={`message-block message-block-thinking${expanded ? " is-expanded" : ""}`}>
-				<Button variant="bare" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
-					<span className="process-details-icon" aria-hidden="true">
+			<div className="my-[3px]">
+				<Button
+					variant="bare"
+					className="mx-[-4px] flex w-full min-h-6 min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] border-0 bg-transparent px-1 py-0.5 text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text-primary)]"
+					aria-expanded={expanded}
+					onClick={() => setExpanded((current) => !current)}
+				>
+					<span className="inline-flex shrink-0 text-[color:var(--ds-text-muted)]" aria-hidden="true">
 						<Icon name="sparkles" size={14} />
 					</span>
-					<span className="thinking-label">{t("thinkingLabel")}</span>
-					{expanded || !preview ? null : <span className="thinking-preview">{preview}</span>}
-					<span className="entry-chevron">
+					<span className="shrink-0 font-medium">{t("thinkingLabel")}</span>
+					{expanded || !preview ? null : (
+						<span className="min-w-0 flex-1 truncate text-[length:var(--text-xs-plus)] text-[color:var(--ds-text-muted)]">
+							{preview}
+						</span>
+					)}
+					<span
+						className={`ml-auto grid shrink-0 place-items-center opacity-65 transition-transform ${expanded ? "rotate-90" : ""}`}
+					>
 						<Icon name="chevron" size={12} />
 					</span>
 				</Button>
 				{expanded ? (
-					<pre className="thinking-body">
+					<pre className="my-1 max-h-80 overflow-auto rounded-[var(--radius-sm)] bg-[var(--ds-thinking-code-bg)] px-2.5 py-2 font-[inherit] text-[length:var(--text-xs)] text-[color:var(--ds-text-secondary)]">
 						<code>{thinkingText}</code>
 					</pre>
 				) : null}
@@ -1197,11 +1261,22 @@ const TranscriptBlock = memo(function TranscriptBlock({ block }: { block: Deskto
 	}
 	const editDiff = parseEditToolDiff(block.name, block.input);
 	return (
-		<div className={`message-block message-block-toolCall ${expanded ? "is-expanded" : ""}`}>
-			<Button variant="bare" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
-				<code className="tool-name">{block.name}</code>
-				<span className="tool-preview">{toolCallPreview(block.input)}</span>
-				<span className="entry-chevron">
+		<div className="my-[3px]">
+			<Button
+				variant="bare"
+				className="mx-[-4px] flex w-full min-h-6 min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border-0 bg-transparent px-1 py-0.5 text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text-primary)]"
+				aria-expanded={expanded}
+				onClick={() => setExpanded((current) => !current)}
+			>
+				<code className="font-[family-name:var(--font-sans)] text-[length:var(--text-sm-plus)] font-[var(--font-weight-medium)] text-[color:var(--text-dim)]">
+					{block.name}
+				</code>
+				<span className="min-w-0 truncate font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] text-[color:var(--muted)]">
+					{toolCallPreview(block.input)}
+				</span>
+				<span
+					className={`ml-auto grid shrink-0 place-items-center opacity-65 transition-transform ${expanded ? "rotate-90" : ""}`}
+				>
 					<Icon name="chevron" size={12} />
 				</span>
 			</Button>
@@ -1209,7 +1284,7 @@ const TranscriptBlock = memo(function TranscriptBlock({ block }: { block: Deskto
 				editDiff ? (
 					<EditDiffView lines={editDiff.lines} />
 				) : (
-					<pre>
+					<pre className="my-[3px] ml-5 max-h-80 overflow-auto rounded-[var(--radius-sm)] bg-[var(--ds-thinking-code-bg)] px-2.5 py-2 text-[length:var(--text-xs)] leading-[var(--leading-normal)] whitespace-pre-wrap text-[color:var(--text-secondary)]">
 						<code>{block.input}</code>
 					</pre>
 				)
@@ -1243,17 +1318,20 @@ const UserMessageBody = memo(function UserMessageBody({
 		blocks?.filter((block): block is Extract<DesktopTranscriptBlock, { type: "image" }> => block.type === "image") ??
 		[];
 	const imagePreview = imageBlocks.length ? (
-		<div className="message-user-images">
+		<div className="mb-2 flex flex-wrap gap-1.5">
 			{imageBlocks.map((block, index) =>
 				block.thumbnailDataUrl ? (
 					<img
-						className="message-user-image"
+						className="block h-auto w-[240px] max-h-[240px] max-w-full rounded-[var(--radius-2xs)] border border-[color-mix(in_srgb,var(--accent)_18%,transparent)] object-contain"
 						key={`${block.label}:${index}`}
 						src={block.thumbnailDataUrl}
 						alt={block.label}
 					/>
 				) : (
-					<span className="message-image-label" key={`${block.label}:${index}`}>
+					<span
+						className="inline-block rounded-[var(--radius-2xs)] border border-[var(--border-subtle)] px-2 py-[5px] text-[length:var(--text-xs)] text-[color:var(--muted)]"
+						key={`${block.label}:${index}`}
+					>
 						{block.label}
 					</span>
 				),
@@ -1271,21 +1349,28 @@ const UserMessageBody = memo(function UserMessageBody({
 
 	if (!overflowing) {
 		return (
-			<div className="message-user-body" ref={bodyRef}>
+			<div className="min-w-0" ref={bodyRef}>
 				{imagePreview}
 				{text ? <MarkdownBody text={text} /> : null}
 			</div>
 		);
 	}
 	return (
-		<div className="message-user-body-wrap">
-			<div className={`message-user-body ${collapsed ? "is-collapsed" : ""}`} ref={bodyRef}>
+		<div className="min-w-0 max-w-full">
+			<div
+				className={`min-w-0 ${collapsed ? "max-h-[220px] overflow-hidden [mask-image:linear-gradient(to_bottom,black_65%,transparent_100%)]" : ""}`}
+				ref={bodyRef}
+			>
 				{imagePreview}
 				{text ? <MarkdownBody text={text} /> : null}
 			</div>
-			<Button variant="bare" className="message-user-expand" onClick={() => setCollapsed((current) => !current)}>
+			<Button
+				variant="bare"
+				className="mt-[5px] inline-flex items-center gap-1 rounded-full border-0 bg-[var(--ds-tile-hover)] px-[9px] py-[3px] text-[length:var(--text-xs)] text-[color:var(--muted)] hover:bg-[var(--overlay-12)] hover:text-[color:var(--text)]"
+				onClick={() => setCollapsed((current) => !current)}
+			>
 				{collapsed ? t("expandAll") : t("collapse")}
-				<span className="entry-chevron">
+				<span className="grid place-items-center rotate-90">
 					<Icon name="chevron" size={11} />
 				</span>
 			</Button>
@@ -1315,20 +1400,27 @@ const CompactionMessageBody = memo(function CompactionMessageBody({ message }: {
 	const { body, readFiles, modifiedFiles } = useMemo(() => parseCompactionSummary(message.text), [message.text]);
 	const contextCount = readFiles.length + modifiedFiles.length;
 	return (
-		<section className="compaction-message">
-			<header>
-				<span className="context-hint-mark" aria-hidden="true">
+		<section className="my-1 mb-3 overflow-visible bg-transparent">
+			<header className="flex min-h-7 items-center rounded-[var(--radius-sm)] px-0.5 py-0.5 text-[color:var(--ds-text-secondary)] [&>strong]:shrink-0 [&>strong]:text-[length:var(--text-sm)] [&>strong]:font-medium [&>strong]:leading-5 [&>strong]:text-[color:var(--ds-text-secondary)] [&>span]:min-w-0 [&>span]:truncate [&>span]:text-[length:var(--text-sm)] [&>span]:leading-5 [&>span]:text-[color:var(--ds-text-muted)] [&>time]:ml-auto [&>time]:pl-2 [&>time]:font-[family-name:var(--font-sans)] [&>time]:text-[length:var(--text-xs)] [&>time]:text-[color:var(--ds-text-faint)]">
+				<span
+					className="mr-1.5 inline-grid size-4 shrink-0 place-items-center text-[color:var(--ds-text-muted)]"
+					aria-hidden="true"
+				>
 					<Icon name="archiveBox" size={14} />
 				</span>
 				<strong>{t("compactionHintTitle")}</strong>
-				<span className="context-hint-sep" aria-hidden="true" />
+				<span className="mx-2 size-0.5 shrink-0 rounded-px bg-[var(--ds-text-faint)]" aria-hidden="true" />
 				<span>{t("compactionDescription")}</span>
 				{message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
 			</header>
-			<div className="compaction-message-body">
-				{body ? <MarkdownBody text={body} /> : <span className="compaction-empty">{t("noSummary")}</span>}
+			<div className="mt-1 rounded-[var(--radius-md)] bg-[var(--ds-bg-hover)] px-3 pt-2.5 pb-3 [&>p]:mb-2 [&>p]:text-[length:var(--text-sm)] [&>p]:leading-normal [&>p]:text-[color:var(--text-dim)] [&>strong]:text-[length:var(--text-base-plus)] [&>strong]:text-[color:var(--text)]">
+				{body ? (
+					<MarkdownBody text={body} />
+				) : (
+					<span className="text-[length:var(--text-sm)] text-[color:var(--muted)]">{t("noSummary")}</span>
+				)}
 				{contextCount ? (
-					<details className="compaction-file-details">
+					<details className="mt-3 text-[length:var(--text-xs)] text-[color:var(--text-dim)] [&>summary]:cursor-pointer [&>section]:mt-2 [&>section>strong]:text-[length:var(--text-2xs)] [&>section>strong]:text-[color:var(--muted)] [&>section>strong]:uppercase [&>section>ul]:mt-1 [&>section>ul]:pl-[18px] [&>section>ul]:font-[family-name:var(--font-mono)]">
 						<summary>{t("fileContext", { count: contextCount })}</summary>
 						{modifiedFiles.length ? (
 							<section>
@@ -1445,10 +1537,21 @@ const TranscriptMessage = memo(function TranscriptMessage({
 		message.role === "user" || (isAssistant && !isStreaming && (hasAssistantContent || Boolean(assistantError)));
 
 	return (
-		<article className={`message message-${message.role}${message.isError || assistantError ? " is-error" : ""}`}>
-			<div className="message-content">
+		<article
+			className={`group max-w-full ${message.role === "user" ? "flex flex-col items-end py-2 pt-3" : "py-1.5 pb-3.5"}`}
+		>
+			<div
+				className={
+					message.role === "user"
+						? "w-max max-w-[min(82%,600px)] rounded-[var(--radius-lg-plus)] rounded-br-[var(--radius-xs)] bg-[color-mix(in_oklab,var(--ds-text-primary)_8%,transparent)] px-[15px] py-2.5 text-[length:var(--text-base)] leading-[var(--leading-chat)] [overflow-wrap:break-word] text-[color:var(--ds-text-primary)] [&_.markdown-body]:text-[length:inherit] [&_.markdown-body]:leading-[inherit] [&_.markdown-body>:first-child]:mt-0 [&_.markdown-body>:last-child]:mb-0 [&>p]:m-0 [&>p]:whitespace-pre-wrap [&>p]:text-[length:var(--text-base)] [&>p]:leading-[1.72] [&>p]:text-[color-mix(in_oklab,var(--ds-text-primary)_92%,transparent)]"
+						: ""
+				}
+			>
 				{assistantError ? (
-					<div className="message-provider-error" role="alert">
+					<div
+						className="grid gap-1.5 rounded-[var(--radius-xs)] border border-[color-mix(in_srgb,var(--danger)_46%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] px-3 py-2.5 text-[length:var(--text-md)] leading-normal text-[color:var(--text)] [&>strong]:text-[length:var(--text-sm)] [&>pre]:m-0 [&>pre]:max-h-[220px] [&>pre]:overflow-auto [&>pre]:whitespace-pre-wrap"
+						role="alert"
+					>
 						<strong>{t("providerError")}</strong>
 						<span>{assistantError}</span>
 					</div>
@@ -1460,7 +1563,7 @@ const TranscriptMessage = memo(function TranscriptMessage({
 				) : isAssistant ? null : message.role === "custom" && message.customType === "compaction" ? (
 					<CompactionMessageBody message={message} />
 				) : message.role === "custom" ? (
-					<div className="message-custom-body">
+					<div className="grid gap-1.5 rounded-[var(--radius-xs)] border border-[color-mix(in_srgb,var(--danger)_46%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] px-3 py-2.5 text-[length:var(--text-md)] leading-normal text-[color:var(--text)] [&>strong]:text-[length:var(--text-sm)] [&>pre]:m-0 [&>pre]:max-h-[220px] [&>pre]:overflow-auto [&>pre]:whitespace-pre-wrap">
 						{message.display ? <strong>{message.display}</strong> : null}
 						{message.text ? <MarkdownBody text={message.text} /> : null}
 						{message.details ? <pre>{message.details}</pre> : null}
@@ -1470,32 +1573,46 @@ const TranscriptMessage = memo(function TranscriptMessage({
 				)}
 			</div>
 			{isAssistant && !isStreaming && modelLabel ? (
-				<div className="message-meta">
+				<div className="mt-2 inline-flex min-h-5 flex-wrap items-center gap-1.5 text-[length:var(--text-xs)] text-[color:var(--ds-text-muted)]">
 					<Button
 						variant="bare"
-						className={`message-meta-chip${usageOpen ? " is-open" : ""}`}
+						className="inline-flex max-w-full min-h-5 cursor-pointer items-center gap-1 overflow-hidden rounded-full border-0 bg-[color-mix(in_oklab,var(--ds-text-primary)_5%,transparent)] px-2 py-px text-[length:var(--text-xs)] leading-[1.3] whitespace-nowrap text-[color:var(--ds-text-secondary)] font-[inherit] disabled:cursor-default disabled:opacity-100"
 						aria-expanded={usageTitle ? usageOpen : undefined}
 						disabled={!usageTitle}
 						onClick={() => setUsageOpen((current) => !current)}
 					>
 						{modelLabel}
 						{usageTitle ? (
-							<span className="entry-chevron">
+							<span
+								className={`grid shrink-0 place-items-center opacity-65 transition-transform duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-out)] ${usageOpen ? "rotate-90" : ""}`}
+							>
 								<Icon name="chevron" size={10} />
 							</span>
 						) : null}
 					</Button>
-					{usageOpen && usageTitle ? <span className="message-usage">{usageTitle}</span> : null}
+					{usageOpen && usageTitle ? (
+						<span className="m-0 flex items-center gap-2 font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] text-[color:var(--muted)] opacity-100">
+							{usageTitle}
+						</span>
+					) : null}
 				</div>
 			) : null}
 			{isAssistant && isStreaming && streamTps !== undefined ? (
-				<div className="message-meta">
-					<span className="message-meta-chip">{streamTps.toFixed(1)} t/s</span>
+				<div className="mt-2 inline-flex min-h-5 flex-wrap items-center gap-1.5 text-[length:var(--text-xs)] text-[color:var(--ds-text-muted)]">
+					<span className="inline-flex max-w-full min-h-5 items-center gap-1 overflow-hidden rounded-full border-0 bg-[color-mix(in_oklab,var(--ds-text-primary)_5%,transparent)] px-2 py-px text-[length:var(--text-xs)] leading-[1.3] whitespace-nowrap text-[color:var(--ds-text-secondary)]">
+						{streamTps.toFixed(1)} t/s
+					</span>
 				</div>
 			) : null}
 			{showActions ? (
-				<div className="message-actions">
-					{message.timestamp ? <time className="message-time">{formatMessageTime(message.timestamp)}</time> : null}
+				<div
+					className={`flex min-h-6 items-center gap-0.5 pt-0.5 text-[length:var(--text-xs)] text-[color:var(--muted)] ${message.role === "user" ? "justify-end opacity-0 transition-opacity duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-out)] group-hover:opacity-100 group-focus-within:opacity-100" : "justify-start"}`}
+				>
+					{message.timestamp ? (
+						<time className="m-0 px-0.5 font-[family-name:var(--font-mono)] text-[length:var(--text-2xs)] text-[color:var(--muted)] [font-variant-numeric:tabular-nums]">
+							{formatMessageTime(message.timestamp)}
+						</time>
+					) : null}
 					<Button
 						size="icon"
 						className="compact"
@@ -1535,10 +1652,12 @@ const TranscriptMessage = memo(function TranscriptMessage({
 });
 
 function transcriptDiffLineClass(line: string): string {
-	if (line.startsWith("+++") || line.startsWith("---")) return "diff-head";
-	if (line.startsWith("@@")) return "diff-hunk";
-	if (line.startsWith("+")) return "diff-add";
-	if (line.startsWith("-")) return "diff-del";
+	if (line.startsWith("+++") || line.startsWith("---")) return "font-semibold text-[color:var(--muted)]";
+	if (line.startsWith("@@")) return "text-[color:var(--accent)]";
+	if (line.startsWith("+"))
+		return "is-add bg-[color-mix(in_oklab,var(--ds-success)_12%,transparent)] text-[color:var(--success)] [&>code]:text-[color:var(--text)]";
+	if (line.startsWith("-"))
+		return "is-del bg-[color-mix(in_oklab,var(--ds-error)_13%,transparent)] text-[color:var(--danger)] [&>code]:text-[color:var(--text-dim)] [&>code]:line-through [&>code]:decoration-[color-mix(in_oklab,var(--ds-error)_40%,transparent)]";
 	return "";
 }
 
@@ -1595,14 +1714,16 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 		}
 	}
 	return (
-		<article className={`transcript-entry ${expanded ? "is-expanded" : ""}`}>
+		<article className="my-[3px]">
 			<Button
 				variant="bare"
-				className={`entry-toggle ${message.isError ? "is-error" : "is-success"}`}
+				className={`mx-[-4px] inline-flex min-h-6 items-center gap-1 rounded-[var(--radius-sm)] border-0 bg-transparent px-1 py-0.5 text-[length:var(--text-sm-plus)] hover:bg-[var(--hover)] ${message.isError ? "text-[color:var(--danger)]" : "text-[color:var(--text-dim)] hover:text-[color:var(--text-dim)]"}`}
 				aria-expanded={expanded}
 				onClick={() => setExpanded((current) => !current)}
 			>
-				<span className="entry-chevron">
+				<span
+					className={`grid place-items-center transition-transform duration-150 ${expanded ? "rotate-90" : ""}`}
+				>
 					<Icon name="chevron" size={11} />
 				</span>
 				<span>
@@ -1612,18 +1733,28 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 							? `${message.isError ? t("toolFailed") : t("toolResult")}${message.toolName ? ` · ${message.toolName}` : toolCall ? ` · ${toolCall.name}` : ""}`
 							: t("systemMessage")}
 				</span>
-				{message.toolCallId ? <code className="tool-call-id">#{message.toolCallId.slice(-6)}</code> : null}
-				{durationSeconds !== undefined ? <small className="entry-duration">{durationSeconds}s</small> : null}
+				{message.toolCallId ? (
+					<code className="ml-auto font-[family-name:var(--font-mono)] text-[length:var(--text-2xs)] text-[color:var(--muted)]">
+						#{message.toolCallId.slice(-6)}
+					</code>
+				) : null}
+				{durationSeconds !== undefined ? (
+					<small className="font-[family-name:var(--font-mono)] text-[length:var(--text-2xs)] font-normal text-[color:var(--muted)]">
+						{durationSeconds}s
+					</small>
+				) : null}
 				{message.timestamp ? <time>{formatMessageTime(message.timestamp)}</time> : null}
 			</Button>
 			{expanded ? (
-				<div className="entry-detail-wrap">
+				<div className="mt-1.5">
 					{toolCall ? (
-						<pre className="entry-tool-input">
+						<pre className="mb-1 max-h-[140px] overflow-auto rounded-[var(--radius-sm)] border-0 bg-[var(--ds-thinking-code-bg)] px-[11px] py-[9px] font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] text-[color:var(--text-secondary)]">
 							<code>{toolCall.input}</code>
 						</pre>
 					) : null}
-					<pre className={`entry-detail ${message.isError ? "is-error" : ""} ${isDiff ? "is-diff" : ""}`}>
+					<pre
+						className={`m-0 max-h-[220px] overflow-auto rounded-[var(--radius-sm)] border-0 bg-[var(--ds-bg-inset)] px-3 py-2.5 font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] ${message.isError ? "text-[color:var(--danger)]" : "text-[color:var(--text-secondary)]"} ${isDiff ? "[&>code]:grid" : ""}`}
+					>
 						<code>
 							{isDiff
 								? displayedOutput.split("\n").map((line, index) => (
@@ -1642,7 +1773,7 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 							</small>
 						) : null}
 					</pre>
-					<div className="entry-detail-actions">
+					<div className="mt-[5px] flex items-center gap-1.5 text-[length:var(--text-2xs)] text-[color:var(--muted)]">
 						<Button size="sm" type="button" onClick={() => void copyOutput()} disabled={!displayedOutput}>
 							{copied ? t("copied") : t("copyOutput")}
 						</Button>
@@ -1703,21 +1834,23 @@ const ProcessDetails = memo(function ProcessDetails({
 					(message.blocks ?? []).filter((block) => block.type === "thinking" || block.type === "toolCall"),
 				);
 	return (
-		<div className={`process-details${isActive ? " is-active" : ""}`}>
-			<details>
-				<summary className="process-details-trigger">
-					<span className="process-details-icon" aria-hidden="true">
+		<div className="mb-2 w-full min-w-0">
+			<details className="group border-l-0 pl-0">
+				<summary className="flex w-full min-h-[26px] min-w-0 cursor-pointer list-none items-center gap-[5px] mx-[-3px] rounded-[var(--radius-sm)] px-[5px] py-0.5 text-[length:var(--text-sm-plus)] text-[color:var(--ds-text-secondary)] hover:bg-[var(--ds-bg-hover)] hover:text-[color:var(--ds-text-primary)] [&::-webkit-details-marker]:hidden">
+					<span className="inline-flex shrink-0 text-[color:var(--ds-text-muted)]" aria-hidden="true">
 						<Icon name="sparkles" size={14} />
 					</span>
-					<span className={`process-details-label${isActive ? " is-running" : ""}`}>{t(labelKey, { time })}</span>
+					<span className="min-w-0 truncate font-medium">{t(labelKey, { time })}</span>
 					{item.toolCallCount > 0 ? (
-						<span className="process-details-count">{t("processTools", { count: item.toolCallCount })}</span>
+						<span className="min-w-0 truncate text-[length:var(--text-xs)] text-[color:var(--ds-text-muted)]">
+							{t("processTools", { count: item.toolCallCount })}
+						</span>
 					) : null}
-					<span className="entry-chevron">
+					<span className="ml-auto grid place-items-center text-[color:var(--ds-text-muted)] opacity-65 transition-transform duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-out)] group-open:rotate-90">
 						<Icon name="chevron" size={12} />
 					</span>
 				</summary>
-				<div className="process-details-content">
+				<div className="relative grid gap-0.5 pt-0.5 pb-1 pl-[18px]">
 					{processBlocks.map((block, blockIndex) => (
 						<TranscriptBlock key={`${block.type}:${blockIndex}`} block={block} />
 					))}
@@ -1761,18 +1894,22 @@ const AuthenticationPromptCard = memo(function AuthenticationPromptCard({
 	const isSelection = prompt.type === "select";
 	return (
 		<form
-			className="authentication-card"
+			className="grid gap-3.5 rounded-[var(--radius-lg)] border-[0.5px] border-[var(--ds-border-subtle)] bg-[var(--surface-2)] p-4 shadow-[var(--shadow-float)] supports-[corner-shape:superellipse(1.5)]:[corner-shape:superellipse(1.5)] [&>select>option]:bg-[var(--surface-1)] [&>select>option]:text-[color:var(--text-dim)]"
 			onSubmit={(event) => {
 				event.preventDefault();
 				void onSubmit(prompt.id, response);
 			}}
 		>
-			<div className="card-heading">
+			<div className="flex items-center justify-between gap-3 [&>div>h3]:mt-1 [&>div>h3]:mb-0 [&>div>h3]:text-[length:var(--text-lg-plus)] [&>div>h3]:font-semibold [&>div>h3]:tracking-[-0.01em]">
 				<div>
-					<p className="section-kicker">{t("modelConfig")}</p>
+					<p className="m-0 text-[length:var(--text-xs)] font-medium text-[color:var(--muted)]">
+						{t("modelConfig")}
+					</p>
 					<h3>{prompt.message}</h3>
 				</div>
-				<span className="card-id">{prompt.type.replaceAll("_", " ")}</span>
+				<span className="font-[family-name:var(--font-mono)] text-[length:var(--text-2xs)] text-[color:var(--muted)]">
+					{prompt.type.replaceAll("_", " ")}
+				</span>
 			</div>
 			{isSelection ? (
 				<select disabled={resolving} value={response} onChange={(event) => onChange(event.target.value)}>
@@ -2018,20 +2155,28 @@ function Explorer({
 		const gitStatus = gitStatusByPath.get(entry.path);
 		return (
 			<div
-				className={`tree-entry file-entry ${selectedPath === entry.path ? "is-selected" : ""}`}
+				className={`group ${FILE_TREE_ROW} ${selectedPath === entry.path ? "bg-[color-mix(in_oklab,var(--ds-accent)_14%,transparent)] text-[color:var(--text)] [:root[data-accent=mono]_&]:bg-[var(--hover-strong)]" : "hover:bg-[var(--surface-3)] hover:text-[color:var(--text)]"}`}
 				key={entry.path}
 				style={{ "--entry-depth": entry.depth } as CSSProperties}
 			>
-				<Button variant="bare" className="tree-entry-main" onClick={() => onOpenFile(entry)}>
-					<span className="tree-file-icon">
+				<Button
+					variant="bare"
+					className="flex min-w-0 flex-1 items-center gap-1.5 border-0 bg-transparent p-0 text-left font-[inherit] text-inherit"
+					onClick={() => onOpenFile(entry)}
+				>
+					<span className="grid w-[13px] shrink-0 place-items-center text-[color:var(--muted)]">
 						<Icon name={fileIconFor(entry.path)} size={13} />
 					</span>
-					<span className="tree-entry-name">{displayPath}</span>
+					<span className="min-w-0 truncate">{displayPath}</span>
 				</Button>
 				{gitStatus ? (
-					<span className={`tree-git-status is-${gitStatus}`}>{gitStatus.slice(0, 1).toUpperCase()}</span>
+					<span
+						className={`ml-auto font-[family-name:var(--font-mono)] font-semibold ${gitStatus === "added" || gitStatus === "untracked" ? "text-[color:var(--success)]" : gitStatus === "deleted" || gitStatus === "conflict" ? "text-[color:var(--danger)]" : "text-[color:var(--accent)]"}`}
+					>
+						{gitStatus.slice(0, 1).toUpperCase()}
+					</span>
 				) : null}
-				<div className="tree-entry-actions">
+				<div className="hidden items-center gap-px group-hover:flex group-focus-within:flex [&>button]:grid [&>button]:size-5 [&>button]:place-items-center [&>button]:rounded-[var(--radius-3xs)] [&>button]:border-0 [&>button]:bg-transparent [&>button]:p-0 [&>button]:font-[family-name:var(--font-mono)] [&>button]:text-[length:var(--text-xs)] [&>button]:text-[color:var(--muted)] [&>button:hover]:bg-[var(--hover-strong)] [&>button:hover]:text-[color:var(--text)]">
 					<Button size="icon" title={t("mentionAria", { path: entry.path })} onClick={() => onMention(entry.path)}>
 						@
 					</Button>
@@ -2051,20 +2196,25 @@ function Explorer({
 		if (searchQuery.trim()) return null;
 		if (gitError)
 			return (
-				<p className="sidebar-error" role="alert">
+				<p
+					className="mx-4 mb-2 text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--danger)]"
+					role="alert"
+				>
 					{t("gitLoadFailed", { message: gitError })}
 				</p>
 			);
 		if (gitChanges.length === 0) return null;
 		return (
-			<section className="changed-files-section">
+			<section className="mb-1.5 border-b border-[var(--border-subtle)] py-0.5 pb-1.5">
 				<Button
 					variant="bare"
-					className="changed-files-heading"
+					className="flex w-full min-h-[25px] items-center gap-[5px] rounded-[var(--radius-s)] border-0 bg-transparent px-[7px] py-0.5 text-left text-[length:var(--text-2xs)] font-semibold tracking-[0.04em] text-[color:var(--accent-strong)] uppercase hover:bg-[var(--hover)]"
 					aria-expanded={!changesCollapsed}
 					onClick={() => setChangesCollapsed((collapsed) => !collapsed)}
 				>
-					<span className={`tree-chevron ${changesCollapsed ? "is-collapsed" : ""}`}>
+					<span
+						className={`grid w-3 shrink-0 place-items-center transition-transform duration-150 ${changesCollapsed ? "rotate-0" : "rotate-90"}`}
+					>
 						<Icon name="chevron" size={12} />
 					</span>
 					<span>{t("changesWithCount", { count: gitChanges.length })}</span>
@@ -2090,21 +2240,30 @@ function Explorer({
 		const node = directoryNodes[path];
 		if (!node) {
 			return (
-				<p className="sidebar-loading" key={`${path}:loading`}>
+				<p
+					className="mx-4 mb-2 text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--muted)]"
+					key={`${path}:loading`}
+				>
 					{t("reading")}
 				</p>
 			);
 		}
 		if (node.status === "loading") {
 			return (
-				<p className="sidebar-loading" key={`${path}:loading`}>
+				<p
+					className="mx-4 mb-2 text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--muted)]"
+					key={`${path}:loading`}
+				>
 					{t("reading")}
 				</p>
 			);
 		}
 		if (node.status === "error") {
 			return (
-				<div className="tree-directory-error" key={`${path}:error`}>
+				<div
+					className="my-0.5 flex items-center gap-2 px-2.5 py-1 text-[length:var(--text-xs)] text-[color:var(--danger)] [&>span]:truncate"
+					key={`${path}:error`}
+				>
 					<span>{node.error}</span>
 					<Button size="sm" variant="outline" type="button" onClick={() => void loadDirectory(path)}>
 						{t("retry")}
@@ -2118,7 +2277,7 @@ function Explorer({
 			rows.push(
 				<Button
 					variant="bare"
-					className={`tree-entry directory-entry ${expanded ? "" : "is-collapsed"} ${uploadDirectory === entry.path ? "is-upload-target" : ""}`}
+					className={`relative flex w-full min-h-7 items-center gap-1.5 rounded-[var(--radius-s)] border-0 bg-transparent py-1 pr-[7px] pl-[calc(9px+var(--entry-depth)*14px)] text-left font-medium font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] text-[color:var(--text)] transition-[background,color] duration-150 hover:bg-[var(--hover)] [&>svg]:text-[color:var(--muted)] ${uploadDirectory === entry.path ? "bg-[color-mix(in_srgb,var(--accent)_12%,var(--hover))] text-[color:var(--text)] outline outline-[color-mix(in_srgb,var(--accent)_70%,transparent)] -outline-offset-1" : ""}`}
 					key={entry.path}
 					style={{ "--entry-depth": entry.depth } as CSSProperties}
 					onDragOver={(event) => {
@@ -2136,12 +2295,16 @@ function Explorer({
 						toggleDirectory(entry.path, directoryNodes[entry.path]);
 					}}
 				>
-					<span className="tree-chevron">
+					<span
+						className={`grid w-3 shrink-0 place-items-center transition-transform duration-150 ${expanded ? "rotate-90" : "rotate-0"}`}
+					>
 						<Icon name="chevron" size={12} />
 					</span>
 					<Icon name="folder" size={14} />
 					<span>{entry.name}</span>
-					{changedDirectories.has(entry.path) ? <span className="directory-change-dot" /> : null}
+					{changedDirectories.has(entry.path) ? (
+						<span className="ml-auto size-[5px] rounded-full bg-[var(--accent)]" />
+					) : null}
 				</Button>,
 			);
 			if (expanded) rows.push(renderNodeRows(entry.path));
@@ -2151,14 +2314,20 @@ function Explorer({
 		}
 		if (node.directories.length === 0 && node.files.length === 0) {
 			rows.push(
-				<p className="sidebar-loading" key={`${path}:empty`}>
+				<p
+					className="mx-4 mb-2 text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--muted)]"
+					key={`${path}:empty`}
+				>
 					{t("emptyDirectory")}
 				</p>,
 			);
 		}
 		if (node.truncated) {
 			rows.push(
-				<p className="sidebar-loading" key={`${path}:truncated`}>
+				<p
+					className="mx-4 mb-2 text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--muted)]"
+					key={`${path}:truncated`}
+				>
 					{t("listingTruncated")}
 				</p>,
 			);
@@ -2168,7 +2337,7 @@ function Explorer({
 
 	if (!workspacePath)
 		return (
-			<div className="sidebar-empty">
+			<div className={SIDEBAR_EMPTY}>
 				<Icon name="folder" size={22} />
 				<strong>{t("openProject")}</strong>
 				<p>{t("openProjectHint")}</p>
@@ -2179,8 +2348,8 @@ function Explorer({
 		);
 	if (!isTrusted)
 		return (
-			<div className="sidebar-empty">
-				<span className="lock-mark">⌁</span>
+			<div className={SIDEBAR_EMPTY}>
+				<span className="text-[length:var(--text-display)] leading-none">⌁</span>
 				<strong>{t("fileBrowsingLocked")}</strong>
 				<p>{t("trustToBrowse")}</p>
 				<Button variant="outline" type="button" onClick={onTrustProject}>
@@ -2190,7 +2359,7 @@ function Explorer({
 		);
 	return (
 		<section
-			className="explorer-body"
+			className="flex min-h-0 flex-1 flex-col overflow-hidden"
 			aria-label={t("explorerAria")}
 			onDragOver={(event) => event.preventDefault()}
 			onDrop={(event) => {
@@ -2198,9 +2367,12 @@ function Explorer({
 				void uploadFiles(Array.from(event.dataTransfer.files), uploadDirectory);
 			}}
 		>
-			<div className="sidebar-section-title">
+			<div className="mt-1 flex min-h-[34px] items-center justify-between py-1 pr-2 pl-1.5 text-[length:var(--text-md)] font-semibold tracking-[0.12em] text-[color:var(--muted)]">
 				<span>{t("files")}</span>
-				<label className="file-upload-button" title={t("uploadTo", { dir: uploadDirectory || t("rootDirectory") })}>
+				<label
+					className="grid size-[22px] cursor-pointer place-items-center rounded-[var(--radius-2xs)] text-[color:var(--muted)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] [&>input]:hidden"
+					title={t("uploadTo", { dir: uploadDirectory || t("rootDirectory") })}
+				>
 					＋
 					<input
 						type="file"
@@ -2213,7 +2385,7 @@ function Explorer({
 				</label>
 				<Button
 					size="sm"
-					className="file-upload-target"
+					className="ml-auto max-w-[112px] min-w-0 cursor-pointer truncate rounded-[var(--radius-3xs)] border-0 bg-transparent text-right font-[inherit] text-[length:var(--text-xs)] leading-[22px] text-[color:var(--muted)] hover:bg-[var(--hover)] hover:text-[color:var(--text)]"
 					title={t("uploadTargetTitle")}
 					onClick={() => setUploadDirectory("")}
 				>
@@ -2223,7 +2395,7 @@ function Explorer({
 					↻
 				</Button>
 			</div>
-			<label className="file-search">
+			<label className="mx-2 mb-2 flex items-center gap-1.5 rounded-[var(--radius-s)] border border-[var(--border-subtle)] bg-[var(--surface-recessed)] px-2 py-[5px] text-[color:var(--muted)] focus-within:border-[var(--border-strong)] focus-within:text-[color:var(--text-dim)] [&>input]:w-full [&>input]:min-w-0 [&>input]:border-0 [&>input]:bg-transparent [&>input]:p-0 [&>input]:text-[length:var(--text-xs)] [&>input]:text-[color:var(--text)] [&>input]:outline-none [&>input]:placeholder:text-[color:var(--muted)]">
 				<Icon name="search" size={13} />
 				<input
 					type="search"
@@ -2232,9 +2404,13 @@ function Explorer({
 					onChange={(event) => setSearchQuery(event.target.value)}
 				/>
 			</label>
-			{error ? <p className="sidebar-error">{error}</p> : null}
+			{error ? (
+				<p className="mx-4 mb-2 text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--danger)]">{error}</p>
+			) : null}
 			{uploadStatus ? (
-				<output className={`upload-status is-${uploadStatus.state}`}>
+				<output
+					className={`mx-2.5 mt-0.5 text-[length:var(--text-xs)] ${uploadStatus.state === "uploading" ? "text-[color:var(--accent)]" : "text-[color:var(--muted)]"}`}
+				>
 					{uploadStatus.state === "uploading"
 						? t("uploadingFiles", { count: uploadStatus.count })
 						: t("uploadedFiles", {
@@ -2244,19 +2420,25 @@ function Explorer({
 							})}
 				</output>
 			) : null}
-			<div className="file-list">
+			<div className="overflow-auto px-2 pb-3.5">
 				{renderChangedFiles()}
 				{searchResults
 					? searching
 						? [
-								<p className="sidebar-loading" key="searching">
+								<p
+									className="mx-4 mb-2 text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--muted)]"
+									key="searching"
+								>
 									{t("searchingShort")}
 								</p>,
 							]
 						: searchResults.length
 							? searchResults.map((entry) => renderFileRow(entry, entry.path))
 							: [
-									<p className="sidebar-loading" key="no-match">
+									<p
+										className="mx-4 mb-2 text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--muted)]"
+										key="no-match"
+									>
 										{t("noMatchingFiles")}
 									</p>,
 								]
@@ -2420,32 +2602,35 @@ function Inspector({
 	}, [getSelectedRange, mode, onQuoteLines, previewPath]);
 
 	return (
-		<aside className="inspector" aria-label={t("inspectorAria")}>
-			<div className="inspector-header">
-				<div className="inspector-title">
+		<aside
+			className="inspector flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--surface-1)]"
+			aria-label={t("inspectorAria")}
+		>
+			<div className="inspector-header flex h-11 min-h-11 items-center justify-between gap-2.5 border-b border-[var(--border-subtle)] bg-[var(--surface-1)] pr-2.5 pl-3.5">
+				<div className="flex min-w-0 items-center gap-2 [&>strong]:block [&>strong]:min-w-0 [&>strong]:truncate [&>strong]:text-[length:var(--text-md)] [&>strong]:font-semibold [&>strong]:text-[color:var(--text)]">
 					{preview ? (
 						<>
-							<span className="inspector-file-icon">
+							<span className="grid shrink-0 place-items-center text-[color:var(--muted)]">
 								<Icon name={fileIconFor(preview.path)} size={15} />
 							</span>
 							<strong title={preview.path}>{preview.path.split("/").at(-1) ?? preview.path}</strong>
 							{changedHint ? (
 								<Button
 									size="sm"
-									className="file-live-badge"
+									className="inline-flex items-center gap-[5px] rounded-full border-0 bg-[var(--success-overlay)] px-2 py-0.5 text-[length:var(--text-2xs)] font-medium text-[color:var(--success)]"
 									title={t("reloadChangedHint")}
 									onClick={onReloadChanged}
 								>
-									<span className="file-live-dot" />
+									<span className="size-1.5 rounded-full bg-current" />
 									{t("updated")}
 								</Button>
 							) : (
-								<span className="file-live-badge is-static">
-									<span className="file-live-dot" />
+								<span className="inline-flex cursor-default items-center gap-[5px] rounded-full border-0 bg-[var(--overlay-5)] px-2 py-0.5 text-[length:var(--text-2xs)] font-medium text-[color:var(--muted)]">
+									<span className="size-1.5 rounded-full bg-current" />
 									Live
 								</span>
 							)}
-							<small className="inspector-meta">
+							<small className="shrink-0 whitespace-nowrap text-[length:var(--text-xs)] text-[color:var(--muted)]">
 								{isImage
 									? getFileKindLabel(preview.path, t)
 									: `${getFileKindLabel(preview.path, t)} · ${t("lines", { count: lineCount })} · ${formatByteSize(byteSize)}`}
@@ -2455,7 +2640,7 @@ function Inspector({
 						<strong>{t("noFileSelected")}</strong>
 					)}
 				</div>
-				<div className="inspector-header-actions">
+				<div className="flex shrink-0 items-center gap-1.5">
 					{preview && !isImage && !isAudio && !isPdf && !isDocx ? (
 						<Segmented fill aria-label={t("displayModes")}>
 							<Segment active={mode === "source"} onClick={() => setMode("source")}>
@@ -2539,7 +2724,7 @@ function Inspector({
 				</div>
 			</div>
 			{preview && !isImage && !isAudio && !isPdf && mode === "source" ? (
-				<label className="content-search">
+				<label className="mx-3 mb-2 flex items-center gap-1.5 rounded-[var(--radius-s)] border border-[var(--border-subtle)] bg-[var(--surface-recessed)] px-2 py-[5px] text-[color:var(--muted)] [&>input]:w-full [&>input]:min-w-0 [&>input]:border-0 [&>input]:bg-transparent [&>input]:text-[length:var(--text-xs)] [&>input]:text-[color:var(--text)] [&>input]:outline-none">
 					<Icon name="search" size={13} />
 					<input
 						type="search"
@@ -2552,7 +2737,7 @@ function Inspector({
 			{selectedLineRange && previewPath && mode === "source" ? (
 				<Button
 					size="sm"
-					className="mention-selected-lines"
+					className="mb-2 ml-3 mr-3 self-start cursor-pointer rounded-[var(--radius-2xs)] border border-[var(--border-subtle)] bg-[var(--surface-recessed)] px-2 py-[5px] text-[length:var(--text-xs)] text-[color:var(--text-muted)] hover:bg-[var(--hover)] hover:text-[color:var(--text)]"
 					onMouseDown={(event) => event.preventDefault()}
 					onClick={() => onQuoteLines(previewPath, selectedLineRange.start, selectedLineRange.end)}
 				>
@@ -2561,11 +2746,11 @@ function Inspector({
 			) : null}
 			{preview ? (
 				isImage ? (
-					<div className="file-image-preview">
+					<div className="grid flex-1 place-items-center overflow-auto p-4 [&>img]:max-h-full [&>img]:max-w-full [&>img]:rounded-[var(--radius-s)] [&>img]:object-contain">
 						<img src={preview.imageDataUrl} alt={preview.path} />
 					</div>
 				) : isAudio ? (
-					<div className="file-audio-preview">
+					<div className="grid flex-1 place-items-center p-6 [&>audio]:w-full [&>audio]:max-w-[420px]">
 						{/* biome-ignore lint/a11y/useMediaCaption: 音频文件预览，无字幕轨可提供 */}
 						<audio
 							controls
@@ -2574,12 +2759,12 @@ function Inspector({
 						/>
 					</div>
 				) : isPdf ? (
-					<div className="file-document-preview">
+					<div className="flex min-h-0 flex-1 bg-[var(--surface-recessed)] p-2.5 [&>iframe]:h-full [&>iframe]:w-full [&>iframe]:rounded-[var(--radius-s)] [&>iframe]:border [&>iframe]:border-[var(--border-subtle)] [&>iframe]:bg-white">
 						<iframe src={preview.pdfDataUrl} title={t("pdfPreviewAria", { path: preview.path })} />
 					</div>
 				) : mode === "preview" && isPreviewable ? (
 					isHtmlFile(preview.path) || isDocx ? (
-						<div className="file-document-preview">
+						<div className="flex min-h-0 flex-1 bg-[var(--surface-recessed)] p-2.5 [&>iframe]:h-full [&>iframe]:w-full [&>iframe]:rounded-[var(--radius-s)] [&>iframe]:border [&>iframe]:border-[var(--border-subtle)] [&>iframe]:bg-white">
 							<iframe
 								sandbox=""
 								srcDoc={isDocx ? preview.docxHtml : preview.content}
@@ -2587,42 +2772,53 @@ function Inspector({
 							/>
 						</div>
 					) : (
-						<div className="file-preview-rendered">
+						<div className="flex-1 overflow-auto px-[18px] pt-4 pb-5">
 							<MarkdownBody text={preview.content} />
 						</div>
 					)
 				) : mode === "diff" ? (
 					diffLoading ? (
-						<p className="inspector-diff-empty">{t("loadingDiff")}</p>
+						<p className="px-[18px] py-6 text-[length:var(--text-sm)] text-[color:var(--muted)]">
+							{t("loadingDiff")}
+						</p>
 					) : diffError ? (
-						<div className="inspector-diff-empty" role="alert">
+						<div className="px-[18px] py-6 text-[length:var(--text-sm)] text-[color:var(--muted)]" role="alert">
 							<p>{t("diffLoadFailed", { message: diffError })}</p>
 							<Button variant="outline" type="button" onClick={() => setDiffRetry((value) => value + 1)}>
 								{t("retry")}
 							</Button>
 						</div>
 					) : diffText ? (
-						<div className="file-preview-source is-diff-view">
+						<div className="file-preview-source is-diff-view overflow-auto pb-4 font-[family-name:var(--font-mono)] text-[length:var(--text-sm)] leading-[var(--leading-body)]">
 							{diffText.split("\n").map((line, index) => (
-								// biome-ignore lint/suspicious/noArrayIndexKey: diff 行顺序固定
-								<span className={`source-line is-diff-line ${transcriptDiffLineClass(line)}`} key={index}>
-									<span className="source-line-number" />
+								<span
+									className={`source-line is-diff-line grid w-full cursor-default grid-cols-[42px_minmax(0,1fr)] border-0 bg-transparent pr-3 text-left text-[color:var(--text-dim)] select-text ${transcriptDiffLineClass(line)}`}
+									key={`diff:${index}:${line}`}
+								>
+									<span className="pr-2.5 text-right font-[family-name:var(--font-mono)] text-[color:var(--muted)] select-none" />
 									<code>{line || " "}</code>
 								</span>
 							))}
 						</div>
 					) : (
-						<p className="inspector-diff-empty">{t("noUncommittedDiff")}</p>
+						<p className="px-[18px] py-6 text-[length:var(--text-sm)] text-[color:var(--muted)]">
+							{t("noUncommittedDiff")}
+						</p>
 					)
 				) : (
-					<div ref={sourceRootRef} className={`file-preview-source ${wrapLines ? "is-wrapped" : ""}`}>
+					<div
+						ref={sourceRootRef}
+						className={`overflow-auto pb-4 font-[family-name:var(--font-mono)] text-[length:var(--text-sm)] leading-[var(--leading-body)] ${wrapLines ? "[&_.source-line_code]:break-all [&_.source-line_code]:whitespace-pre-wrap" : ""}`}
+					>
 						{sourceLines.map((sourceLine) => (
 							<div
-								className={`source-line ${sourceLine.match ? "is-match" : ""}`}
+								className={`grid w-full grid-cols-[42px_minmax(0,1fr)] border-0 bg-transparent pr-3 text-left text-[color:var(--text-dim)] select-text hover:bg-[var(--hover)] ${sourceLine.match ? "bg-[var(--hover)]" : ""}`}
 								data-source-line={sourceLine.line}
 								key={sourceLine.line}
 							>
-								<span className="source-line-number">{sourceLine.line}</span>
+								<span className="pr-2.5 text-right font-[family-name:var(--font-mono)] text-[color:var(--muted)] select-none">
+									{sourceLine.line}
+								</span>
 								<code>
 									<HighlightedCode code={sourceLine.text || " "} language={getLanguageForPath(preview.path)} />
 								</code>
@@ -2631,7 +2827,7 @@ function Inspector({
 					</div>
 				)
 			) : (
-				<div className="inspector-empty">
+				<div className="grid justify-items-start gap-2.5 p-[22px] text-[length:var(--text-sm)] leading-[1.55] text-[color:var(--muted)] [&>p]:m-0">
 					<Icon name="panel" size={22} />
 					<p>{t("inspectorEmptyHint")}</p>
 				</div>
@@ -2645,10 +2841,10 @@ const WindowControls = memo(function WindowControls() {
 	const [maximized, setMaximized] = useState(false);
 	if (navigator.userAgent.includes("Macintosh")) return null;
 	return (
-		<div className="window-controls">
+		<div className="ml-1 inline-flex self-stretch">
 			<button
 				type="button"
-				className="window-control-button"
+				className="grid w-[46px] cursor-pointer place-items-center border-0 bg-transparent text-[color:var(--text-muted)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] [&>svg]:fill-none [&>svg]:stroke-current [&>svg]:stroke-1"
 				aria-label={t("minimizeWindow")}
 				onClick={() => void minimizeWindow()}
 			>
@@ -2658,7 +2854,7 @@ const WindowControls = memo(function WindowControls() {
 			</button>
 			<button
 				type="button"
-				className="window-control-button"
+				className="grid w-[46px] cursor-pointer place-items-center border-0 bg-transparent text-[color:var(--text-muted)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] [&>svg]:fill-none [&>svg]:stroke-current [&>svg]:stroke-1"
 				aria-label={maximized ? t("restoreWindow") : t("maximizeWindow")}
 				onClick={() => void toggleWindowMaximize().then(setMaximized)}
 			>
@@ -2675,7 +2871,7 @@ const WindowControls = memo(function WindowControls() {
 			</button>
 			<button
 				type="button"
-				className="window-control-button is-close"
+				className="grid w-[46px] cursor-pointer place-items-center border-0 bg-transparent text-[color:var(--text-muted)] hover:bg-[var(--ds-error)] hover:text-[color:var(--gray-0)] [&>svg]:fill-none [&>svg]:stroke-current [&>svg]:stroke-1"
 				aria-label={t("closeWindow")}
 				onClick={() => void closeWindow()}
 			>
@@ -3061,6 +3257,7 @@ export function App() {
 	})();
 	const transcriptItems = useMemo(() => partitionTranscript(session?.messages ?? []), [session?.messages]);
 	const hasUserMessage = Boolean(session?.messages.some((message) => message.role === "user"));
+	const isSessionEmpty = !session?.messages.length;
 	const modelScopeNotice = (() => {
 		const scope = snapshot.modelScope;
 		if (!scope) return undefined;
@@ -4863,10 +5060,10 @@ export function App() {
 			},
 		].filter((group) => group.entries.length > 0);
 		return (
-			<section className="sessions-panel sidebar-project-tree" aria-label={t("sessions")}>
-				<div className="sidebar-projects-header project-menu-root">
+			<section className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto px-2 pb-2" aria-label={t("sessions")}>
+				<div className="project-menu-root relative mt-1 flex min-h-[34px] items-center justify-between pr-0.5 text-[length:var(--text-md)] font-[650] tracking-[0.12em] text-[color:var(--text-dim)]">
 					<span>{t("projects")}</span>
-					<div className="sidebar-projects-actions">
+					<div className="flex items-center gap-0.5">
 						<Button
 							size="icon"
 							className="compact"
@@ -4893,11 +5090,11 @@ export function App() {
 				{activeProjects.length
 					? projectGroups.map((group, groupIndex) => (
 							<div
-								className="sidebar-project-section"
+								className="grid gap-1.5 not-first:mt-1.5"
 								key={group.section ? `section-${group.section}` : `ungrouped-${groupIndex}`}
 							>
 								{group.section ? (
-									<div className="sidebar-project-section-head">
+									<div className="flex items-center gap-1.5 px-2.5 pt-2 pb-0.5 pl-3 text-[length:var(--text-2xs)] font-[var(--font-weight-medium)] tracking-[var(--tracking-wide)] text-[color:var(--ds-text-muted)] uppercase">
 										<Icon name="sections" size={12} />
 										<span>{group.section}</span>
 									</div>
@@ -4919,14 +5116,13 @@ export function App() {
 										return [...first.slice(0, 4), current];
 									})();
 									return (
-										<section
-											className={`sidebar-project-tree-group ${active ? "is-active" : ""} ${collapsed ? "is-collapsed" : ""}`}
-											key={root}
-										>
-											<div className="sidebar-project-tree-row">
+										<section className="min-w-0" key={root}>
+											<div
+												className={`flex h-[var(--ds-control-size)] min-h-[var(--ds-control-size)] items-center gap-0.5 rounded-[var(--radius-sm)] pr-2.5 hover:bg-[var(--hover-strong)] ${active ? "bg-[var(--hover-strong)]" : ""}`}
+											>
 												<Button
 													variant="bare"
-													className="sidebar-project-tree-row-main"
+													className="flex min-w-0 flex-1 items-center gap-[7px] rounded-[var(--radius-sm)] border-0 bg-transparent py-1 pr-1.5 pl-2.5 text-left text-[length:var(--text-sm)] font-medium text-[color:var(--text)] [&>svg:first-child]:shrink-0 [&>svg:first-child]:text-[color:var(--ds-text-secondary)]"
 													onClick={() =>
 														setCollapsedProjects((current) => {
 															const next = new Set(current);
@@ -4948,31 +5144,34 @@ export function App() {
 													onMouseLeave={scheduleHoverClose}
 												>
 													<Icon name={collapsed ? "briefcase" : "briefcaseOpen"} size={15} />
-													<span className="sidebar-project-tree-copy">
+													<span className="grid min-w-0 flex-1 gap-px [&>small]:truncate [&>small]:text-[length:var(--text-xs)] [&>small]:font-normal [&>small]:text-[color:var(--muted)]">
 														{/*
 														 * The whole project name, wrapped over at most two lines:
 														 * the five-character cut made "pi-desktop" read as
 														 * "pi-de…" even when the sidebar had room for it.
 														 */}
-														<span className="sidebar-project-tree-name" title={projectLabel(root)}>
+														<span
+															className="min-w-0 truncate text-[length:var(--text-base)] font-[var(--font-weight-medium)]"
+															title={projectLabel(root)}
+														>
 															{projectLabel(root)}
 														</span>
 														{branch ? <small>⎇ {formatGitBranch(branch)}</small> : null}
 													</span>
 												</Button>
-												<div className="sidebar-project-tree-row-actions">
+												<div className="ml-1 flex flex-row-reverse items-center gap-px [&>button]:inline-grid [&>button]:place-items-center [&>button]:p-0 [&>button]:leading-none">
 													<Button
 														size="icon"
-														className="sidebar-project-tree-action"
+														className={SIDEBAR_PROJECT_ACTION}
 														aria-label={t("newSessionAria")}
 														onClick={() => void handleNewSessionForProject(root)}
 													>
 														<Icon name="plus" size={13} />
 													</Button>
-													<div className="sidebar-project-more-wrap project-menu-root">
+													<div className="project-menu-root relative">
 														<Button
 															size="icon"
-															className="sidebar-project-tree-action sidebar-project-tree-more"
+															className={SIDEBAR_PROJECT_ACTION}
 															aria-label={t("projectActions")}
 															aria-expanded={projectRowMenuOpen === root}
 															onClick={() =>
@@ -4984,7 +5183,7 @@ export function App() {
 															<Icon name="more" size={13} />
 														</Button>
 														{projectRowMenuOpen === root ? (
-															<Menu className="session-more-menu project-row-menu">
+															<Menu className={`${SIDEBAR_SESSION_MORE_MENU} min-w-[188px]`}>
 																<MenuItem
 																	icon={<Icon name="pin" size={15} />}
 																	label={
@@ -5004,7 +5203,7 @@ export function App() {
 																	}}
 																/>
 																<MenuDivider />
-																<div className="project-row-submenu-anchor">
+																<div className="[&_.app-menu-trailing]:transition-transform [&_.app-menu-trailing]:duration-[var(--motion-duration-fast)] [&_.app-menu-trailing]:ease-[var(--motion-ease-out)] [&_[aria-expanded=true]_.app-menu-trailing]:rotate-90">
 																	<MenuItem
 																		icon={<Icon name="sections" size={15} />}
 																		label={t("projectSection")}
@@ -5016,7 +5215,7 @@ export function App() {
 																		}
 																	/>
 																	{openProjectSection === root ? (
-																		<Menu className="project-row-submenu" inline>
+																		<Menu className="mx-1 mt-0.5 mb-1 ml-1.5" inline>
 																			{projectSections.names.map((name) => (
 																				<MenuItem
 																					key={name}
@@ -5041,7 +5240,7 @@ export function App() {
 																			) : null}
 																			{pendingSectionRoot === root ? (
 																				<form
-																					className="project-row-submenu-form"
+																					className="p-[3px]"
 																					onSubmit={(event) => {
 																						event.preventDefault();
 																						createProjectSection(root, sectionNameDraft);
@@ -5103,19 +5302,19 @@ export function App() {
 												</div>
 											</div>
 											{!collapsed ? (
-												<div className="sidebar-project-tree-children">
+												<div className="grid gap-0.5 pt-1">
 													{visibleItems.map(({ info: item, depth }) => {
 														const isCurrent = item.id === session?.id;
 														const isRenaming = renamingSession?.path === item.path;
 														return (
 															<div
-																className={`session-row-wrap ${isCurrent ? "is-current" : ""} ${depth ? "is-forked" : ""}`}
+																className={`session-row-wrap group relative flex h-[var(--ds-control-size)] min-h-[var(--ds-control-size)] items-center rounded-[var(--radius-xs)] ${isCurrent ? "bg-[var(--hover-strong)]" : ""} ${depth ? "rounded-l-none border-l border-[var(--border-subtle)]" : ""}`}
 																key={item.path}
 																style={{ "--session-depth": Math.min(depth, 5) } as CSSProperties}
 															>
 																{isRenaming ? (
 																	<form
-																		className="session-inline-rename"
+																		className="flex min-w-0 flex-1 items-center gap-1 py-0.5 pr-[5px] pl-2.5"
 																		onSubmit={(event) => {
 																			event.preventDefault();
 																			void handleRenameSubmit();
@@ -5143,7 +5342,7 @@ export function App() {
 																) : (
 																	<Button
 																		variant="bare"
-																		className="session-row"
+																		className="flex h-[var(--ds-control-size)] min-h-[var(--ds-control-size)] min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-sm)] border-0 bg-transparent pr-[5px] pl-2.5 text-left text-[color:var(--text-dim)] transition-[background] duration-150 hover:bg-[var(--hover)] disabled:opacity-55"
 																		onMouseEnter={(event) =>
 																			setHoverCard({
 																				kind: "session",
@@ -5161,29 +5360,34 @@ export function App() {
 																				: void handleOpenSession(item.path)
 																		}
 																	>
-																		<span className="session-row-icon">
+																		<span className="grid shrink-0 place-items-center text-[color:var(--muted)]">
 																			<Icon name="chat" size={14} />
 																		</span>
-																		<span className="session-row-title">
+																		<span className="min-w-0 flex-1 truncate text-[length:var(--text-md)] font-medium tracking-[-0.006em] text-[color:var(--text)]">
 																			{truncateLabel(sessionTitle(item, t))}
 																		</span>
 																		{item.phase === "running" || item.phase === "error" ? (
-																			<span className={`session-status-badge is-${item.phase}`}>
-																				<span className="session-status-dot" aria-hidden="true" />
+																			<span
+																				className={`inline-flex min-h-[17px] shrink-0 items-center gap-1 rounded-full border px-[7px] py-px text-[length:var(--text-2xs)] font-semibold leading-[1.2] ${item.phase === "running" ? "border-[color-mix(in_srgb,var(--accent)_30%,transparent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] text-[color:var(--accent-deep)]" : "border-[var(--danger-border)] bg-[var(--danger-overlay)] text-[color:var(--danger)]"}`}
+																			>
+																				<span
+																					className={`size-[5px] shrink-0 rounded-full bg-current ${item.phase === "running" ? "animate-[status-breath_1.4s_ease-in-out_infinite] motion-reduce:animate-none" : ""}`}
+																					aria-hidden="true"
+																				/>
 																				{item.phase === "running"
 																					? t("sessionRunning")
 																					: t("sessionError")}
 																			</span>
 																		) : null}
 																		{unreadSessionIds.has(item.id) ? (
-																			<span className="session-unread-dot" />
+																			<span className="size-1.5 shrink-0 rounded-full bg-[var(--accent)] shadow-[0_0_0_2px_color-mix(in_srgb,var(--accent)_12%,transparent)]" />
 																		) : null}
 																	</Button>
 																)}
 																{!isRenaming ? (
 																	<Button
 																		size="icon"
-																		className="session-more compact"
+																		className="mr-[3px] grid size-[26px] shrink-0 place-items-center rounded-[var(--radius-sm)] border-0 bg-transparent text-[color:var(--muted)] opacity-0 transition-[opacity,color,background] duration-[120ms] ease-linear hover:bg-[var(--hover)] hover:text-[color:var(--text)] group-hover:opacity-100 aria-expanded:opacity-100"
 																		aria-label={t("sessionActions")}
 																		aria-expanded={sessionMenuOpen === item.path}
 																		onClick={() =>
@@ -5196,7 +5400,7 @@ export function App() {
 																	</Button>
 																) : null}
 																{sessionMenuOpen === item.path ? (
-																	<Menu className="session-more-menu">
+																	<Menu className={SIDEBAR_SESSION_MORE_MENU}>
 																		<MenuItem
 																			icon={<Icon name="edit" size={15} />}
 																			label={t("rename")}
@@ -5240,7 +5444,7 @@ export function App() {
 																				void handleDeleteSession(item.path, event.shiftKey);
 																			}}
 																		/>
-																		<div className="session-more-meta">
+																		<div className="mx-1.5 mt-[3px] mb-0.5 flex items-center gap-[7px] border-t border-[var(--border-subtle)] px-1.5 pt-[5px] pb-0.5 font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] whitespace-nowrap text-[color:var(--muted)] [&>span]:overflow-hidden [&>span]:text-ellipsis">
 																			<span>{formatSessionDate(item.modified)}</span>
 																			<span>{t("messageCount", { count: item.messageCount })}</span>
 																			<span>
@@ -5257,7 +5461,7 @@ export function App() {
 													{!expanded && flattenedItems.length > 5 ? (
 														<Button
 															size="sm"
-															className="sidebar-more-button"
+															className="border-0 bg-transparent py-[5px] px-0 text-left text-[length:var(--text-xs)] text-[color:var(--text-dim)] hover:text-[color:var(--text)]"
 															onClick={() =>
 																setExpandedProjects((current) => new Set(current).add(root))
 															}
@@ -5268,7 +5472,7 @@ export function App() {
 													{expanded && flattenedItems.length > 5 ? (
 														<Button
 															size="sm"
-															className="sidebar-more-button"
+															className="border-0 bg-transparent py-[5px] px-0 text-left text-[length:var(--text-xs)] text-[color:var(--text-dim)] hover:text-[color:var(--text)]"
 															onClick={() =>
 																setExpandedProjects((current) => {
 																	const next = new Set(current);
@@ -5311,7 +5515,7 @@ export function App() {
 			(path) => !query || path.toLocaleLowerCase().includes(query),
 		);
 		return (
-			<Menu className="project-menu">
+			<Menu className="absolute top-[calc(100%+4px)] right-0 left-0 z-[45] grid max-h-[340px] max-w-[240px] overflow-auto rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--surface-1)] p-1 shadow-[var(--shadow-float)]">
 				<MenuItem
 					icon={<Icon name="compact" size={15} />}
 					label={allProjectsCollapsed ? t("expandProjects") : t("collapseProjects")}
@@ -5405,7 +5609,7 @@ export function App() {
 
 	return (
 		<main
-			className={`app-workbench ${macOSClassName} ${sidebarOpen ? "is-sidebar-open" : "is-sidebar-closed"} ${inspectorOpen ? "is-inspector-open" : ""}`}
+			className={`app-workbench flex h-dvh w-full min-h-0 overflow-hidden bg-[var(--ds-bg-primary)] ${macOSClassName} ${sidebarOpen ? "is-sidebar-open" : "is-sidebar-closed"} ${inspectorOpen ? "is-inspector-open" : ""}`}
 			style={
 				{
 					"--sidebar-width": `${sidebarWidth}px`,
@@ -5416,28 +5620,29 @@ export function App() {
 		>
 			{hoverCard?.kind === "project" ? (
 				<div
-					className="sidebar-hover-card"
+					className={SIDEBAR_HOVER_CARD}
 					style={{ top: hoverCard.top, left: hoverCard.left }}
 					role="menu"
 					onMouseEnter={clearHoverClose}
 					onMouseLeave={scheduleHoverClose}
 				>
-					<div className="sidebar-hover-card-title">
+					<div className={SIDEBAR_HOVER_TITLE}>
 						<Icon name="folder" size={14} />
 						<span>{projectLabel(hoverCard.root)}</span>
 					</div>
-					<div className="sidebar-hover-card-row">
+					<div className={SIDEBAR_HOVER_ROW}>
 						<Icon name="chat" size={14} />
 						<span>{t("projectTaskCount", { count: hoverCard.count })}</span>
 					</div>
-					<div className="sidebar-hover-card-divider" />
-					<div className="sidebar-hover-card-row">
+					<div className={SIDEBAR_HOVER_DIVIDER} />
+					<div className={SIDEBAR_HOVER_ROW}>
 						<Icon name="folder" size={14} />
 						<span>{displayPath(hoverCard.root)}</span>
 					</div>
-					<div className="sidebar-hover-card-divider" />
+					<div className={SIDEBAR_HOVER_DIVIDER} />
 					<Button
 						size="sm"
+						className={SIDEBAR_HOVER_ROW}
 						onMouseDown={(event) => event.preventDefault()}
 						onClick={() => {
 							setEditingProjectRoot(hoverCard.root);
@@ -5449,6 +5654,7 @@ export function App() {
 					</Button>
 					<Button
 						size="sm"
+						className={SIDEBAR_HOVER_ROW}
 						onMouseDown={(event) => event.preventDefault()}
 						onClick={() => {
 							void handleRevealProject(hoverCard.root);
@@ -5461,24 +5667,33 @@ export function App() {
 				</div>
 			) : null}
 			{hoverCard?.kind === "session" ? (
-				<div className="sidebar-hover-card" style={{ top: hoverCard.top, left: hoverCard.left }} role="tooltip">
-					<div className="sidebar-hover-card-title">
+				<div className={SIDEBAR_HOVER_CARD} style={{ top: hoverCard.top, left: hoverCard.left }} role="tooltip">
+					<div className={SIDEBAR_HOVER_TITLE}>
 						<span>{hoverCard.title}</span>
 						<small>{sessionAgeLabel(hoverCard.timestamp, t)}</small>
 					</div>
 				</div>
 			) : null}
-			<aside className="sidebar" aria-label={t("projectNavAria")} aria-hidden={!sidebarOpen}>
-				<header className="session-sidebar-header">
-					<div className="sidebar-brand-row">
-						<span className="sidebar-brand">
-							<BrandMark className="sidebar-brand-logo" size={18} />
-							<span className="sidebar-brand-name">Pi Desktop</span>
+			<aside
+				className={`flex min-h-0 flex-col overflow-hidden border-r-0 bg-[var(--sidebar-bg)] bg-no-repeat [background-image:linear-gradient(180deg,var(--ds-sidebar-glass-sheen-top),transparent_220px),linear-gradient(0deg,var(--ds-sidebar-glass-sheen-bottom),transparent_160px)] transition-[width,min-width,flex-basis] duration-200 max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-[250] max-sm:max-w-[85vw] max-sm:duration-250 ${sidebarOpen ? "w-[var(--sidebar-width,var(--ds-sidebar-width-default))] min-w-[var(--sidebar-width,var(--ds-sidebar-width-default))] flex-[0_0_var(--sidebar-width,var(--ds-sidebar-width-default))] max-sm:w-[280px] max-sm:min-w-[280px] max-sm:flex-[0_0_280px] max-sm:shadow-[4px_0_20px_rgb(0_0_0/15%)]" : "w-0 min-w-0 flex-[0_0_0] max-sm:pointer-events-none max-sm:w-[280px] max-sm:min-w-[280px] max-sm:flex-[0_0_280px] max-sm:-translate-x-full max-sm:shadow-none"}`}
+				aria-label={t("projectNavAria")}
+				aria-hidden={!sidebarOpen}
+			>
+				<header className={`grid gap-1.5 px-2 pb-1.5 pl-4 ${macOSClassName ? "pt-[30px]" : "pt-1.5"}`}>
+					<div className="flex h-[var(--ds-control-size)] items-center justify-between gap-1 pl-2.5">
+						<span className="inline-flex min-w-0 items-center gap-1">
+							<BrandMark
+								className="block size-[18px] shrink-0 rounded-[var(--radius-3xs)] object-contain"
+								size={18}
+							/>
+							<span className="truncate text-[length:var(--text-md)] font-[var(--font-weight-semibold)] tracking-[var(--tracking-tight)] text-[color:var(--text-primary)]">
+								Pi Desktop
+							</span>
 						</span>
-						<div className="sidebar-controls-row">
+						<div className="flex min-h-[var(--ds-control-size)] items-center justify-end gap-0.5">
 							<Button
 								size="icon"
-								className="sidebar-chrome-button"
+								className="inline-flex size-[var(--ds-control-size)] items-center justify-center rounded-[var(--radius-md)] border-0 bg-transparent p-0 text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)]"
 								aria-label={t("searchSessionsAria")}
 								title={t("searchSessionsAria")}
 								onClick={() => setSearchOpen(true)}
@@ -5487,7 +5702,7 @@ export function App() {
 							</Button>
 							<Button
 								size="icon"
-								className="sidebar-chrome-button"
+								className="inline-flex size-[var(--ds-control-size)] items-center justify-center rounded-[var(--radius-md)] border-0 bg-transparent p-0 text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)]"
 								aria-label={theme === "dark" ? t("switchToLight") : t("switchToDark")}
 								onClick={() => {
 									const next = theme === "dark" ? "light" : "dark";
@@ -5516,7 +5731,7 @@ export function App() {
 							</Button>
 							<Button
 								size="icon"
-								className="sidebar-chrome-button"
+								className="inline-flex size-[var(--ds-control-size)] items-center justify-center rounded-[var(--radius-md)] border-0 bg-transparent p-0 text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)]"
 								aria-label={t("hideSidebar")}
 								onClick={() => setSidebarOpen(false)}
 							>
@@ -5525,7 +5740,7 @@ export function App() {
 						</div>
 					</div>
 					<Button
-						className="new-chat-button"
+						className="flex h-[38px] w-full min-w-0 items-center justify-center gap-[7px] rounded-[var(--radius-md)] border-0 bg-[var(--ds-raised)] px-2.5 text-left text-[length:var(--text-base)] font-medium tracking-[var(--tracking-normal)] whitespace-nowrap text-[color:var(--text-primary)] shadow-[0_0_0_0.5px_var(--ds-border-subtle)] transition-[background] duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-out)] hover:enabled:bg-[var(--ds-bg-hover)] disabled:bg-[var(--ds-tile)] [&>svg]:shrink-0 [&>svg]:text-[color:var(--text-primary)] supports-[corner-shape:superellipse(1.5)]:[corner-shape:superellipse(1.5)]"
 						disabled={session?.phase === "running"}
 						onClick={() => void handleNewSession()}
 					>
@@ -5533,22 +5748,22 @@ export function App() {
 						<span>{t("newSessionShort")}</span>
 					</Button>
 				</header>
-				<div className="sidebar-content">{renderSidebar()}</div>
-				<footer className="sidebar-footer">
-					<div className="footer-menu-wrap">
+				<div className="flex min-h-0 flex-1 flex-col overflow-auto px-2 pb-1.5">{renderSidebar()}</div>
+				<footer className="flex min-h-[41px] items-center justify-start gap-1.5 px-2 pt-1 pb-[5px]">
+					<div className="footer-menu-wrap relative inline-flex">
 						<Button
 							size="icon"
 							aria-label={t("settings")}
 							aria-expanded={settingsMenuOpen}
 							aria-haspopup="menu"
-							className={`footer-button is-settings ${settingsMenuOpen ? "is-active" : ""}`}
+							className={`inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-xs)] border-0 bg-transparent p-0 text-[color:var(--muted)] whitespace-nowrap transition-[background,color] duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-out)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] ${settingsMenuOpen ? "bg-[var(--hover-strong)] text-[color:var(--text)]" : ""}`}
 							title={t("settings")}
 							onClick={() => setSettingsMenuOpen((open) => !open)}
 						>
 							<Icon name="gear" size={16} />
 						</Button>
 						{settingsMenuOpen ? (
-							<Menu className="footer-menu">
+							<Menu className="absolute bottom-[calc(100%+6px)] left-0 z-[60] grid min-w-[168px] rounded-[var(--radius-md-plus)] border border-[var(--ds-border-subtle)] bg-[var(--ds-bg-elevated-opaque)] p-[5px] shadow-[var(--ds-shadow-dialog)]">
 								{FOOTER_SETTINGS_ENTRIES.map((entry) => (
 									<MenuItem
 										key={entry.modal}
@@ -5564,14 +5779,17 @@ export function App() {
 						) : null}
 					</div>
 					<UpdateButton variant="footer" />
-					<span className="footer-build" title={t("desktopApp")}>
+					<span
+						className="ml-auto py-0 pr-0.5 pl-0 font-[family-name:var(--font-mono)] text-[length:var(--text-2xs)] whitespace-nowrap text-[color:var(--ds-text-faint)] select-none"
+						title={t("desktopApp")}
+					>
 						v{__APP_VERSION__}
 					</span>
 				</footer>
 			</aside>
 			{sidebarOpen ? (
 				<button
-					className="mobile-panel-backdrop sidebar-backdrop"
+					className="mobile-panel-backdrop sidebar-backdrop hidden max-sm:fixed max-sm:inset-0 max-sm:z-[240] max-sm:block max-sm:border-0 max-sm:bg-[rgb(0_0_0/24%)]"
 					type="button"
 					aria-label={t("hideSidebar")}
 					onClick={() => setSidebarOpen(false)}
@@ -5579,7 +5797,7 @@ export function App() {
 			) : null}
 			{sidebarOpen ? (
 				<hr
-					className="column-resizer sidebar-resizer"
+					className="column-resizer sidebar-resizer relative z-[220] m-0 mx-[-6px] w-3 shrink-0 cursor-col-resize touch-none border-0 bg-transparent outline-0 max-sm:hidden"
 					aria-label={t("resizeSidebarAria")}
 					aria-orientation="vertical"
 					aria-valuemin={180}
@@ -5600,14 +5818,14 @@ export function App() {
 				/>
 			) : null}
 			<section
-				className={`chat-workspace ${!session?.messages.length ? "is-session-empty" : ""} ${terminalOpen ? "has-terminal" : ""}`}
+				className={`chat-workspace relative isolate grid min-h-0 min-w-0 flex-1 grid-rows-[var(--ds-toolbar-height)_minmax(0,1fr)_auto] overflow-hidden bg-[var(--ds-bg-primary)] bg-no-repeat [background-image:linear-gradient(180deg,color-mix(in_oklab,var(--ds-text-primary)_5%,transparent),transparent_340px),radial-gradient(120%_52%_at_50%_0%,color-mix(in_oklab,var(--ds-accent)_3%,transparent),transparent_72%),linear-gradient(0deg,color-mix(in_oklab,var(--ds-text-primary)_2.5%,transparent),transparent_200px)] ${isSessionEmpty ? "is-session-empty" : ""} ${terminalOpen ? "has-terminal" : ""} ${branchMenuOpen ? "overflow-visible" : ""}`}
 				aria-label={t("chatAria")}
 			>
-				<header className="top-bar">
+				<header className="top-bar relative z-20 flex h-[var(--ds-toolbar-height)] min-h-[var(--ds-toolbar-height)] items-center justify-between gap-2 border-b-0 bg-transparent px-2 py-0 pl-3">
 					{!sidebarOpen ? (
 						<Button
 							size="icon"
-							className="sidebar-reopen-button"
+							className={`mr-1 inline-flex size-[var(--ds-control-size)] shrink-0 items-center justify-center self-center rounded-[var(--radius-md)] border-0 bg-transparent p-0 text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] ${macOSClassName && !sidebarOpen ? "relative -top-[5px]" : ""}`}
 							aria-label={t("showSidebar")}
 							onClick={() => setSidebarOpen(true)}
 						>
@@ -5616,13 +5834,16 @@ export function App() {
 					) : null}
 					{/* One line, like the reference's .ct-title; the second line of detail
 					    stays reachable through the tooltip. */}
-					<div className="chat-title" title={topBarSubtitle ? `${topBarTitle} — ${topBarSubtitle}` : topBarTitle}>
+					<div
+						className={`chat-title flex min-w-0 items-center gap-0.5 [-webkit-app-region:drag] [&>span]:truncate [&>span]:text-[length:var(--text-md)] [&>span]:font-semibold [&>span]:text-[color:var(--text)] ${sidebarOpen ? "" : "hidden"}`}
+						title={topBarSubtitle ? `${topBarTitle} — ${topBarSubtitle}` : topBarTitle}
+					>
 						<span title={topBarTitle}>{truncateLabel(topBarTitle)}</span>
 					</div>
-					<div className="top-bar-actions">
+					<div className="top-bar-actions relative z-30 flex items-center gap-0.5">
 						<Button
 							size="sm"
-							className="native-toolbar-button"
+							className={NATIVE_TOOLBAR_BUTTON}
 							aria-label={t("fullHistory")}
 							title={t("fullHistory")}
 							disabled={!session?.messages.length}
@@ -5642,7 +5863,7 @@ export function App() {
 						/>
 						<Button
 							size="sm"
-							className={`native-toolbar-button ${terminalOpen ? "is-active" : ""}`}
+							className={`${NATIVE_TOOLBAR_BUTTON} ${terminalOpen ? NATIVE_TOOLBAR_ACTIVE : ""}`}
 							aria-label={t("toggleTerminal")}
 							title={t("toggleTerminal")}
 							aria-expanded={terminalOpen}
@@ -5652,10 +5873,10 @@ export function App() {
 							<Icon name="terminal" size={12} />
 							<span>{t("toggleTerminal")}</span>
 						</Button>
-						<div className="top-bar-more-wrap">
+						<div className="top-bar-more-wrap relative z-40 isolate">
 							<Button
 								size="sm"
-								className={`native-toolbar-button app-topbar-more-trigger ${moreMenuOpen ? "is-active" : ""}`}
+								className={`${NATIVE_TOOLBAR_BUTTON} app-topbar-more-trigger ${moreMenuOpen ? NATIVE_TOOLBAR_ACTIVE : ""}`}
 								aria-label={t("more")}
 								title={t("more")}
 								aria-expanded={moreMenuOpen}
@@ -5665,7 +5886,7 @@ export function App() {
 								<span>{t("more")}</span>
 							</Button>
 							{moreMenuOpen ? (
-								<Menu className="top-bar-more-menu">
+								<Menu className="top-bar-more-menu absolute top-[calc(100%+6px)] right-0 z-50 grid min-w-[260px] max-w-[380px] rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--surface-1)] p-[5px] opacity-100 shadow-[var(--shadow-float)]">
 									<MenuItem
 										icon={<Icon name="sparkles" size={15} />}
 										label={
@@ -5743,10 +5964,10 @@ export function App() {
 								</Menu>
 							) : null}
 						</div>
-						<div className="top-bar-more-wrap top-bar-openwith-wrap open-with-group">
+						<div className="top-bar-more-wrap top-bar-openwith-wrap relative z-40 isolate inline-flex items-center">
 							<Button
 								size="sm"
-								className="native-toolbar-button open-with-main"
+								className="inline-flex h-[var(--ds-control-size)] w-auto min-w-0 items-center justify-center gap-1.5 rounded-none rounded-l-[var(--radius-2xs)] border-0 bg-transparent px-1 pl-1.5 text-[length:var(--text-sm-plus)] text-[color:var(--text-dim)] whitespace-nowrap transition-[background,color] duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-out)] disabled:opacity-40 [&>img]:size-[15px] [&>img]:shrink-0 [&>img]:object-contain [&>span]:max-w-[110px] [&>span]:truncate [&>span]:text-[length:var(--text-xs)] [&>svg]:shrink-0 [&>svg]:text-[color:var(--text-dim)]"
 								aria-label={t("openWithMain", { name: selectedOpenWith?.name ?? "" })}
 								title={t("openWithMain", { name: selectedOpenWith?.name ?? "" })}
 								disabled={!snapshot.workspacePath || !selectedOpenWith}
@@ -5763,7 +5984,7 @@ export function App() {
 							</Button>
 							<Button
 								size="icon"
-								className={`native-toolbar-button open-with-chevron ${openWithMenuOpen ? "is-active" : ""}`}
+								className={`inline-flex h-[var(--ds-control-size)] w-5 min-w-0 items-center justify-center rounded-none rounded-r-[var(--radius-2xs)] border-0 bg-transparent p-0 text-[color:var(--text-dim)] transition-[background,color] duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-out)] disabled:opacity-40 [&>svg]:shrink-0 ${openWithMenuOpen ? NATIVE_TOOLBAR_ACTIVE : ""}`}
 								aria-label={t("openWithChoose")}
 								title={t("openWithChoose")}
 								aria-expanded={openWithMenuOpen}
@@ -5773,7 +5994,7 @@ export function App() {
 								<Icon name="chevronDown" size={12} />
 							</Button>
 							{openWithMenuOpen ? (
-								<Menu className="top-bar-more-menu open-with-menu">
+								<Menu className="top-bar-more-menu absolute top-[calc(100%+6px)] right-0 z-50 grid min-w-[200px] max-w-[380px] rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--surface-1)] p-[5px] opacity-100 shadow-[var(--shadow-float)]">
 									{openWithApps.map((app) => (
 										<MenuItem
 											key={app.id}
@@ -5805,8 +6026,12 @@ export function App() {
 							<Icon name="panel" size={16} />
 						</Button>
 						{topPanel === "system" ? (
-							<div className="session-info-popover" role="dialog" aria-label={t("systemPrompt")}>
-								<div className="session-info-header">
+							<div
+								className="absolute top-[calc(100%+6px)] right-0 z-[60] max-h-[min(420px,60vh)] w-[min(680px,calc(100vw-80px))] overflow-auto rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--surface-1)] px-4 py-3 shadow-[var(--shadow-float)]"
+								role="dialog"
+								aria-label={t("systemPrompt")}
+							>
+								<div className="mb-2 flex items-center justify-between [&>strong]:text-[length:var(--text-md)] [&>strong]:font-semibold [&>strong]:text-[color:var(--text)]">
 									<strong>{t("systemPrompt")}</strong>
 									<Button
 										size="icon"
@@ -5819,9 +6044,13 @@ export function App() {
 									</Button>
 								</div>
 								{session?.systemPrompt ? (
-									<pre className="system-prompt-body">{session.systemPrompt}</pre>
+									<pre className="m-0 max-h-[300px] overflow-auto rounded-[var(--radius-xs)] bg-[var(--surface-recessed)] px-3 py-2.5 font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] leading-[1.6] whitespace-pre-wrap text-[color:var(--text-dim)]">
+										{session.systemPrompt}
+									</pre>
 								) : (
-									<p className="stats-empty">{t("systemPromptEmpty")}</p>
+									<p className="m-0 px-3 py-1 text-[length:var(--text-xs)] text-[color:var(--muted)]">
+										{t("systemPromptEmpty")}
+									</p>
 								)}
 							</div>
 						) : null}
@@ -5842,15 +6071,19 @@ export function App() {
 					<WindowControls />
 				</header>
 				{!isOnline || startupError ? (
-					<output className="offline-banner">
-						<span className="offline-banner-dot" />
+					<output className="flex min-h-[30px] items-center gap-2 border-b border-[color-mix(in_srgb,var(--danger)_26%,var(--border-subtle))] bg-[color-mix(in_srgb,var(--danger)_8%,var(--surface-1))] px-4 text-[length:var(--text-xs)] text-[color:var(--text-dim)]">
+						<span className="size-[7px] shrink-0 rounded-full bg-[var(--danger)] shadow-[0_0_0_3px_color-mix(in_srgb,var(--danger)_15%,transparent)]" />
 						<span>{isOnline ? t("initFailedBanner") : t("offlineBanner")}</span>
 						<Button size="sm" variant="outline" type="button" onClick={() => void startDesktopStore()}>
 							{t("retry")}
 						</Button>
 					</output>
 				) : null}
-				<div className="chat-scroll" ref={chatScrollRef} onScroll={handleChatScroll}>
+				<div
+					className="relative overflow-auto [scrollbar-gutter:stable]"
+					ref={chatScrollRef}
+					onScroll={handleChatScroll}
+				>
 					<ConversationNavigator
 						turns={conversationTurns}
 						scrollContainerRef={chatScrollRef}
@@ -5860,31 +6093,38 @@ export function App() {
 								?.scrollIntoView({ block: "start", behavior: "smooth" });
 						}}
 					/>
-					<div className="chat-column">
+					<div className="mx-auto w-[min(820px,calc(100%-24px))] pt-7 pb-[18px]">
 						{startupError ? (
 							<Button variant="outline" type="button" onClick={() => void startDesktopStore()}>
 								{t("retryInit")}
 							</Button>
 						) : null}
-						{actionError ? <output className="notice notice-error">{actionError}</output> : null}
+						{actionError ? (
+							<output className="mb-3.5 flex items-center gap-[9px] rounded-[var(--radius-m)] bg-[color-mix(in_oklab,var(--ds-error)_10%,transparent)] px-3 py-2 text-[length:var(--text-sm)] leading-[1.45] text-[color:var(--error-text)]">
+								{actionError}
+							</output>
+						) : null}
 						{notices.length ? (
 							// biome-ignore lint/a11y/useSemanticElements: 通知容器非单独状态区
-							<div className="notice-shelf" role="status">
+							<div
+								className="pointer-events-none absolute top-3 right-[18px] z-[12] grid max-w-[min(460px,calc(100%-36px))] justify-items-end gap-1.5"
+								role="status"
+							>
 								{notices.map((notice) => (
 									<Button
 										variant="bare"
-										className={`notice-shelf-item is-${notice.kind}`}
+										className={`pointer-events-auto flex max-w-full min-h-[34px] animate-[notice-in_180ms_ease] items-center gap-[9px] rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-[7px] text-left text-[length:var(--text-sm)] text-[color:var(--text-dim)] shadow-[0_1px_2px_rgb(0_0_0/6%)] ${notice.kind === "error" ? "[&_.notice-dot]:bg-[var(--danger)]" : notice.kind === "success" ? "[&_.notice-dot]:bg-[var(--success)]" : notice.kind === "warning" ? "[&_.notice-dot]:bg-[var(--warning)]" : ""}`}
 										key={notice.id}
 										onClick={() => setNotices((current) => current.filter((item) => item.id !== notice.id))}
 									>
-										<span className="notice-dot" />
-										<span className="notice-text">{notice.text}</span>
+										<span className="notice-dot size-2 shrink-0 rounded-full bg-[var(--accent)]" />
+										<span className="line-clamp-3 overflow-hidden break-words">{notice.text}</span>
 									</Button>
 								))}
 							</div>
 						) : null}
 						{snapshot.pendingToolApprovals.length > 0 ? (
-							<section className="card-stack" aria-label={t("pendingApprovalsAria")}>
+							<section className="my-5 grid gap-3" aria-label={t("pendingApprovalsAria")}>
 								{snapshot.pendingToolApprovals.map((approval) => (
 									<ToolApprovalCard
 										approval={approval}
@@ -5903,7 +6143,7 @@ export function App() {
 							</section>
 						) : null}
 						{authenticationPrompt ? (
-							<section className="card-stack" aria-label={t("pendingAuthPromptsAria")}>
+							<section className="my-5 grid gap-3" aria-label={t("pendingAuthPromptsAria")}>
 								<AuthenticationPromptCard
 									onChange={setAuthenticationResponse}
 									onSubmit={handleAuthenticationPrompt}
@@ -5913,12 +6153,19 @@ export function App() {
 								/>
 							</section>
 						) : null}
-						<div className="transcript" key={session?.id}>
+						<div className="pb-6" key={session?.id}>
 							{visibleItemCount < transcriptItems.length ? (
-								<div className="load-earlier-sentinel" ref={earlierMessagesSentinelRef} aria-hidden="true" />
+								<div
+									className="pointer-events-none mt-[-1px] h-px"
+									ref={earlierMessagesSentinelRef}
+									aria-hidden="true"
+								/>
 							) : null}
 							{visibleItemCount < transcriptItems.length ? (
-								<Button className="load-earlier" onClick={() => setVisibleItemCount((current) => current + 60)}>
+								<Button
+									className="mb-3 block w-full rounded-[var(--radius-xs)] border border-dashed border-[var(--border-subtle)] bg-transparent p-[7px] text-[length:var(--text-sm)] text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)]"
+									onClick={() => setVisibleItemCount((current) => current + 60)}
+								>
 									{t("loadEarlier", { count: transcriptItems.length - visibleItemCount })}
 								</Button>
 							) : null}
@@ -5954,8 +6201,8 @@ export function App() {
 									})
 								: null}
 							{session?.pendingMessages.length ? (
-								<div className="queued-panel">
-									<div className="queued-panel-header">
+								<div className="mb-2 ml-auto grid max-w-[min(76%,560px)] gap-1.5 rounded-[var(--radius-xs)] bg-[var(--surface-recessed)] px-2.5 py-2 text-[length:var(--text-sm)] text-[color:var(--text-dim)]">
+									<div className="flex items-center justify-between font-[family-name:var(--font-mono)] text-[length:var(--text-2xs)] font-semibold tracking-[0.06em] text-[color:var(--muted)]">
 										<span>{t("queuedCount", { count: session.pendingMessages.length })}</span>
 										<Button
 											size="sm"
@@ -5990,8 +6237,17 @@ export function App() {
 										</Button>
 									</div>
 									{session.pendingMessages.map((message, index) => (
-										<div className="queued-message" key={`${message.behavior}:${index}:${message.text}`}>
-											<span className={message.behavior === "steer" ? "is-steer" : ""}>
+										<div
+											className="mb-2 ml-auto grid max-w-[76%] min-w-0 grid-cols-[auto_minmax(0,1fr)] items-baseline gap-2 rounded-[var(--radius-xs)] border border-dashed border-[var(--border-subtle)] bg-[var(--surface-recessed)] px-[11px] py-2 text-[length:var(--text-sm)] text-[color:var(--text-dim)] [&>p]:m-0 [&>p]:truncate [&>span]:rounded-full [&>span]:border [&>span]:border-[var(--border-subtle)] [&>span]:px-1.5 [&>span]:py-px [&>span]:text-[length:var(--text-2xs)] [&>span]:text-[color:var(--muted)] [&>span]:uppercase"
+											key={`${message.behavior}:${index}:${message.text}`}
+										>
+											<span
+												className={
+													message.behavior === "steer"
+														? "border-[color-mix(in_oklab,var(--ds-warning)_45%,transparent)] text-[color-mix(in_oklab,var(--ds-warning)_90%,transparent)]"
+														: ""
+												}
+											>
 												{message.behavior === "steer" ? t("steer") : t("followUp")}
 											</span>
 											<p>{message.text}</p>
@@ -6002,15 +6258,18 @@ export function App() {
 							{session?.phase === "running" &&
 							transcriptItems.at(-1)?.type !== "process" &&
 							transcriptItems.at(-1)?.type !== "assistant" ? (
-								<output className="agent-running-status">
-									<span className="status-indicator is-running" />
+								<output className="mb-2.5 inline-flex w-fit items-center gap-2 rounded-full bg-[color-mix(in_oklab,var(--ds-accent)_10%,transparent)] px-2.5 py-1 text-[length:var(--text-sm)] text-[color:var(--text-dim)]">
+									<span className="inline-block size-1.5 rounded-full bg-[var(--accent)] shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_14%,transparent)] animate-[status-breath_2s_ease-in-out_infinite] motion-reduce:animate-none" />
 									{session.runningTools?.length
 										? t("runningTools", {
 												tools: `${session.runningTools.slice(0, 3).join("、")}${session.runningTools.length > 3 ? "、" : ""}`,
 												count: session.runningTools.length,
 											})
 										: t("waitingForModel")}
-									<span className="running-dots" aria-hidden="true">
+									<span
+										className="ml-[5px] inline-flex items-center gap-[3px] [&>i]:size-[3px] [&>i]:rounded-full [&>i]:bg-current [&>i]:opacity-60"
+										aria-hidden="true"
+									>
 										<i />
 										<i />
 										<i />
@@ -6018,37 +6277,52 @@ export function App() {
 								</output>
 							) : null}
 							{session?.autoRetry ? (
-								<div className="retry-banner">
-									<span className="retry-banner-title">
+								<div className="mb-2 grid gap-0.5 rounded-[var(--radius-xs)] border border-[var(--warning-border)] bg-[color-mix(in_oklab,var(--ds-warning)_10%,transparent)] px-3 py-2">
+									<span className="text-[length:var(--text-sm)] font-medium text-[color:var(--ds-warning)]">
 										{t("autoRetry", {
 											attempt: session.autoRetry.attempt,
 											max: session.autoRetry.maxAttempts,
 										})}
 									</span>
-									<span className="retry-banner-error">{session.autoRetry.errorMessage}</span>
+									<span className="text-[length:var(--text-xs)] [overflow-wrap:anywhere] text-[color:var(--text-dim)]">
+										{session.autoRetry.errorMessage}
+									</span>
 								</div>
 							) : null}
 							{compactionHint ? (
-								<output className="compaction-banner">
-									<span className="context-hint-mark" aria-hidden="true">
+								<output className="mb-2 flex min-h-7 items-center rounded-[var(--radius-xs)] border border-[color-mix(in_srgb,var(--success)_35%,transparent)] bg-[var(--success-overlay)] px-2.5 py-0.5 text-[length:var(--text-sm)] leading-5 text-[color:var(--success)]">
+									<span
+										className="mr-1.5 inline-grid size-4 shrink-0 place-items-center text-[color:var(--ds-text-muted)]"
+										aria-hidden="true"
+									>
 										<Icon name="archiveBox" size={14} />
 									</span>
-									<span className="compaction-banner-title">{t("compactionHintTitle")}</span>
-									<span className="context-hint-sep" aria-hidden="true" />
-									<span className="compaction-banner-summary">{compactionHint}</span>
+									<span className="shrink-0 text-[length:var(--text-sm)] font-medium leading-5 text-[color:var(--ds-text-secondary)]">
+										{t("compactionHintTitle")}
+									</span>
+									<span
+										className="mx-2 size-0.5 shrink-0 rounded-px bg-[var(--ds-text-faint)]"
+										aria-hidden="true"
+									/>
+									<span className="min-w-0 truncate text-[length:var(--text-sm)] leading-5 text-[color:var(--ds-text-muted)]">
+										{compactionHint}
+									</span>
 								</output>
 							) : null}
 						</div>
 					</div>
 				</div>
 				{awayFromBottom ? (
-					<Button className="scroll-to-latest" onClick={scrollToLatest}>
+					<Button
+						className="absolute right-1/2 bottom-[102px] z-[8] flex translate-x-1/2 items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-1)] px-[11px] py-[7px] text-[length:var(--text-xs)] text-[color:var(--text-dim)] shadow-[0_5px_18px_rgb(0_0_0/18%)] hover:bg-[var(--surface-2)] hover:text-[color:var(--text)]"
+						onClick={scrollToLatest}
+					>
 						<span>↓</span>
 						{unseenMessages > 0 ? t("unseenCount", { count: unseenMessages }) : t("backToBottom")}
 					</Button>
 				) : null}
 				<form
-					className={`composer ${draggingImages ? "is-dragging-images" : ""}`}
+					className={`bg-transparent px-6 pb-4 ${isSessionEmpty && !terminalOpen ? "absolute top-1/2 right-0 left-0 -translate-y-1/2" : "relative"}`}
 					onSubmit={(event) => void handleSubmit(event)}
 					onDragEnter={(event) => {
 						if (Array.from(event.dataTransfer.items).some((item) => item.kind === "file"))
@@ -6063,9 +6337,16 @@ export function App() {
 						void handleDroppedImages(Array.from(event.dataTransfer.files));
 					}}
 				>
-					{draggingImages ? <div className="drop-image-overlay">{t("dropToAttach")}</div> : null}
+					{draggingImages ? (
+						<div className="pointer-events-none absolute inset-x-6 top-0 bottom-2.5 z-20 grid place-items-center rounded-[var(--radius-m)] border border-dashed border-[var(--accent)] bg-[color-mix(in_srgb,var(--surface-2)_88%,transparent)] text-[length:var(--text-sm)] font-semibold text-[color:var(--text)]">
+							{t("dropToAttach")}
+						</div>
+					) : null}
 					{compactError ? (
-						<output className="compact-editor-error" role="alert">
+						<output
+							className="mb-2 flex items-start justify-between gap-2.5 rounded-[var(--radius-xs)] border border-[color-mix(in_srgb,var(--danger)_46%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] px-2.5 py-2 text-[length:var(--text-sm)] leading-[1.45] whitespace-pre-wrap text-[color:var(--text)]"
+							role="alert"
+						>
 							{compactError}
 							<Button
 								size="icon"
@@ -6078,12 +6359,15 @@ export function App() {
 						</output>
 					) : null}
 					{!hasUserMessage ? (
-						<div className="empty-hero">
-							<span className="empty-hero-icon" aria-hidden="true">
+						<div className="mb-4 flex w-full min-h-0 flex-col items-center justify-center gap-4 p-0 text-center [&>h1]:m-0 [&>h1]:max-w-[min(100%,42rem)] [&>h1]:text-[length:var(--text-display)] [&>h1]:font-[var(--font-weight-normal)] [&>h1]:tracking-[var(--tracking-tight)] [&>h1]:leading-[var(--leading-tighter)] [&>h1]:text-[color:var(--ds-text-primary)] [&>h1]:text-balance">
+							<span
+								className="flex size-[100px] items-center justify-center text-[color:var(--ds-text-secondary)] select-none [&>img]:block [&>img]:size-[100px] [&>img]:rounded-[var(--radius-lg-plus)] [&>img]:object-contain [&>img]:shadow-[var(--ds-raised-shadow)]"
+								aria-hidden="true"
+							>
 								<BrandMark size={100} />
 							</span>
 							<h1>{snapshot.workspacePath ? t("startTaskTitle") : t("startProjectTitle")}</h1>
-							<p className="empty-hero-hint">
+							<p className="m-0 max-w-[min(100%,36rem)] text-[length:var(--text-base)] leading-[var(--leading-relaxed)] text-[color:var(--ds-text-muted)]">
 								{snapshot.workspacePath ? t("startTaskHint") : t("startProjectHint")}
 							</p>
 						</div>
@@ -6097,11 +6381,11 @@ export function App() {
 					 * for the branch chip.
 					 */}
 					{snapshot.workspacePath && composerBranch ? (
-						<div className="composer-project-line">
-							<div className="composer-project-anchor project-menu-root">
+						<div className="mx-auto mb-2 flex w-[min(var(--ds-composer-max-width),100%)] items-center gap-[18px] pl-3.5 text-[length:var(--text-sm)] text-[color:var(--ds-text-muted)]">
+							<div className="relative inline-flex min-w-0">
 								<Button
 									size="sm"
-									className="composer-project-item"
+									className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 border-0 bg-transparent font-[inherit] text-inherit hover:text-[color:var(--ds-text-primary)] [&>svg]:shrink-0 [&>svg]:opacity-70 [&>span]:truncate"
 									aria-expanded={branchMenuOpen}
 									aria-haspopup="menu"
 									onClick={() => setBranchMenuOpen((open) => !open)}
@@ -6110,7 +6394,7 @@ export function App() {
 									<span>{formatGitBranch(composerBranch)}</span>
 								</Button>
 								{branchMenuOpen ? (
-									<Menu className="composer-branch-menu">
+									<Menu className="absolute top-[calc(100%+6px)] left-0 z-[80] max-h-[min(360px,46vh)] w-max min-w-[220px] overflow-auto">
 										<WorktreeSection
 											workspacePath={snapshot.workspacePath}
 											projectTrusted={snapshot.projectTrusted}
@@ -6124,20 +6408,22 @@ export function App() {
 							</div>
 						</div>
 					) : null}
-					<div className="composer-inner">
+					<div className="relative mx-auto w-[min(var(--ds-composer-max-width),100%)] rounded-[var(--ds-composer-radius)] border-0 bg-[var(--ds-bg-composer)] px-4 pt-3.5 pb-2.5 shadow-[0_0_0_0.5px_var(--ds-border-default),var(--ds-shadow-composer)] transition-[background,box-shadow] duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-out)] focus-within:shadow-[0_0_0_0.5px_color-mix(in_oklab,var(--ds-accent)_72%,transparent),0_4px_16px_rgb(0_0_0/6%)] supports-[corner-shape:superellipse(1.5)]:[corner-shape:superellipse(1.5)]">
 						{slashActive ? (
-							<div className="slash-menu" role="listbox" aria-label={t("slashCommandsAria")}>
-								<div className="slash-menu-header">
-									<span>{t("commandCount", { count: visibleSlashCommands.length })}</span>
-									<small>{t("menuHint")}</small>
+							<div className={COMPOSER_SLASH_MENU} role="listbox" aria-label={t("slashCommandsAria")}>
+								<div className={COMPOSER_SLASH_HEADER}>
+									<span className={COMPOSER_SLASH_HEADER_LABEL}>
+										{t("commandCount", { count: visibleSlashCommands.length })}
+									</span>
+									<small className={COMPOSER_SLASH_HEADER_HINT}>{t("menuHint")}</small>
 								</div>
 								{visibleSlashCommands.length ? (
-									<div className="slash-command-grid">
+									<div className="grid grid-cols-2 gap-1 p-1.5">
 										{visibleSlashCommands.map((command, index) => (
 											<Button
 												variant="bare"
 												aria-selected={suggestionIndex === index}
-												className={`slash-command ${suggestionIndex === index ? "is-selected" : ""}`}
+												className={`${COMPOSER_SLASH_COMMAND_GRID} ${suggestionIndex === index ? `${COMPOSER_SLASH_COMMAND_SELECTED} border-[var(--border-subtle)]` : ""}`}
 												key={command.name}
 												role="option"
 												onMouseDown={(event) => event.preventDefault()}
@@ -6150,22 +6436,22 @@ export function App() {
 										))}
 									</div>
 								) : (
-									<p className="slash-empty">{t("noMatchingCommands")}</p>
+									<p className={COMPOSER_SLASH_EMPTY}>{t("noMatchingCommands")}</p>
 								)}
 							</div>
 						) : null}
 						{hashActive ? (
-							<div className="slash-menu" role="listbox" aria-label={t("sessionMentionAria")}>
-								<div className="slash-menu-header">
-									<span>{t("sessions")}</span>
-									<small>{t("menuHint")}</small>
+							<div className={COMPOSER_SLASH_MENU} role="listbox" aria-label={t("sessionMentionAria")}>
+								<div className={COMPOSER_SLASH_HEADER}>
+									<span className={COMPOSER_SLASH_HEADER_LABEL}>{t("sessions")}</span>
+									<small className={COMPOSER_SLASH_HEADER_HINT}>{t("menuHint")}</small>
 								</div>
 								{hashSessions.length ? (
 									hashSessions.map((item, index) => (
 										<Button
 											variant="bare"
 											aria-selected={suggestionIndex === index}
-											className={`slash-command ${suggestionIndex === index ? "is-selected" : ""}`}
+											className={`${COMPOSER_SLASH_COMMAND} ${suggestionIndex === index ? COMPOSER_SLASH_COMMAND_SELECTED : ""}`}
 											key={item.path}
 											role="option"
 											onMouseDown={(event) => event.preventDefault()}
@@ -6176,15 +6462,15 @@ export function App() {
 										</Button>
 									))
 								) : (
-									<p className="slash-empty">{t("noMatchingSessions")}</p>
+									<p className={COMPOSER_SLASH_EMPTY}>{t("noMatchingSessions")}</p>
 								)}
 							</div>
 						) : null}
 						{atActive ? (
-							<div className="slash-menu" role="listbox" aria-label={t("fileMentionAria")}>
-								<div className="slash-menu-header">
-									<span>{t("projectFiles")}</span>
-									<small>{t("menuHint")}</small>
+							<div className={COMPOSER_SLASH_MENU} role="listbox" aria-label={t("fileMentionAria")}>
+								<div className={COMPOSER_SLASH_HEADER}>
+									<span className={COMPOSER_SLASH_HEADER_LABEL}>{t("projectFiles")}</span>
+									<small className={COMPOSER_SLASH_HEADER_HINT}>{t("menuHint")}</small>
 								</div>
 								{atEntries.length ? (
 									atEntries.map((entry, index) => {
@@ -6193,19 +6479,19 @@ export function App() {
 											<Button
 												variant="bare"
 												aria-selected={suggestionIndex === index}
-												className={`slash-command ${suggestionIndex === index ? "is-selected" : ""}`}
+												className={`${COMPOSER_SLASH_COMMAND} ${suggestionIndex === index ? COMPOSER_SLASH_COMMAND_SELECTED : ""}`}
 												key={entry.path}
 												role="option"
 												onMouseDown={(event) => event.preventDefault()}
 												onClick={() => selectComposerSuggestion(index)}
 											>
-												<span className="tree-file-icon">
+												<span className="grid w-[13px] shrink-0 place-items-center text-[color:var(--muted)]">
 													<Icon
 														name={entry.type === "directory" ? "folder" : fileIconFor(entry.path)}
 														size={13}
 													/>
 												</span>
-												<span className="mention-path">
+												<span className="min-w-0 font-[family-name:var(--font-mono)] text-[length:var(--text-sm)] [&>small]:text-[color:var(--muted)]">
 													{dirIndex > 0 ? (
 														<>
 															<small>{entry.path.slice(0, dirIndex)}</small>
@@ -6223,30 +6509,34 @@ export function App() {
 										);
 									})
 								) : (
-									<p className="slash-empty">
+									<p className={COMPOSER_SLASH_EMPTY}>
 										{workspaceEntries.length ? t("noMatchingFilesShort") : t("readingFiles")}
 									</p>
 								)}
 							</div>
 						) : null}
 						{attachments.length ? (
-							<div className="attachment-list">
+							<div className="flex flex-wrap gap-1.5 pb-2">
 								{attachments.map((attachment) => (
 									<div
-										className="attachment-chip"
+										className="relative size-14 shrink-0 rounded-full border border-[var(--border)] bg-[var(--surface-3)] [corner-shape:round]"
 										key={attachment.id}
 										title={`${attachment.name} · ${formatAttachmentSize(attachment.size, t)}`}
 									>
 										{attachment.thumbnailDataUrl ? (
-											<img className="attachment-thumbnail" src={attachment.thumbnailDataUrl} alt="" />
+											<img
+												className="block size-14 rounded-full object-cover"
+												src={attachment.thumbnailDataUrl}
+												alt=""
+											/>
 										) : (
-											<span className="attachment-placeholder">
+											<span className="grid size-full place-items-center text-[color:var(--text-dim)]">
 												<Icon name="image" size={20} />
 											</span>
 										)}
 										<Button
 											size="icon"
-											className="compact"
+											className="absolute -top-1 -right-1 grid size-4 place-items-center rounded-full border border-[var(--border)] bg-[var(--surface-1)] p-0 text-[color:var(--muted)] hover:bg-[var(--overlay-7)] hover:text-[color:var(--text)]"
 											aria-label={t("removeAria", { name: attachment.name })}
 											onClick={() => {
 												setAttachments((current) =>
@@ -6262,27 +6552,38 @@ export function App() {
 							</div>
 						) : null}
 						{bashMode ? (
-							<div className={`bash-mode-hint ${draft.startsWith("!!") ? "is-excluded" : ""}`}>
+							<div
+								className={`mb-1.5 ml-0.5 flex items-center gap-1.5 text-[length:var(--text-xs)] font-medium ${draft.startsWith("!!") ? "text-[color:var(--muted)]" : "text-[color:var(--accent-strong)]"}`}
+							>
 								<Icon name="terminal" size={12} />
 								<span>{draft.startsWith("!!") ? t("shellExcludeFromContext") : t("shellSendToModel")}</span>
 							</div>
 						) : null}
-						<div className="composer-editor" ref={composerEditorRef}>
+						<div
+							className="relative flex min-w-0 items-end gap-2 border-0 bg-transparent p-0"
+							ref={composerEditorRef}
+						>
 							{historyMenuOpen && promptHistoryRef.current.length > 0 ? (
-								<div className="prompt-history-menu" role="listbox" aria-label={t("promptHistory")}>
-									<div className="prompt-history-header">
+								<div
+									className="absolute right-0 bottom-[calc(100%+8px)] left-0 z-[55] max-h-[min(44vh,360px)] overflow-hidden rounded-[var(--radius-lg)] border-[0.5px] border-[var(--ds-border-default)] bg-[color-mix(in_oklab,var(--ds-bg-elevated-opaque)_82%,transparent)] p-[5px] shadow-[0_0_0_0.5px_var(--ds-border-subtle),var(--ds-shadow-dialog)] backdrop-blur-[18px] backdrop-saturate-125 supports-[corner-shape:superellipse(1.5)]:[corner-shape:superellipse(1.5)]"
+									role="listbox"
+									aria-label={t("promptHistory")}
+								>
+									<div className="flex h-[31px] items-center gap-[7px] border-b border-[var(--border-subtle)] px-[11px] text-[length:var(--text-xs)] text-[color:var(--muted)]">
 										<Icon name="history" size={13} />
 										<span>{t("promptHistory")}</span>
-										<small>{t("historyHint")}</small>
+										<small className="ml-auto text-[length:var(--text-2xs)] text-[color:var(--text-dim)]">
+											{t("historyHint")}
+										</small>
 									</div>
-									<div className="prompt-history-list">
+									<div className="max-h-[calc(min(44vh,360px)-32px)] overflow-y-auto p-1">
 										{promptHistoryRef.current.map((item, index) => (
 											<Button
 												variant="bare"
 												key={`${index}:${item}`}
 												role="option"
 												aria-selected={index === historyActiveIndex}
-												className={index === historyActiveIndex ? "is-active" : ""}
+												className={`flex w-full items-start gap-2 rounded-[var(--radius-2xs)] border-0 bg-transparent px-2 py-[7px] text-left text-[length:var(--text-sm-plus)] leading-[1.45] text-[color:var(--text)] hover:bg-[var(--overlay-5)] ${index === historyActiveIndex ? "bg-[var(--overlay-5)]" : ""}`}
 												onMouseDown={(event) => event.preventDefault()}
 												onMouseEnter={() => setHistoryActiveIndex(index)}
 												onClick={() => {
@@ -6292,8 +6593,12 @@ export function App() {
 													requestAnimationFrame(() => promptRef.current?.focus());
 												}}
 											>
-												<span>{index + 1}</span>
-												<strong>{item}</strong>
+												<span className="w-[14px] shrink-0 pt-px text-right font-[family-name:var(--font-mono)] text-[length:var(--text-2xs)] text-[color:var(--text-dim)]">
+													{index + 1}
+												</span>
+												<strong className="min-w-0 overflow-hidden font-normal [overflow-wrap:anywhere] line-clamp-2">
+													{item}
+												</strong>
 											</Button>
 										))}
 									</div>
@@ -6302,6 +6607,7 @@ export function App() {
 							<textarea
 								ref={promptRef}
 								id="prompt"
+								className="h-[3lh] max-h-[3lh] min-h-[3lh] w-full min-w-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0.5 py-1.5 text-[length:var(--text-base)] leading-[var(--leading-body)] text-[color:var(--text)] outline-none shadow-none placeholder:text-[color:var(--text-secondary)] placeholder:opacity-72 disabled:cursor-not-allowed focus:shadow-none focus:outline-none focus-visible:shadow-none focus-visible:outline-none"
 								value={draft}
 								onChange={(event) => {
 									setDraft(event.target.value);
@@ -6415,14 +6721,17 @@ export function App() {
 							/>
 						</div>
 						{modelScopeNotice ? (
-							<output className="composer-scope-warning" title={modelScopeNotice}>
-								<span className="composer-scope-warning-dot" />
+							<output
+								className="mb-1.5 flex items-center gap-1.5 overflow-hidden rounded-[var(--radius-xs)] border border-[color-mix(in_srgb,var(--ds-warning)_35%,transparent)] bg-[color-mix(in_srgb,var(--ds-warning)_10%,transparent)] px-2.5 py-[5px] text-[length:var(--text-xs)] text-ellipsis whitespace-nowrap text-[color:var(--text)]"
+								title={modelScopeNotice}
+							>
+								<span className="size-1.5 shrink-0 rounded-full bg-[var(--ds-warning)]" />
 								{modelScopeNotice}
 							</output>
 						) : null}
 						{permissionPrompt ? (
-							<div className="composer-permission-prompt">
-								<p>{permissionPrompt.text}</p>
+							<div className="mb-1.5 flex items-center gap-2.5 rounded-[var(--radius-xs)] border border-[color-mix(in_srgb,var(--ds-warning)_35%,transparent)] bg-[color-mix(in_srgb,var(--ds-warning)_10%,transparent)] py-1.5 pr-2 pl-2.5 text-[length:var(--text-xs)] text-[color:var(--text)]">
+								<p className="m-0 min-w-0 leading-[1.4]">{permissionPrompt.text}</p>
 								<Button
 									variant="primary"
 									disabled={allowingPermission}
@@ -6433,11 +6742,11 @@ export function App() {
 							</div>
 						) : null}
 						<div
-							className={`composer-footer${compactComposerControls ? " is-compact" : ""}`}
+							className="mt-0.5 flex min-w-0 items-center justify-between gap-1.5 pt-1 text-[length:var(--text-xs)] text-[color:var(--muted)]"
 							ref={composerControlsRef}
 						>
-							<div className="composer-footer-left">
-								<div className="composer-control-group">
+							<div className="flex min-w-0 items-center gap-1.5">
+								<div className="relative flex items-center gap-0.5">
 									<Button
 										size="icon"
 										disabled={attachments.length >= MAX_IMAGE_ATTACHMENTS || session?.phase === "running"}
@@ -6447,10 +6756,10 @@ export function App() {
 									>
 										<Icon name="image" size={15} />
 									</Button>
-									<div className="composer-control-anchor">
+									<div className="relative inline-flex">
 										<Button
 											size="sm"
-											className={`composer-permission-trigger is-${permissionMode}`}
+											className="[&_svg]:box-content [&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:overflow-visible"
 											disabled={!session}
 											aria-label={t("permissionLabel")}
 											aria-expanded={composerMenu === "permission"}
@@ -6464,7 +6773,7 @@ export function App() {
 											<span>{t(PERMISSION_LABELS[permissionMode])}</span>
 										</Button>
 										{composerMenu === "permission" ? (
-											<Menu>
+											<Menu className={`${COMPOSER_CONTROL_MENU} left-0`}>
 												{PERMISSION_MODES.map((mode) => (
 													<MenuItem
 														key={mode}
@@ -6481,7 +6790,7 @@ export function App() {
 											</Menu>
 										) : null}
 									</div>
-									<div className="composer-control-anchor">
+									<div className="relative inline-flex">
 										<Button
 											size="sm"
 											disabled={!canSetModel || settingModel}
@@ -6500,7 +6809,7 @@ export function App() {
 											</span>
 										</Button>
 										{composerMenu === "model" ? (
-											<Menu>
+											<Menu className={`${COMPOSER_CONTROL_MENU} left-0`}>
 												{snapshot.availableModels.length > 8 ? (
 													<MenuFilter
 														autoFocus
@@ -6547,7 +6856,7 @@ export function App() {
 											</Menu>
 										) : null}
 									</div>
-									<div className="composer-control-anchor is-right">
+									<div className="relative inline-flex">
 										<Button
 											size="sm"
 											disabled={!session}
@@ -6572,7 +6881,7 @@ export function App() {
 											</span>
 										</Button>
 										{composerMenu === "thinking" ? (
-											<Menu>
+											<Menu className={`${COMPOSER_CONTROL_MENU} right-0`}>
 												{thinkingLevels.map((level) => (
 													<MenuItem
 														key={level}
@@ -6586,7 +6895,10 @@ export function App() {
 										) : null}
 									</div>
 									{extensionStatusLine ? (
-										<output className="extension-status-bar" title={plainExtensionStatusLine}>
+										<output
+											className="inline-flex max-w-[min(34vw,340px)] items-center overflow-hidden px-1 text-[length:var(--text-xs)] whitespace-nowrap text-[color:var(--muted)] [&>span]:truncate"
+											title={plainExtensionStatusLine}
+										>
 											{parseAnsiLine(extensionStatusLine).map((segment, index) => (
 												<span key={`${index}:${segment.text}`} style={segment.style}>
 													{segment.text}
@@ -6596,11 +6908,11 @@ export function App() {
 									) : null}
 								</div>
 							</div>
-							<div className="composer-footer-right composer-controls-slot">
+							<div className="relative ml-auto flex min-w-0 shrink-0 items-center gap-1.5 overflow-visible">
 								{compactComposerControls && !composerControlsOpen ? (
 									<Button
 										size="sm"
-										className="composer-more-controls"
+										className="shrink-0"
 										aria-expanded={composerControlsOpen}
 										onClick={() => setComposerControlsOpen(true)}
 									>
@@ -6609,14 +6921,18 @@ export function App() {
 									</Button>
 								) : null}
 								<div
-									className={`composer-secondary-controls${
-										compactComposerControls && !composerControlsOpen ? " is-collapsed" : ""
-									}`}
+									className={
+										compactComposerControls && !composerControlsOpen
+											? "hidden"
+											: compactComposerControls
+												? "absolute right-0 bottom-[calc(100%+8px)] z-[41] flex min-w-0 items-center gap-1.5 rounded-[var(--radius-m)] border border-[var(--border-subtle)] bg-[var(--surface-1)] p-[5px] shadow-[var(--shadow-float)]"
+												: "flex min-w-0 items-center gap-1.5"
+									}
 								>
 									{compactComposerControls ? (
 										<Button
 											size="icon"
-											className="composer-close-controls"
+											className="shrink-0"
 											aria-label={t("collapseComposerControls")}
 											title={t("collapseComposerControls")}
 											onClick={() => setComposerControlsOpen(false)}
@@ -6626,7 +6942,7 @@ export function App() {
 									) : null}
 								</div>
 								{session?.phase === "running" ? (
-									<div className="composer-running-actions">
+									<div className="flex shrink-0 items-center">
 										<Button
 											variant="danger"
 											size="icon"
@@ -6662,6 +6978,7 @@ export function App() {
 						</div>
 					</div>
 					<ExtensionWidgetStack
+						className="pt-[7px] pb-0"
 						widgets={(snapshot.extensionWidgets ?? []).filter((widget) => widget.placement === "belowEditor")}
 					/>
 				</form>
@@ -6669,7 +6986,7 @@ export function App() {
 			</section>
 			{inspectorOpen ? (
 				<hr
-					className="column-resizer inspector-resizer"
+					className="column-resizer inspector-resizer relative z-[220] m-0 mx-[-6px] w-3 shrink-0 cursor-col-resize touch-none border-0 bg-transparent outline-0 max-sm:hidden max-[959px]:min-[641px]:hidden"
 					aria-label={t("resizeInspectorAria")}
 					aria-orientation="vertical"
 					aria-valuemin={300}
@@ -6691,18 +7008,25 @@ export function App() {
 			) : null}
 			{inspectorOpen ? (
 				<button
-					className="mobile-panel-backdrop inspector-backdrop"
+					className="mobile-panel-backdrop inspector-backdrop hidden max-[959px]:min-[641px]:fixed max-[959px]:min-[641px]:inset-0 max-[959px]:min-[641px]:z-[240] max-[959px]:min-[641px]:block max-[959px]:min-[641px]:border-0 max-[959px]:min-[641px]:bg-[rgb(0_0_0/24%)] max-sm:z-[260]"
 					type="button"
 					aria-label={t("closeRightPanel")}
 					onClick={() => setInspectorOpen(false)}
 				/>
 			) : null}
 			{inspectorOpen ? (
-				<aside className="right-panel" aria-label={t("files")}>
-					<header className="right-panel-header">
-						<div className="file-tab-bar" role="tablist" aria-label={t("openFilesAria")}>
+				<aside
+					className="flex min-h-0 min-w-[300px] w-[var(--inspector-width,440px)] flex-[0_0_var(--inspector-width,440px)] flex-col overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--surface-1)] min-[641px]:border-[var(--ds-border-subtle)] min-[641px]:bg-[var(--ds-bg-dock)] max-[959px]:min-[641px]:fixed max-[959px]:min-[641px]:inset-y-0 max-[959px]:min-[641px]:right-0 max-[959px]:min-[641px]:z-[250] max-[959px]:min-[641px]:w-[min(560px,calc(100vw-48px))] max-[959px]:min-[641px]:shadow-[-12px_0_32px_rgb(0_0_0/18%)] max-sm:fixed max-sm:inset-0 max-sm:z-[270] max-sm:w-full max-sm:min-w-0 max-sm:flex-[0_0_100%]"
+					aria-label={t("files")}
+				>
+					<header className="flex h-12 min-h-12 items-center justify-between border-b border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--bg)_88%,var(--surface-1))] py-[5px] pr-2 pl-2.5">
+						<div
+							className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto bg-transparent px-0.5"
+							role="tablist"
+							aria-label={t("openFilesAria")}
+						>
 							{fileTabs.length === 0 ? (
-								<div className="file-tab-bar-empty">
+								<div className="inline-flex h-9 items-center gap-1.5 px-2.5 text-[length:var(--text-sm)] text-[color:var(--muted)]">
 									<Icon name="files" size={14} />
 									<span>Files</span>
 								</div>
@@ -6713,7 +7037,7 @@ export function App() {
 										role="tab"
 										aria-selected={tab.path === activeTabPath}
 										tabIndex={tab.path === activeTabPath ? 0 : -1}
-										className={`file-tab ${tab.path === activeTabPath ? "is-active" : ""}`}
+										className={`inline-flex h-9 min-w-[120px] max-w-[min(280px,34vw)] shrink-0 cursor-pointer items-center gap-2 rounded-[var(--radius-s)] border border-transparent bg-[var(--surface-1)] pr-[7px] pl-3 text-[length:var(--text-md)] font-medium text-[color:var(--muted)] transition-[color,background,border-color] duration-150 hover:bg-[var(--hover)] hover:text-[color:var(--text-dim)] [&>span]:truncate [&>button]:grid [&>button]:size-4 [&>button]:shrink-0 [&>button]:place-items-center [&>button]:rounded-[var(--radius-3xs)] [&>button]:border-0 [&>button]:bg-transparent [&>button]:text-[color:var(--muted)] [&>button:hover]:bg-[var(--hover)] [&>button:hover]:text-[color:var(--text)] ${tab.path === activeTabPath ? "border-[var(--border-subtle)] bg-[var(--bg)] text-[color:var(--text)] shadow-[0_1px_2px_rgb(0_0_0/5%)]" : ""}`}
 										title={tab.path}
 										onClick={() => setActiveTabPath(tab.path)}
 										onKeyDown={(event) => {
@@ -6740,8 +7064,8 @@ export function App() {
 								))
 							)}
 						</div>
-						<div className="file-workbench-actions">
-							<div className="file-actions-menu-anchor">
+						<div className="flex shrink-0 items-center gap-0.5">
+							<div className="file-actions-menu-anchor relative">
 								<Button
 									size="icon"
 									className={fileActionsMenuOpen ? "is-active" : ""}
@@ -6753,7 +7077,7 @@ export function App() {
 									<Icon name="more" size={15} />
 								</Button>
 								{fileActionsMenuOpen ? (
-									<Menu className="file-actions-menu">
+									<Menu className="absolute top-[calc(100%+5px)] right-0 left-auto z-[70] min-w-[168px]">
 										<MenuItem
 											disabled={!activeFileTab}
 											label={t("fileActionCopyPath")}
@@ -6810,7 +7134,7 @@ export function App() {
 							</Button>
 						</div>
 					</header>
-					<div className="right-panel-body">
+					<div className="flex min-h-0 min-w-0 flex-1 [&>.inspector]:min-w-0 [&>.inspector]:flex-1">
 						<Inspector
 							key={`${snapshot.workspacePath ?? ""}:${activeTabPath ?? ""}`}
 							workspacePath={snapshot.workspacePath}
@@ -6843,7 +7167,7 @@ export function App() {
 						{fileTreeOpen ? (
 							<>
 								<hr
-									className="file-tree-resizer"
+									className="m-0 h-full w-[5px] min-w-[5px] cursor-col-resize border-0 border-l border-[var(--border-subtle)] bg-transparent hover:border-l-[var(--accent)] focus-visible:border-l-[var(--accent)] focus-visible:outline-none max-[959px]:min-[641px]:hidden"
 									aria-label={t("resizeFileTreeAria")}
 									aria-orientation="vertical"
 									aria-valuemin={220}
@@ -6862,7 +7186,7 @@ export function App() {
 											resizeByKeyboard("fileTree", event.key === "ArrowLeft" ? 16 : -16);
 									}}
 								/>
-								<div className="right-file-tree">
+								<div className="min-h-0 w-[var(--file-tree-width,280px)] min-w-[220px] max-w-[520px] flex-[0_0_var(--file-tree-width,280px)] overflow-hidden bg-[var(--surface-recessed)] [&>.flex]:h-full">
 									<Explorer
 										error={fileExplorerError}
 										isTrusted={snapshot.projectTrusted}
@@ -7004,7 +7328,7 @@ export function App() {
 			{deleteSessionPath ? (
 				<Modal
 					title={t("deleteSessionTitle")}
-					className="confirm-dialog"
+					className="max-h-none w-[min(420px,100%)]"
 					footerClassName="is-end"
 					onClose={() => setDeleteSessionPath(undefined)}
 					footer={
@@ -7022,13 +7346,15 @@ export function App() {
 						</>
 					}
 				>
-					<p>{t("deleteSessionHint")}</p>
+					<p className="m-0 text-[length:var(--text-sm)] leading-[1.55] text-[color:var(--muted)]">
+						{t("deleteSessionHint")}
+					</p>
 				</Modal>
 			) : null}
 			{pendingFileConflicts ? (
 				<Modal
 					title={t("conflictTitle")}
-					className="confirm-dialog"
+					className="max-h-none w-[min(420px,100%)]"
 					footerClassName="is-end"
 					onClose={() => void handleFileConflictDecision(false)}
 					footer={
@@ -7042,13 +7368,15 @@ export function App() {
 						</>
 					}
 				>
-					<p>
+					<p className="mb-2 text-[length:var(--text-sm)] leading-[1.55] text-[color:var(--muted)]">
 						{pendingFileConflicts.names.slice(0, 4).join("、")}
 						{pendingFileConflicts.names.length > 4
 							? t("conflictNamesSuffix", { count: pendingFileConflicts.names.length })
 							: ""}
 					</p>
-					<p>{t("conflictHint")}</p>
+					<p className="m-0 text-[length:var(--text-sm)] leading-[1.55] text-[color:var(--muted)]">
+						{t("conflictHint")}
+					</p>
 				</Modal>
 			) : null}
 		</main>

@@ -53,7 +53,10 @@ export function ProviderIconMark({
 	const entry = PROVIDER_ICONS[providerId.toLocaleLowerCase()];
 	if (!entry) return undefined;
 	return (
-		<span className={`models-provider-mark is-svg ${entry.mono ? "is-mono" : "is-color"}`} aria-hidden="true">
+		<span
+			className={`grid size-5 shrink-0 place-items-center ${entry.mono ? "text-current" : ""}`}
+			aria-hidden="true"
+		>
 			<entry.Icon size={size} />
 		</span>
 	);

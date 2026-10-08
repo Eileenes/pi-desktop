@@ -136,3 +136,35 @@
 	color: var(--ds-error);
 	font-size: var(--text-sm);
 }
+
+.terminal-panel.is-collapsed{
+	height: 0;
+	border-top-color: transparent;
+}
+
+.terminal-resizer:hover::after,
+.terminal-resizer:focus-visible::after,
+body.is-resizing-terminal .terminal-resizer::after{
+	background: color-mix(in oklab, var(--ds-accent) 60%, transparent);
+}
+
+.terminal-tab.is-active{
+	color: var(--ds-text-primary);
+	background: var(--ds-bg-active);
+}
+
+.terminal-pane.is-active{
+	display: block;
+}
+
+.terminal-pane .xterm .xterm-scrollable-element > .scrollbar > .slider{
+	background: color-mix(in oklab, var(--ds-text-primary) 22%, transparent);
+}
+
+.terminal-pane .xterm .xterm-scrollable-element > .scrollbar > .slider:hover{
+	background: color-mix(in oklab, var(--ds-text-primary) 34%, transparent);
+}
+
+.terminal-pane .xterm .xterm-scrollable-element > .scrollbar > .slider.active{
+	background: color-mix(in oklab, var(--ds-text-primary) 46%, transparent);
+}

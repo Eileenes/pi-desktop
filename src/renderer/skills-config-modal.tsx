@@ -121,11 +121,18 @@ function SkillDetail({
 	}
 
 	return (
-		<div className="skill-detail">
-			<div className="skill-detail-head">
-				<div className="skill-detail-path-row">
-					<span className={`resource-scope-tag ${label === "project" ? "is-project" : ""}`}>{label}</span>
-					<span className="resource-detail-path" title={skill.filePath}>
+		<div className="grid content-start gap-5">
+			<div className="grid gap-2">
+				<div className="flex min-w-0 items-center gap-1.5">
+					<span
+						className={`rounded-[var(--radius-3xs)] px-1.5 py-px text-[length:var(--text-2xs)] font-semibold tracking-wide ${label === "project" ? "bg-[color-mix(in_oklab,var(--ds-purple)_12%,transparent)] text-[color-mix(in_oklab,var(--ds-purple)_85%,transparent)]" : "bg-[var(--overlay-7)] text-[color:var(--text-dim)]"}`}
+					>
+						{label}
+					</span>
+					<span
+						className="min-w-0 flex-1 overflow-hidden font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] text-ellipsis whitespace-nowrap text-[color:var(--muted)]"
+						title={skill.filePath}
+					>
 						{displayPath(skill.filePath)}
 					</span>
 					<Toggle
@@ -135,7 +142,7 @@ function SkillDetail({
 						onToggle={() => onToggle(skill)}
 					/>
 				</div>
-				<div className="skill-detail-status">
+				<div className="flex min-h-4 items-center justify-end gap-2">
 					{dormant ? (
 						<span>{t("dormantSkill")}</span>
 					) : !enabled ? (
@@ -149,11 +156,11 @@ function SkillDetail({
 			</div>
 
 			{skill.install?.skillsShUrl ? (
-				<div className="skill-detail-section">
-					<span className="skill-detail-label">Source</span>
+				<div className="grid gap-1.5">
+					<span className="text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">Source</span>
 					<Button
 						variant="bare"
-						className="skill-source-link"
+						className="inline-flex w-fit max-w-full items-center gap-2 border-0 bg-transparent p-0 text-[color:var(--accent-strong)] hover:underline"
 						title={skill.install.skillsShUrl}
 						onClick={() => void openExternalUrl(skill.install?.skillsShUrl ?? "")}
 					>
@@ -163,10 +170,10 @@ function SkillDetail({
 			) : null}
 
 			{skill.install ? (
-				<div className="skill-detail-section">
-					<span className="skill-detail-label">Version</span>
-					<div className="skill-version-row">
-						<span className="skill-version-hash">
+				<div className="grid gap-1.5">
+					<span className="text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">Version</span>
+					<div className="flex flex-wrap items-center gap-2.5">
+						<span className="font-[family-name:var(--font-mono)] text-[length:var(--text-sm)] text-[color:var(--muted)]">
 							{shortVersion(updateStatus?.currentVersion ?? skill.install.versionHash)}
 						</span>
 						{skill.install.canCheckForUpdates ? (
@@ -175,11 +182,11 @@ function SkillDetail({
 							</Button>
 						) : null}
 						{updateStatus?.state === "update-available" ? (
-							<span className="skill-version-latest">{shortVersion(updateStatus.latestVersion)}</span>
+							<span className="text-[length:var(--text-sm)]">{shortVersion(updateStatus.latestVersion)}</span>
 						) : null}
 						{checkingUpdate || (updateStatus && updateStatus.state !== "update-available") ? (
 							<span
-								className={`skill-version-status is-${checkingUpdate ? "checking" : (updateStatus?.state ?? "dim")}`}
+								className={`text-[length:var(--text-sm)] ${checkingUpdate ? "text-[color:var(--accent-strong)]" : updateStatus?.state === "up-to-date" ? "text-[color:var(--success)]" : updateStatus?.state === "error" ? "text-[color:var(--danger)]" : "text-[color:var(--text-dim)]"}`}
 							>
 								{checkingUpdate
 									? t("checking")
@@ -196,18 +203,24 @@ function SkillDetail({
 							</Button>
 						) : null}
 					</div>
-					{updateError ? <span className="skill-detail-status is-error">{updateError}</span> : null}
+					{updateError ? (
+						<span className="text-[length:var(--text-sm)] text-[color:var(--danger)] [overflow-wrap:anywhere]">
+							{updateError}
+						</span>
+					) : null}
 				</div>
 			) : null}
 
-			<div className="skill-detail-section">
-				<span className="skill-detail-label">Name</span>
-				<span className="skill-detail-name">{skill.name}</span>
+			<div className="grid gap-1.5">
+				<span className="text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">Name</span>
+				<span className="text-[length:var(--text-lg)] font-semibold text-[color:var(--text)]">{skill.name}</span>
 			</div>
 
-			<div className="skill-detail-section">
-				<span className="skill-detail-label">Description</span>
-				<span className="skill-detail-description">{skill.description || t("noSkillDescription")}</span>
+			<div className="grid gap-1.5">
+				<span className="text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">Description</span>
+				<span className="max-w-[560px] text-[length:var(--text-base)] leading-[1.6] text-[color:var(--text-dim)]">
+					{skill.description || t("noSkillDescription")}
+				</span>
 			</div>
 		</div>
 	);
@@ -273,10 +286,10 @@ function AddSkillPanel({
 	const installPath = scope === "global" ? "~/.pi/agent/skills/" : `${shortenPath(workspacePath ?? "")}/.pi/skills/`;
 
 	return (
-		<div className="skill-add-panel">
-			<div className="skill-add-header">
+		<div className="flex h-full min-h-0 flex-col">
+			<div className="mb-5 grid gap-3">
 				<strong>{t("addSkill")}</strong>
-				<div className="skill-add-search">
+				<div className="flex gap-2">
 					<Field
 						value={query}
 						placeholder={t("searchSkillsPlaceholder")}
@@ -294,7 +307,7 @@ function AddSkillPanel({
 						{searching ? t("searching") : t("search")}
 					</Button>
 				</div>
-				<div className="skill-add-scope-row">
+				<div className="flex min-w-0 items-center gap-2.5">
 					<Segmented aria-label={t("installScopeAria")}>
 						<Segment active={scope === "global"} onClick={() => setScope("global")}>
 							{t("global")}
@@ -308,13 +321,19 @@ function AddSkillPanel({
 							{t("project")}
 						</Segment>
 					</Segmented>
-					<span className="skill-add-path">→ {installPath}</span>
+					<span className="overflow-hidden font-[family-name:var(--font-mono)] text-[length:var(--text-sm)] text-ellipsis whitespace-nowrap text-[color:var(--text-dim)]">
+						→ {installPath}
+					</span>
 				</div>
-				{searchError ? <p className="skill-add-error">{searchError}</p> : null}
-				{installError ? <p className="skill-add-error">{installError}</p> : null}
+				{searchError ? (
+					<p className="text-[length:var(--text-sm)] text-[color:var(--danger)]">{searchError}</p>
+				) : null}
+				{installError ? (
+					<p className="text-[length:var(--text-sm)] text-[color:var(--danger)]">{installError}</p>
+				) : null}
 			</div>
 			{results.length > 0 ? (
-				<div className="skill-add-results">
+				<div className="min-h-0 flex-1 overflow-y-auto">
 					{results.map((result) => {
 						const isInstalled =
 							installedPackages[scope].has(result.package) || newlyInstalled.has(`${scope}:${result.package}`);
@@ -323,16 +342,21 @@ function AddSkillPanel({
 						const repoPart = atIdx > -1 ? result.package.slice(0, atIdx) : result.package;
 						const skillPart = atIdx > -1 ? result.package.slice(atIdx + 1) : undefined;
 						return (
-							<div className="skill-add-result-row" key={result.package}>
-								<div className="skill-add-result-info">
-									<div className="skill-add-result-name">{skillPart ?? repoPart}</div>
-									<div className="skill-add-result-meta">
+							<div
+								className="flex items-center gap-3.5 border-b border-[var(--border-subtle)] py-3"
+								key={result.package}
+							>
+								<div className="min-w-0 flex-1">
+									<div className="mb-0.5 text-[length:var(--text-md)] font-semibold text-[color:var(--text)]">
+										{skillPart ?? repoPart}
+									</div>
+									<div className="flex flex-wrap items-center gap-2.5">
 										<span className="is-mono">{repoPart}</span>
 										{result.installs ? <span>{result.installs}</span> : null}
 										{result.url ? (
 											<Button
 												variant="bare"
-												className="skill-source-link"
+												className="inline-flex w-fit max-w-full items-center gap-2 border-0 bg-transparent p-0 text-[color:var(--accent-strong)] hover:underline"
 												onClick={() => void openExternalUrl(result.url)}
 											>
 												skills.sh ↗
@@ -354,11 +378,11 @@ function AddSkillPanel({
 					})}
 				</div>
 			) : !searchError && !searching ? (
-				<p className="skill-add-hint">
+				<p className="max-w-[560px] text-[length:var(--text-md)] leading-[1.8] text-[color:var(--text-dim)]">
 					{t("searchSkillsHintPrefix")}{" "}
 					<Button
 						variant="bare"
-						className="skill-source-link"
+						className="inline-flex w-fit max-w-full items-center gap-2 border-0 bg-transparent p-0 text-[color:var(--accent-strong)] hover:underline"
 						onClick={() => void openExternalUrl("https://skills.sh")}
 					>
 						skills.sh
@@ -535,19 +559,32 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 			<Button
 				variant="bare"
 				key={skill.filePath}
-				className={`resource-config-row ${isSelected ? "is-active" : ""} ${hidden || dormant ? "is-dimmed" : ""}`}
+				className={`flex w-full min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-[length:var(--text-sm)] text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] ${isSelected ? "bg-[var(--hover-strong)] font-semibold text-[color:var(--text)]" : ""} ${hidden || dormant ? "opacity-70" : ""}`}
 				title={skill.error ?? skill.filePath}
 				onClick={() => {
 					setSelected(skill.filePath);
 					setAddMode(false);
 				}}
 			>
-				<span className={`resource-status-dot ${!dormant && !hidden ? "is-on" : ""}`} />
+				<span
+					className={`size-[7px] shrink-0 rounded-full ${!dormant && !hidden ? "bg-[var(--accent)] shadow-[0_0_4px_var(--accent)]" : "bg-[var(--border-strong)]"}`}
+				/>
 				<span>{skill.name}</span>
-				{hidden ? <span className="skill-state-tag">{t("stateTagHidden")}</span> : null}
-				{dormant ? <span className="skill-state-tag is-dormant">{t("stateTagDormant")}</span> : null}
+				{hidden ? (
+					<span className="ml-auto rounded-[var(--radius-3xs)] border border-[var(--border-subtle)] px-1.5 py-px text-[length:var(--text-2xs)] font-semibold text-[color:var(--text-dim)]">
+						{t("stateTagHidden")}
+					</span>
+				) : null}
+				{dormant ? (
+					<span className="ml-auto rounded-[var(--radius-3xs)] border border-[color-mix(in_srgb,var(--ds-warning)_40%,transparent)] px-1.5 py-px text-[length:var(--text-2xs)] font-semibold text-[color:var(--ds-warning)]">
+						{t("stateTagDormant")}
+					</span>
+				) : null}
 				{hasUpdate ? (
-					<span className="skill-update-arrow" title={t("updateAvailableTitle")}>
+					<span
+						className="shrink-0 text-[length:var(--text-md)] leading-none text-[#d97706]"
+						title={t("updateAvailableTitle")}
+					>
 						↑
 					</span>
 				) : null}
@@ -559,18 +596,25 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 		<Modal
 			title={t("skills")}
 			subtitle={workspacePath ? shortenPath(workspacePath) : "~"}
-			className="resource-config-modal skill-config-modal"
+			className="h-[min(78vh,760px)] max-h-[calc(100dvh-16px)] w-[min(900px,100%)] overflow-hidden"
+			bodyClassName="flex min-h-0 flex-col overflow-hidden p-0"
 			onClose={onClose}
 		>
-			<div className="resource-config-layout">
-				<aside className="resource-config-sidebar">
-					<div className="resource-config-scroll">
+			<div className="flex min-h-0 flex-1 max-md:flex-col">
+				<aside className="flex w-[230px] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--surface-recessed)_88%,var(--surface-1))] max-md:max-h-[220px] max-md:w-full max-md:border-r-0 max-md:border-b">
+					<div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
 						{loading ? (
-							<p className="modal-empty">{t("loadingSkills")}</p>
+							<p className="px-3 py-7 text-center text-[length:var(--text-sm)] text-[color:var(--muted)]">
+								{t("loadingSkills")}
+							</p>
 						) : loadError ? (
-							<p className="modal-empty is-error">{loadError}</p>
+							<p className="m-0 text-[length:var(--text-sm)] leading-[1.55] text-[color:var(--muted)] text-[color:var(--danger)]">
+								{loadError}
+							</p>
 						) : skills.length === 0 ? (
-							<p className="modal-empty">{t("noSkills")}</p>
+							<p className="px-3 py-7 text-center text-[length:var(--text-sm)] text-[color:var(--muted)]">
+								{t("noSkills")}
+							</p>
 						) : (
 							groups.map((group) => {
 								const activeSkills = group.skills.filter(
@@ -583,14 +627,16 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 								const dormantOpen = dormantOpenGroups[group.label] ?? false;
 								return (
 									<div key={group.label}>
-										<div className="settings-group-label">{group.label}</div>
+										<div className="px-2 pt-2.5 pb-1 text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.06em] text-[color:var(--muted)]">
+											{group.label}
+										</div>
 										{activeSkills.map(renderSkillRow)}
 										{hiddenSkills.map(renderSkillRow)}
 										{dormantSkills.length > 0 ? (
 											<>
 												<Button
 													variant="bare"
-													className="settings-dormant-toggle"
+													className="flex w-full items-center gap-1 rounded-[var(--radius-2xs)] border-0 bg-transparent px-2 py-1 text-left text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.06em] text-[color:var(--muted)] hover:bg-[var(--hover)] hover:text-[color:var(--text-dim)]"
 													aria-expanded={dormantOpen}
 													title={t("dormantGroupHint")}
 													onClick={() =>
@@ -600,7 +646,7 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 														}))
 													}
 												>
-													<span className="settings-dormant-arrow">{dormantOpen ? "▾" : "▸"}</span>
+													<span className="text-[length:var(--text-2xs)]">{dormantOpen ? "▾" : "▸"}</span>
 													{t("dormantGroup", { count: dormantSkills.length })}
 												</Button>
 												{dormantOpen ? dormantSkills.map(renderSkillRow) : null}
@@ -611,10 +657,10 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 							})
 						)}
 					</div>
-					<div className="resource-config-sidebar-footer">
+					<div className="shrink-0 border-t border-[var(--border-subtle)] p-2">
 						<Button
 							variant="bare"
-							className={`resource-config-add ${addMode ? "is-active" : ""}`}
+							className={`flex w-full min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-[length:var(--text-sm)] text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] ${addMode ? "bg-[var(--hover-strong)] font-semibold text-[color:var(--text)]" : ""}`}
 							onClick={() => setAddMode(true)}
 						>
 							<svg
@@ -634,9 +680,9 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 						</Button>
 					</div>
 				</aside>
-				<section className="resource-config-detail">
+				<section className="min-w-0 flex-1 overflow-y-auto p-[18px]">
 					{workspacePath && !projectTrusted ? (
-						<div className="resource-trust-banner">
+						<div className="mb-4 mt-[-6px] flex items-baseline gap-2 rounded-[var(--radius-xs)] border border-[color-mix(in_srgb,var(--warning)_35%,var(--border-subtle))] bg-[color-mix(in_srgb,var(--warning)_9%,var(--surface-1))] px-2.5 py-2 text-[length:var(--text-xs)] text-[color:var(--text-dim)]">
 							<strong>{t("skillProjectNotTrustedTitle")}</strong>
 							<span>{t("skillProjectNotTrustedHint")}</span>
 							{onTrustProject ? (
@@ -669,12 +715,14 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 							onUpdate={() => void updateInstalledSkill(selectedSkill)}
 						/>
 					) : (
-						<div className="settings-empty-state">{t("selectSkillHint")}</div>
+						<div className="px-3 py-7 text-center text-[length:var(--text-sm)] text-[color:var(--muted)]">
+							{t("selectSkillHint")}
+						</div>
 					)}
 				</section>
 			</div>
-			<footer className="models-footer">
-				<div className="models-footer-left">
+			<footer className="flex items-center gap-2 border-t border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--accent)_4%,var(--surface-1))] px-4 py-2.5">
+				<div className="mr-auto flex min-w-0 items-center gap-2.5">
 					{skills.some((skill) => skill.install) ? (
 						<Button
 							variant="outline"
@@ -686,7 +734,9 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 						</Button>
 					) : null}
 					{availableUpdateCount > 0 ? (
-						<span className="skill-updates-count">{t("availableUpdates", { count: availableUpdateCount })}</span>
+						<span className="text-[length:var(--text-sm)] text-[color:var(--warning)]">
+							{t("availableUpdates", { count: availableUpdateCount })}
+						</span>
 					) : null}
 				</div>
 				<Button variant="outline" type="button" onClick={onClose}>

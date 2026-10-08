@@ -76,7 +76,8 @@ export const ProjectEditorDialog = memo(function ProjectEditorDialog({
 	return (
 		<Modal
 			title={t("editProject")}
-			className="project-editor-dialog"
+			className="w-[min(520px,100%)]"
+			bodyClassName="grid gap-3 overflow-visible"
 			onClose={onClose}
 			onSubmit={handleSubmit}
 			footer={
@@ -84,7 +85,7 @@ export const ProjectEditorDialog = memo(function ProjectEditorDialog({
 					<Button variant="danger" type="button" disabled={busy} onClick={onRemoveProject}>
 						{t("removeLocalProject")}
 					</Button>
-					<span className="project-editor-actions-spacer" />
+					<span className="flex-1" />
 					<Button variant="outline" type="button" disabled={busy} onClick={onClose}>
 						{t("cancel")}
 					</Button>
@@ -94,11 +95,15 @@ export const ProjectEditorDialog = memo(function ProjectEditorDialog({
 				</>
 			}
 		>
-			<div className="project-editor-field">
-				<span className="project-editor-field-icon" aria-hidden="true">
+			<div className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--ds-border-strong)] bg-[var(--ds-field-inset-bg)] py-1 pr-1.5 pl-1 transition-[border-color] duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-out)] focus-within:border-[var(--ds-accent)]">
+				<span
+					className="inline-grid size-[30px] w-8 shrink-0 place-items-center border-r border-[var(--ds-border-subtle)] text-[color:var(--ds-text-secondary)]"
+					aria-hidden="true"
+				>
 					<Icon name="folder" size={15} />
 				</span>
 				<Field
+					className="min-h-0 min-w-0 flex-1 bg-transparent px-0.5 py-[5px] text-[length:var(--text-base)] font-[var(--font-weight-medium)] shadow-none"
 					value={name}
 					onChange={(event) => setName(event.target.value)}
 					placeholder={t("projectNamePlaceholder")}
@@ -106,20 +111,27 @@ export const ProjectEditorDialog = memo(function ProjectEditorDialog({
 					maxLength={120}
 				/>
 			</div>
-			<p className="project-editor-label">{t("sourceFolders")}</p>
-			<div className="project-editor-folders">
+			<p className="-mb-1 mt-0.5 text-[length:var(--text-sm)] font-[var(--font-weight-medium)] text-[color:var(--ds-text-secondary)]">
+				{t("sourceFolders")}
+			</p>
+			<div className="grid overflow-hidden rounded-[var(--radius-md)] border border-[var(--ds-border-subtle)]">
 				{folders.map((folder, index) => (
-					<div className="project-editor-folder" key={folder}>
+					<div
+						className="flex min-h-[42px] items-center gap-2.5 border-t border-[var(--ds-border-subtle)] bg-transparent px-3 py-1.5 text-left text-[length:var(--text-sm-plus)] text-[color:var(--ds-text-primary)] first:border-t-0 [&>svg]:shrink-0 [&>svg]:text-[color:var(--ds-text-secondary)]"
+						key={folder}
+					>
 						<Icon name="folder" size={15} />
-						<span className="project-editor-folder-name" title={folder}>
+						<span className="min-w-0 truncate" title={folder}>
 							{folderLabel(folder)}
 						</span>
 						{index === 0 ? (
 							<>
-								<span className="project-editor-badge">{t("primaryFolder")}</span>
+								<span className="ml-auto rounded-[var(--radius-2xs)] border border-[var(--ds-border-strong)] px-2 py-px text-[length:var(--text-xs)] text-[color:var(--ds-text-secondary)]">
+									{t("primaryFolder")}
+								</span>
 								<Button
 									size="icon"
-									className="project-editor-folder-remove compact"
+									className="ml-auto inline-grid size-[22px] place-items-center rounded-[var(--radius-2xs)] border-0 bg-transparent text-[color:var(--ds-text-muted)] hover:bg-[var(--ds-bg-hover)] hover:text-[color:var(--ds-text-primary)] disabled:cursor-not-allowed disabled:text-[color:var(--ds-text-faint)]"
 									disabled
 									title={t("removePrimaryFolderHint")}
 									aria-label={t("removePrimaryFolderHint")}
@@ -130,7 +142,7 @@ export const ProjectEditorDialog = memo(function ProjectEditorDialog({
 						) : (
 							<Button
 								size="icon"
-								className="project-editor-folder-remove compact"
+								className="ml-auto inline-grid size-[22px] place-items-center rounded-[var(--radius-2xs)] border-0 bg-transparent text-[color:var(--ds-text-muted)] hover:bg-[var(--ds-bg-hover)] hover:text-[color:var(--ds-text-primary)]"
 								aria-label={t("removeAria", { name: folderLabel(folder) })}
 								title={t("remove")}
 								onClick={() => setFolders((current) => current.filter((item) => item !== folder))}
@@ -141,7 +153,7 @@ export const ProjectEditorDialog = memo(function ProjectEditorDialog({
 					</div>
 				))}
 				<Button
-					className="project-editor-folder project-editor-add"
+					className="flex min-h-[42px] cursor-pointer items-center gap-2.5 border-t border-[var(--ds-border-subtle)] bg-transparent px-3 py-1.5 text-left text-[length:var(--text-sm-plus)] text-[color:var(--ds-text-secondary)] hover:bg-[var(--ds-bg-hover)] hover:text-[color:var(--ds-text-primary)] disabled:cursor-not-allowed [&>svg]:shrink-0"
 					disabled={busy || picking}
 					onClick={() => void handleAddFolder()}
 				>
@@ -149,7 +161,7 @@ export const ProjectEditorDialog = memo(function ProjectEditorDialog({
 					<span>{t("addFolder")}</span>
 				</Button>
 			</div>
-			{error ? <p className="project-editor-error">{error}</p> : null}
+			{error ? <p className="m-0 text-[length:var(--text-xs)] text-[color:var(--ds-error)]">{error}</p> : null}
 		</Modal>
 	);
 });

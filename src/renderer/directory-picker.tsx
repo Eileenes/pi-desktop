@@ -82,12 +82,13 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 		<Modal
 			title={t("pickProjectFolder")}
 			subtitle={currentPath || t("homeDirectory")}
-			className="directory-picker-modal"
+			className="h-[min(640px,100%)] min-h-[min(520px,100%)] w-[min(560px,100%)]"
+			bodyClassName="flex flex-col overflow-hidden p-0"
 			onClose={handleClose}
 		>
-			<div className="directory-picker-content">
+			<div className="flex min-h-0 flex-1 flex-col">
 				<form
-					className="directory-picker-path-row"
+					className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-4 py-3"
 					onSubmit={(event) => {
 						event.preventDefault();
 						if (pathInput.trim()) void navigateTo(pathInput.trim());
@@ -95,7 +96,7 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 				>
 					<Button
 						variant="outline"
-						className="directory-picker-back"
+						className="min-w-8 px-0"
 						type="button"
 						disabled={loading || busy || !canNavigateUp}
 						title={t("goUp")}
@@ -104,7 +105,7 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 						↑
 					</Button>
 					<Field
-						className="mono"
+						className="min-w-0 flex-1 font-[family-name:var(--font-mono)]"
 						value={pathInput}
 						autoFocus
 						autoComplete="off"
@@ -119,19 +120,27 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 						{t("open")}
 					</Button>
 				</form>
-				<div className="directory-picker-list" aria-live="polite">
-					{loading ? <p className="modal-empty">{t("loadingDirectories")}</p> : null}
+				<div className="min-h-0 flex-1 overflow-auto px-3 py-2" aria-live="polite">
+					{loading ? (
+						<p className="m-0 text-[length:var(--text-sm)] leading-[1.55] text-[color:var(--muted)]">
+							{t("loadingDirectories")}
+						</p>
+					) : null}
 					{!loading && (error || selectionError) ? (
-						<p className="modal-empty is-error">{error ?? selectionError}</p>
+						<p className="m-0 text-[length:var(--text-sm)] leading-[1.55] text-[color:var(--danger)]">
+							{error ?? selectionError}
+						</p>
 					) : null}
 					{!loading && !error && !selectionError && displayedEntries.length === 0 ? (
-						<p className="modal-empty">{t("noSubdirectories")}</p>
+						<p className="m-0 text-[length:var(--text-sm)] leading-[1.55] text-[color:var(--muted)]">
+							{t("noSubdirectories")}
+						</p>
 					) : null}
 					{!loading && !error && !selectionError
 						? displayedEntries.map((entry) => (
 								<Button
 									variant="bare"
-									className="directory-picker-entry"
+									className="flex w-full min-h-[34px] items-center gap-2 rounded-[var(--radius-s)] border-0 bg-transparent px-2 py-[7px] text-left font-[family-name:var(--font-sans)] text-[length:var(--text-sm)] text-[color:var(--text-muted)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] focus-visible:bg-[var(--hover)] focus-visible:text-[color:var(--text)] [&>svg]:shrink-0 [&>svg]:text-[color:var(--accent)]"
 									key={entry.path}
 									title={entry.path}
 									disabled={busy}
@@ -143,7 +152,7 @@ export const DirectoryPicker = memo(function DirectoryPicker({
 							))
 						: null}
 				</div>
-				<footer className="directory-picker-footer">
+				<footer className="flex justify-end gap-2 border-t border-[var(--border-subtle)] px-4 py-3">
 					<Button variant="outline" type="button" disabled={busy} onClick={onClose}>
 						{t("cancel")}
 					</Button>

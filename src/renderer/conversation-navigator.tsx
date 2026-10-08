@@ -26,7 +26,6 @@ export function ConversationNavigator({ turns, scrollContainerRef, onSelect }: C
 	const { t } = useI18n();
 	const [activeIndex, setActiveIndex] = useState(0);
 	const [previewIndex, setPreviewIndex] = useState<number | null>(null);
-	const [isHovering, setIsHovering] = useState(false);
 	const draggingRef = useRef(false);
 
 	useEffect(() => {
@@ -77,22 +76,24 @@ export function ConversationNavigator({ turns, scrollContainerRef, onSelect }: C
 
 	return (
 		<div
-			className={`conversation-navigator${isHovering ? " is-hovering" : ""}`}
+			className="absolute top-4 right-2.5 z-[4] w-[18px]"
 			style={{ height: turns.length * 2 + (turns.length - 1) * 8 }}
-			onPointerEnter={() => setIsHovering(true)}
 			onPointerLeave={() => {
-				setIsHovering(false);
 				if (!draggingRef.current) setPreviewIndex(null);
 			}}
 		>
 			{preview ? (
-				<output className="conversation-navigator-preview">
-					<div className="conversation-navigator-question">{preview.question || "…"}</div>
-					<div className="conversation-navigator-answer">{preview.answer || "…"}</div>
+				<output className="pointer-events-none absolute top-0 right-[22px] z-[5] grid w-[260px] gap-1 rounded-[var(--radius-s)] border border-[var(--border-subtle)] bg-[var(--surface-1)] px-2.5 py-2 shadow-[var(--shadow-float)]">
+					<div className="truncate text-[length:var(--text-xs)] font-semibold text-[color:var(--text)]">
+						{preview.question || "…"}
+					</div>
+					<div className="line-clamp-3 overflow-hidden text-[length:var(--text-2xs)] text-[color:var(--muted)]">
+						{preview.answer || "…"}
+					</div>
 				</output>
 			) : null}
 			<div
-				className="conversation-navigator-track"
+				className="relative h-full w-full cursor-pointer"
 				role="slider"
 				aria-label={t("conversationLocate")}
 				aria-valuemin={1}
@@ -138,7 +139,7 @@ export function ConversationNavigator({ turns, scrollContainerRef, onSelect }: C
 					return (
 						<span
 							key={turn.messageId}
-							className={`conversation-navigator-tick${previewDistance === 1 ? " is-near-preview-1" : ""}${previewDistance === 2 ? " is-near-preview-2" : ""}${index === previewIndex ? " is-preview" : ""}${index === activeIndex ? " is-active" : ""}`}
+							className={`absolute right-1 h-0.5 rounded-px ${index === activeIndex ? "w-3 bg-[var(--accent)] opacity-100" : index === previewIndex ? "w-2 bg-[var(--text)] opacity-100" : previewDistance === 1 ? "w-2 bg-[var(--muted)] opacity-70" : previewDistance === 2 ? "w-2 bg-[var(--muted)] opacity-55" : "w-2 bg-[var(--muted)] opacity-40"}`}
 							style={{ top: turn.top }}
 						/>
 					);

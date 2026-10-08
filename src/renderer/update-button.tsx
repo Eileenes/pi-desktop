@@ -21,7 +21,7 @@ function UpgradeIcon() {
 	);
 }
 
-function InstallIcon() {
+function DownloadedIcon() {
 	return (
 		<svg
 			width="16"
@@ -32,9 +32,8 @@ function InstallIcon() {
 			strokeWidth="2"
 			aria-hidden="true"
 		>
-			<path d="M12 4v11" strokeLinecap="round" />
-			<path d="m7 11 5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-			<path d="M5 20h14" strokeLinecap="round" />
+			<circle cx="12" cy="12" r="9" />
+			<path d="m8 12.5 2.5 2.5 5.5-6" strokeLinecap="round" strokeLinejoin="round" />
 		</svg>
 	);
 }
@@ -96,13 +95,12 @@ export const UpdateButton = memo(function UpdateButton(_props: { variant: "foote
 		return (
 			<Button
 				size="icon"
-				variant="primary"
-				className="relative inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-xs)] border-0 p-0"
+				className={iconButtonClass}
 				title={t("updateInstallHint")}
 				aria-label={t("update")}
 				onClick={() => update.install()}
 			>
-				<InstallIcon />
+				<DownloadedIcon />
 			</Button>
 		);
 	}

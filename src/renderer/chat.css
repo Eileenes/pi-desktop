@@ -100,22 +100,29 @@
 }
 
 .process-details{
-	margin: 5px 0;
+	width: 100%;
+	min-width: 0;
+	margin: 0 0 8px;
 }
 
 .process-details > details{
-	border-left: 1px solid var(--border-subtle);
-	padding-left: 10px;
+	border-left: 0;
+	padding-left: 0;
 }
 
 .process-details-trigger{
 	display: flex;
+	width: 100%;
+	min-width: 0;
+	min-height: 26px;
 	align-items: center;
-	gap: 7px;
-	min-height: 28px;
+	gap: 5px;
+	margin: 0 -3px;
+	padding: 2px 5px;
+	border-radius: var(--radius-sm);
 	cursor: pointer;
-	color: var(--text-dim);
-	font-size: var(--text-sm);
+	color: var(--ds-text-secondary);
+	font-size: var(--text-sm-plus);
 	list-style: none;
 }
 
@@ -123,33 +130,50 @@
 	display: none;
 }
 
-.process-details-trigger::before{
-	color: var(--muted);
-	content: "›";
-	font-size: var(--text-xl);
-	transition: transform 120ms ease;
+.process-details-trigger:hover{
+	color: var(--ds-text-primary);
+	background: var(--ds-bg-hover);
 }
 
-.process-details details[open] .process-details-trigger::before{
+.process-details-icon{
+	display: inline-flex;
+	flex: none;
+	color: var(--ds-text-muted);
+}
+
+.process-details-label{
+	min-width: 0;
+	overflow: hidden;
+	font-weight: 500;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.process-details-count{
+	min-width: 0;
+	overflow: hidden;
+	color: var(--ds-text-muted);
+	font-size: var(--text-xs);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.process-details-trigger .entry-chevron{
+	margin-inline-start: auto;
+	color: var(--ds-text-muted);
+	opacity: 0.65;
+	transition: transform var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.process-details details[open] .process-details-trigger .entry-chevron{
 	transform: rotate(90deg);
 }
 
-.process-details-trigger span{
-	font-weight: 500;
-}
-
-.process-details-trigger small{
-	padding: 2px 5px;
-	border-radius: var(--radius-full);
-	background: var(--overlay-5);
-	color: var(--muted);
-	font-size: var(--text-xs);
-}
-
 .process-details-content{
+	position: relative;
 	display: grid;
-	gap: 5px;
-	padding: 3px 0 8px 14px;
+	gap: 2px;
+	padding: 2px 0 4px 18px;
 }
 
 .scroll-to-latest{
@@ -205,12 +229,44 @@
 .message{
 	max-width: 100%;
 	margin: 0;
-	padding: 16px 0;
+	padding: 8px 0 14px;
 }
 
-	.message:hover .assistant-label time,
-	.message:focus-within .assistant-label time{
-	opacity: 1;
+.message.message-user{
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	padding: 12px 0 8px;
+}
+
+.message.message-user .message-content{
+	width: max-content;
+	max-width: min(82%, 600px);
+	padding: 10px 15px;
+	border-radius: var(--radius-lg-plus);
+	border-bottom-right-radius: var(--radius-xs);
+	background: color-mix(in oklab, var(--ds-text-primary) 8%, transparent);
+	color: var(--ds-text-primary);
+	font-size: var(--text-base);
+	line-height: var(--leading-chat);
+	overflow-wrap: break-word;
+}
+
+.message.message-user .message-content .markdown-body{
+	font-size: inherit;
+	line-height: inherit;
+}
+
+.message.message-user .message-content .markdown-body > :first-child{
+	margin-top: 0;
+}
+
+.message.message-user .message-content .markdown-body > :last-child{
+	margin-bottom: 0;
+}
+
+.message.message-assistant{
+	padding: 6px 0 14px;
 }
 
 .message-content > p{
@@ -262,15 +318,63 @@
 	white-space: pre-wrap;
 }
 
-/* User chip: a compact graphite pill. Codex drops tails; we keep a full round. */
-
 .message-time{
-	margin-top: 4px;
-	padding-inline: 4px;
+	margin: 0;
+	padding-inline: 2px;
 	color: var(--muted);
 	font-family: var(--font-mono);
 	font-size: var(--text-2xs);
 	font-variant-numeric: tabular-nums;
+}
+
+.message-meta{
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	min-height: 20px;
+	margin-top: 8px;
+	color: var(--ds-text-muted);
+	font-size: var(--text-xs);
+}
+
+.message-meta-chip{
+	display: inline-flex;
+	max-width: 100%;
+	min-height: 20px;
+	align-items: center;
+	gap: 4px;
+	overflow: hidden;
+	padding: 1px 8px;
+	border: 0;
+	border-radius: var(--radius-full);
+	background: color-mix(in oklab, var(--ds-text-primary) 5%, transparent);
+	color: var(--ds-text-secondary);
+	cursor: pointer;
+	font: inherit;
+	font-size: var(--text-xs);
+	line-height: 1.3;
+	white-space: nowrap;
+}
+
+.message-meta-chip:disabled{
+	cursor: default;
+	opacity: 1;
+}
+
+.message-meta-chip .entry-chevron{
+	flex: none;
+	opacity: 0.65;
+	transition: transform var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.message-meta-chip.is-open .entry-chevron{
+	transform: rotate(90deg);
+}
+
+.message-meta .message-usage{
+	margin: 0;
+	opacity: 1;
 }
 
 .message-user-body-wrap{
@@ -314,19 +418,26 @@
 .message-actions{
 	display: flex;
 	align-items: center;
-	justify-content: flex-end;
 	gap: 2px;
 	min-height: 24px;
 	padding-top: 2px;
 	color: var(--muted);
 	font-size: var(--text-xs);
+}
+
+.message.message-user .message-actions{
+	justify-content: flex-end;
 	opacity: 0;
 	transition: opacity var(--motion-duration-fast) var(--motion-ease-out);
 }
 
-	.message:hover .message-actions,
-	.message:focus-within .message-actions{
+.message.message-user:hover .message-actions,
+.message.message-user:focus-within .message-actions{
 	opacity: 1;
+}
+
+.message.message-assistant .message-actions{
+	justify-content: flex-start;
 }
 
 .message-usage{
@@ -496,9 +607,11 @@
 
 .message-block > button{
 	display: flex;
+	width: 100%;
+	min-width: 0;
 	min-height: 24px;
 	align-items: center;
-	gap: 4px;
+	gap: 6px;
 	margin: 0 -4px;
 	padding: 2px 4px;
 	border: 0;
@@ -506,8 +619,49 @@
 	color: var(--text-dim);
 	background: transparent;
 	font-size: var(--text-sm-plus);
+	text-align: left;
 	transition: background var(--motion-duration-fast) var(--motion-ease-out),
 		color var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.message-block > button .entry-chevron{
+	flex: none;
+	margin-inline-start: auto;
+	opacity: 0.65;
+}
+
+.message-block-thinking > button{
+	width: 100%;
+	min-width: 0;
+}
+
+.thinking-label{
+	flex: none;
+	font-weight: 500;
+}
+
+.thinking-preview{
+	flex: 1 1 0;
+	min-width: 0;
+	overflow: hidden;
+	color: var(--ds-text-muted);
+	font-size: var(--text-xs-plus);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.message-block-thinking pre.thinking-body{
+	max-height: 320px;
+	margin: 4px 0 6px;
+	padding: 8px 10px;
+	overflow: auto;
+	border-radius: var(--radius-sm);
+	color: var(--ds-text-secondary);
+	background: var(--ds-thinking-code-bg);
+	font-family: inherit;
+	font-size: var(--text-xs);
+	line-height: var(--leading-normal);
+	white-space: pre-wrap;
 }
 
 .message-block > button:hover{

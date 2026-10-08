@@ -421,8 +421,10 @@ function contentToBlocks(value: unknown): DesktopTranscriptBlock[] {
 			blocks.push({ type: "text", text: block.text });
 			continue;
 		}
-		if (block.type === "thinking" && typeof block.thinking === "string") {
-			blocks.push({ type: "thinking", text: block.thinking });
+		if (block.type === "thinking") {
+			const thinkingText =
+				typeof block.thinking === "string" ? block.thinking : typeof block.text === "string" ? block.text : "";
+			if (thinkingText.trim()) blocks.push({ type: "thinking", text: thinkingText });
 			continue;
 		}
 		if (block.type === "toolCall" && typeof block.id === "string" && typeof block.name === "string") {

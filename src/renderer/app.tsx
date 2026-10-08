@@ -113,7 +113,7 @@ import { SkillsConfigModal } from "./skills-config-modal.tsx";
 import { getLanguageForPath, HighlightedCode } from "./syntax-highlight.tsx";
 import { TerminalPanel } from "./terminal-panel.tsx";
 import { TokenActivityModal } from "./token-activity-modal.tsx";
-import { buildConversationTurns, partitionTranscript } from "./transcript-group.ts";
+import { buildConversationTurns, partitionTranscript, type TranscriptRenderItem } from "./transcript-group.ts";
 import { Button } from "./ui/button.tsx";
 import { Menu, MenuDivider, MenuEmpty, MenuFilter, MenuHeading, MenuItem } from "./ui/menu.tsx";
 import { Modal } from "./ui/modal.tsx";
@@ -777,7 +777,9 @@ function formatAttachmentSize(size: number, t: I18n["t"]): string {
 }
 
 function formatMessageTime(timestamp: number): string {
-	return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+	const date = new Date(timestamp);
+	const pad = (value: number): string => String(value).padStart(2, "0");
+	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
 function getFileExtension(path: string): string {
@@ -1125,6 +1127,26 @@ const EditDiffView = memo(function EditDiffView({
 	);
 });
 
+function lastMeaningfulLine(text: string): string {
+	const lines = text
+		.split("\n")
+		.map((line) =>
+			line
+				.replace(/^#+\s*/u, "")
+				.replaceAll("**", "")
+				.trim(),
+		)
+		.filter(Boolean);
+	return lines.at(-1) ?? "";
+}
+
+function formatClockDuration(seconds: number): string {
+	if (seconds < 60) return `${seconds}s`;
+	const minutes = Math.floor(seconds / 60);
+	const rest = seconds % 60;
+	return rest === 0 ? `${minutes}m` : `${minutes}m ${rest}s`;
+}
+
 function toolCallPreview(input: string): string {
 	try {
 		const parsed = JSON.parse(input) as Record<string, unknown>;
@@ -1138,13 +1160,7 @@ function toolCallPreview(input: string): string {
 	return input.replace(/\s+/gu, " ").trim().slice(0, 120);
 }
 
-const TranscriptBlock = memo(function TranscriptBlock({
-	block,
-	durationMs,
-}: {
-	block: DesktopTranscriptBlock;
-	durationMs?: number;
-}) {
+const TranscriptBlock = memo(function TranscriptBlock({ block }: { block: DesktopTranscriptBlock }) {
 	const { t } = useI18n();
 	const [expanded, setExpanded] = useState(false);
 	if (block.type === "text") return <MarkdownBody text={block.text} />;
@@ -1156,22 +1172,24 @@ const TranscriptBlock = memo(function TranscriptBlock({
 		);
 	}
 	if (block.type === "thinking") {
+		const thinkingText = block.text.trim();
+		const preview = lastMeaningfulLine(thinkingText) || thinkingText;
+		if (!thinkingText) return null;
 		return (
-			<div className="message-block message-block-thinking">
+			<div className={`message-block message-block-thinking${expanded ? " is-expanded" : ""}`}>
 				<Button variant="bare" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
-					<span className="entry-chevron">
-						<Icon name="chevron" size={11} />
+					<span className="process-details-icon" aria-hidden="true">
+						<Icon name="sparkles" size={14} />
 					</span>
-					{t("thinkingProcess")}
-					<span className="block-dim">
-						{durationMs !== undefined
-							? t("thinkingDuration", { seconds: (durationMs / 1000).toFixed(1) })
-							: t("thinkingChars", { count: formatCompact(block.text.length) })}
+					<span className="thinking-label">{t("thinkingLabel")}</span>
+					{expanded || !preview ? null : <span className="thinking-preview">{preview}</span>}
+					<span className="entry-chevron">
+						<Icon name="chevron" size={12} />
 					</span>
 				</Button>
 				{expanded ? (
-					<pre>
-						<code>{block.text}</code>
+					<pre className="thinking-body">
+						<code>{thinkingText}</code>
 					</pre>
 				) : null}
 			</div>
@@ -1181,11 +1199,11 @@ const TranscriptBlock = memo(function TranscriptBlock({
 	return (
 		<div className={`message-block message-block-toolCall ${expanded ? "is-expanded" : ""}`}>
 			<Button variant="bare" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
-				<span className="entry-chevron">
-					<Icon name="chevron" size={11} />
-				</span>
 				<code className="tool-name">{block.name}</code>
 				<span className="tool-preview">{toolCallPreview(block.input)}</span>
+				<span className="entry-chevron">
+					<Icon name="chevron" size={12} />
+				</span>
 			</Button>
 			{expanded ? (
 				editDiff ? (
@@ -1206,13 +1224,6 @@ function formatUsageSummary(usage: NonNullable<DesktopTranscriptMessage["usage"]
 	if (usage.cacheWrite > 0) parts.push(`${formatCompact(usage.cacheWrite)} cache W`);
 	if (usage.cost > 0) parts.push(`$${usage.cost.toFixed(4)}`);
 	return parts.join(" · ");
-}
-
-function speedTone(tokensPerSecond: number): "is-fast" | "is-good" | "is-warm" | "is-slow" {
-	if (tokensPerSecond >= 50) return "is-fast";
-	if (tokensPerSecond >= 30) return "is-good";
-	if (tokensPerSecond >= 15) return "is-warm";
-	return "is-slow";
 }
 
 const COLLAPSE_HEIGHT = 220;
@@ -1349,7 +1360,6 @@ const CompactionMessageBody = memo(function CompactionMessageBody({ message }: {
 const TranscriptMessage = memo(function TranscriptMessage({
 	message,
 	modelLabel,
-	isLastAssistant,
 	isStreaming,
 	previousTimestamp,
 	onEdit,
@@ -1357,7 +1367,6 @@ const TranscriptMessage = memo(function TranscriptMessage({
 }: {
 	message: DesktopTranscriptMessage;
 	modelLabel?: string;
-	isLastAssistant?: boolean;
 	isStreaming?: boolean;
 	previousTimestamp?: number;
 	onEdit: (message: DesktopTranscriptMessage) => void;
@@ -1365,6 +1374,7 @@ const TranscriptMessage = memo(function TranscriptMessage({
 }) {
 	const { t } = useI18n();
 	const [copied, setCopied] = useState(false);
+	const [usageOpen, setUsageOpen] = useState(false);
 	const [streamTps, setStreamTps] = useState<number>();
 	const streamStartRef = useRef<number | undefined>(undefined);
 	const streamCharacterCountRef = useRef(0);
@@ -1422,20 +1432,20 @@ const TranscriptMessage = memo(function TranscriptMessage({
 		window.setTimeout(() => setCopied(false), 1500);
 	}
 
+	const usageTitle = [
+		message.usage && (message.usage.input > 0 || message.usage.output > 0)
+			? formatUsageSummary(message.usage)
+			: undefined,
+		durationSeconds ? `${durationSeconds}s` : undefined,
+		completedTps ? `${completedTps.toFixed(1)} t/s` : undefined,
+	]
+		.filter(Boolean)
+		.join(" · ");
+	const showActions =
+		message.role === "user" || (isAssistant && !isStreaming && (hasAssistantContent || Boolean(assistantError)));
+
 	return (
 		<article className={`message message-${message.role}${message.isError || assistantError ? " is-error" : ""}`}>
-			{isAssistant ? (
-				<div className="assistant-label">
-					<span>{modelLabel ?? "Pi"}</span>
-					{isStreaming && streamCharacterCountRef.current > 0 ? (
-						<span className="stream-token-count">↓{Math.round(streamCharacterCountRef.current / 4)}</span>
-					) : null}
-					{streamTps !== undefined ? (
-						<span className={`stream-tps ${speedTone(streamTps)}`}>{streamTps.toFixed(1)} t/s</span>
-					) : null}
-					{message.timestamp && isLastAssistant ? <time>{formatMessageTime(message.timestamp)}</time> : null}
-				</div>
-			) : null}
 			<div className="message-content">
 				{assistantError ? (
 					<div className="message-provider-error" role="alert">
@@ -1459,44 +1469,67 @@ const TranscriptMessage = memo(function TranscriptMessage({
 					<UserMessageBody text={message.text} blocks={message.blocks} />
 				)}
 			</div>
-			{!isAssistant && message.timestamp ? (
-				<time className="message-time">{formatMessageTime(message.timestamp)}</time>
-			) : null}
-			{isAssistant && message.usage && (message.usage.input > 0 || message.usage.output > 0) ? (
-				<div className="message-usage">
-					<span>{formatUsageSummary(message.usage)}</span>
-					{durationSeconds ? <span>{durationSeconds}s</span> : null}
-					{completedTps ? (
-						<span className={`message-tps ${speedTone(completedTps)}`}>{completedTps.toFixed(1)} t/s</span>
-					) : null}
-					<Button size="sm" type="button" onClick={() => void copyMessage()}>
-						{copied ? t("copied") : t("copy")}
+			{isAssistant && !isStreaming && modelLabel ? (
+				<div className="message-meta">
+					<Button
+						variant="bare"
+						className={`message-meta-chip${usageOpen ? " is-open" : ""}`}
+						aria-expanded={usageTitle ? usageOpen : undefined}
+						disabled={!usageTitle}
+						onClick={() => setUsageOpen((current) => !current)}
+					>
+						{modelLabel}
+						{usageTitle ? (
+							<span className="entry-chevron">
+								<Icon name="chevron" size={10} />
+							</span>
+						) : null}
 					</Button>
-					{message.timestamp && isLastAssistant ? <time>{formatMessageTime(message.timestamp)}</time> : null}
+					{usageOpen && usageTitle ? <span className="message-usage">{usageTitle}</span> : null}
 				</div>
-			) : (
+			) : null}
+			{isAssistant && isStreaming && streamTps !== undefined ? (
+				<div className="message-meta">
+					<span className="message-meta-chip">{streamTps.toFixed(1)} t/s</span>
+				</div>
+			) : null}
+			{showActions ? (
 				<div className="message-actions">
+					{message.timestamp ? <time className="message-time">{formatMessageTime(message.timestamp)}</time> : null}
 					<Button
 						size="icon"
+						className="compact"
 						aria-label={copied ? t("copied") : t("copy")}
 						title={copied ? t("copied") : t("copy")}
 						onClick={() => void copyMessage()}
 						disabled={!message.text}
 					>
-						<Icon name={copied ? "check" : "copy"} size={14} />
+						<Icon name={copied ? "check" : "copy"} size={13} />
 					</Button>
-					{!isAssistant && (message.text || message.blocks?.some((block) => block.type === "image")) ? (
-						<Button size="icon" aria-label={t("edit")} title={t("edit")} onClick={() => onEdit(message)}>
-							<Icon name="edit" size={14} />
+					{message.role === "user" && (message.text || message.blocks?.some((block) => block.type === "image")) ? (
+						<Button
+							size="icon"
+							className="compact"
+							aria-label={t("edit")}
+							title={t("edit")}
+							onClick={() => onEdit(message)}
+						>
+							<Icon name="edit" size={13} />
 						</Button>
 					) : null}
-					{!isAssistant && message.forkEntryId ? (
-						<Button size="icon" aria-label="Fork" title="Fork" onClick={() => onFork(message.forkEntryId ?? "")}>
-							<Icon name="branch" size={14} />
+					{message.forkEntryId ? (
+						<Button
+							size="icon"
+							className="compact"
+							aria-label={t("forkResponse")}
+							title={t("forkResponse")}
+							onClick={() => onFork(message.forkEntryId ?? "")}
+						>
+							<Icon name="branch" size={13} />
 						</Button>
 					) : null}
 				</div>
-			)}
+			) : null}
 		</article>
 	);
 });
@@ -1636,6 +1669,76 @@ const CollapsibleTranscriptEntry = memo(function CollapsibleTranscriptEntry({
 				</div>
 			) : null}
 		</article>
+	);
+});
+
+const ProcessDetails = memo(function ProcessDetails({
+	item,
+	isActive,
+	previousTimestamps,
+}: {
+	item: Extract<TranscriptRenderItem, { type: "process" }>;
+	isActive: boolean;
+	previousTimestamps: Map<string, number>;
+}) {
+	const { t } = useI18n();
+	const baseSeconds = Math.max(0, Math.floor((item.durationMs ?? 0) / 1000));
+	const [liveSeconds, setLiveSeconds] = useState(baseSeconds);
+	useEffect(() => {
+		setLiveSeconds(baseSeconds);
+		if (!isActive) return;
+		const timer = window.setInterval(() => setLiveSeconds((current) => current + 1), 1000);
+		return () => window.clearInterval(timer);
+	}, [baseSeconds, isActive]);
+	const time = formatClockDuration(isActive ? liveSeconds : baseSeconds);
+	const hasThinking =
+		item.blocks.some((block) => block.type === "thinking") ||
+		item.messages.some((message) => message.blocks?.some((block) => block.type === "thinking"));
+	const thinkingOnly = hasThinking && item.toolCallCount === 0;
+	const labelKey = isActive ? (thinkingOnly ? "thinkingFor" : "processingFor") : "processedFor";
+	const processBlocks =
+		item.blocks.length > 0
+			? item.blocks
+			: item.messages.flatMap((message) =>
+					(message.blocks ?? []).filter((block) => block.type === "thinking" || block.type === "toolCall"),
+				);
+	return (
+		<div className={`process-details${isActive ? " is-active" : ""}`}>
+			<details>
+				<summary className="process-details-trigger">
+					<span className="process-details-icon" aria-hidden="true">
+						<Icon name="sparkles" size={14} />
+					</span>
+					<span className={`process-details-label${isActive ? " is-running" : ""}`}>{t(labelKey, { time })}</span>
+					{item.toolCallCount > 0 ? (
+						<span className="process-details-count">{t("processTools", { count: item.toolCallCount })}</span>
+					) : null}
+					<span className="entry-chevron">
+						<Icon name="chevron" size={12} />
+					</span>
+				</summary>
+				<div className="process-details-content">
+					{processBlocks.map((block, blockIndex) => (
+						<TranscriptBlock key={`${block.type}:${blockIndex}`} block={block} />
+					))}
+					{item.messages
+						.filter((message) => message.role === "tool" || Boolean(message.command) || message.role === "custom")
+						.map((message) => {
+							const call = message.toolCallId
+								? processBlocks.find((block) => block.type === "toolCall" && block.id === message.toolCallId)
+								: undefined;
+							return (
+								<CollapsibleTranscriptEntry
+									key={message.id}
+									message={message}
+									previousTimestamp={previousTimestamps.get(message.id)}
+									toolCall={call?.type === "toolCall" ? { name: call.name, input: call.input } : undefined}
+								/>
+							);
+						})}
+				</div>
+			</details>
+		</div>
 	);
 });
 
@@ -5823,61 +5926,12 @@ export function App() {
 								? transcriptItems.slice(-visibleItemCount).map((item) => {
 										if (item.type === "process") {
 											return (
-												<div
-													className="process-details"
+												<ProcessDetails
 													key={`process:${item.messages[0]?.id ?? item.blocks.map((block) => block.type).join(":")}`}
-												>
-													<details>
-														<summary className="process-details-trigger">
-															<span>{t("processDetails")}</span>
-															<small>{t("recordsCount", { count: item.messageCount })}</small>
-															{item.toolCallCount > 0 ? (
-																<small>{t("toolCallsCount", { count: item.toolCallCount })}</small>
-															) : null}
-															{item.durationMs !== undefined ? (
-																<small>{(item.durationMs / 1000).toFixed(1)}s</small>
-															) : null}
-														</summary>
-														<div className="process-details-content">
-															{item.blocks.map((block, blockIndex) => (
-																<TranscriptBlock
-																	key={`${block.type}:${blockIndex}`}
-																	block={block}
-																	durationMs={
-																		block.type === "thinking" &&
-																		blockIndex ===
-																			item.blocks.findIndex(
-																				(candidate) => candidate.type === "thinking",
-																			)
-																			? item.durationMs
-																			: undefined
-																	}
-																/>
-															))}
-															{item.messages.map((message) => {
-																const call = message.toolCallId
-																	? item.blocks.find(
-																			(block) =>
-																				block.type === "toolCall" &&
-																				block.id === message.toolCallId,
-																		)
-																	: undefined;
-																return (
-																	<CollapsibleTranscriptEntry
-																		key={message.id}
-																		message={message}
-																		previousTimestamp={previousMessageTimestamps.get(message.id)}
-																		toolCall={
-																			call?.type === "toolCall"
-																				? { name: call.name, input: call.input }
-																				: undefined
-																		}
-																	/>
-																);
-															})}
-														</div>
-													</details>
-												</div>
+													item={item}
+													isActive={session?.phase === "running" && item === transcriptItems.at(-1)}
+													previousTimestamps={previousMessageTimestamps}
+												/>
 											);
 										}
 										const turnIndex = conversationTurnIndexes.get(item.message.id) ?? -1;
@@ -5890,9 +5944,6 @@ export function App() {
 												<TranscriptMessage
 													message={item.message}
 													modelLabel={session?.model?.id}
-													isLastAssistant={
-														item.message.id === lastMessage?.id && item.message.role === "assistant"
-													}
 													isStreaming={item.message.id === lastMessage?.id && session?.phase === "running"}
 													previousTimestamp={previousMessageTimestamps.get(item.message.id)}
 													onEdit={(message) => void handleEditMessage(message)}
@@ -5948,7 +5999,9 @@ export function App() {
 									))}
 								</div>
 							) : null}
-							{session?.phase === "running" ? (
+							{session?.phase === "running" &&
+							transcriptItems.at(-1)?.type !== "process" &&
+							transcriptItems.at(-1)?.type !== "assistant" ? (
 								<output className="agent-running-status">
 									<span className="status-indicator is-running" />
 									{session.runningTools?.length

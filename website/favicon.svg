@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="plate" x1="0.2" y1="0" x2="0.6" y2="1">
+      <stop offset="0%" stop-color="#f3f1ec"/>
+      <stop offset="100%" stop-color="#f3f1ec" stop-opacity="0.62"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#plate)" fill-rule="evenodd" d="M10 3h12a7.5 7.5 0 0 1 7.5 7.5v11A7.5 7.5 0 0 1 22 29H10a7.5 7.5 0 0 1-7.5-7.5v-11A7.5 7.5 0 0 1 10 3ZM8.6 10.4h14.8v2.8h-2.3v8.8h-2.8v-8.8h-4.6v8.8h-2.8v-8.8H8.6Z"/>
+</svg>

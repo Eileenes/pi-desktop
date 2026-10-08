@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-lang="zh">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="theme-color" content="#0a0a0a" />
+		<title>Pi Desktop</title>
+		<meta
+			name="description"
+			content="An independent Electron desktop client for the Pi coding agent. Local workspaces, workspace trust, and per-tool approval."
+		/>
+		<meta property="og:title" content="Pi Desktop" />
+		<meta
+			property="og:description"
+			content="Independent desktop client for Pi. Local projects, explicit trust, per-tool approval."
+		/>
+		<meta property="og:type" content="website" />
+		<link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+		<link rel="stylesheet" href="./styles.css" />
+	</head>
+	<body>
+		<header class="wrap top">
+			<a class="brand" href="./">
+				<svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
+					<defs>
+						<linearGradient id="mark" x1="0.2" y1="0" x2="0.6" y2="1">
+							<stop offset="0%" stop-color="#f3f1ec" />
+							<stop offset="100%" stop-color="#f3f1ec" stop-opacity="0.62" />
+						</linearGradient>
+					</defs>
+					<path
+						fill="url(#mark)"
+						fill-rule="evenodd"
+						d="M10 3h12a7.5 7.5 0 0 1 7.5 7.5v11A7.5 7.5 0 0 1 22 29H10a7.5 7.5 0 0 1-7.5-7.5v-11A7.5 7.5 0 0 1 10 3ZM8.6 10.4h14.8v2.8h-2.3v8.8h-2.8v-8.8h-4.6v8.8h-2.8v-8.8H8.6Z"
+					/>
+				</svg>
+				Pi Desktop
+			</a>
+			<nav class="nav">
+				<a href="https://github.com/Eileenes/pi-desktop/releases/latest">
+					<span class="zh">下载</span><span class="en">Download</span>
+				</a>
+				<a href="https://github.com/Eileenes/pi-desktop">GitHub</a>
+				<button class="lang" type="button" id="lang-toggle">English</button>
+			</nav>
+		</header>
+
+		<main>
+			<section class="wrap hero">
+				<div>
+					<h1 class="zh">把 Pi 接到桌面上，权限留在主进程。</h1>
+					<h1 class="en">Pi on the desktop. Privilege stays in main.</h1>
+					<p class="lede zh">
+						打开本地项目，与模型多轮对话，让代理读文件、跑工具、改代码。这是官方 Pi 的独立图形客户端，不是另一套 Agent 运行时，也不是 IDE 插件。
+					</p>
+					<p class="lede en">
+						Open a local project, talk to a model, and let the agent read files, run tools, and edit code. An independent graphical client for official Pi — not another agent runtime, and not an IDE plugin.
+					</p>
+					<div class="actions">
+						<a class="btn btn-fill" href="https://github.com/Eileenes/pi-desktop/releases/latest">
+							<span class="zh">下载最新版本</span>
+							<span class="en">Download latest</span>
+						</a>
+						<a class="btn btn-ghost" href="https://github.com/Eileenes/pi-desktop">
+							<span class="zh">查看源码</span>
+							<span class="en">Source</span>
+						</a>
+					</div>
+					<p class="meta">macOS · Windows · 0.1.21 · MIT</p>
+				</div>
+				<div class="schematic" aria-hidden="true">
+					<div class="plate">
+						<strong>Renderer</strong>
+						<span class="zh">沙箱 React，无 Node，无直接文件系统</span>
+						<span class="en">Sandboxed React. No Node. No direct filesystem.</span>
+					</div>
+					<div class="spine"></div>
+					<p class="spine-label">IPC contracts</p>
+					<div class="spine"></div>
+					<div class="plate">
+						<strong>Main process</strong>
+						<span class="zh">工作区信任、工具审批、凭据与审计</span>
+						<span class="en">Workspace trust, tool approval, credentials, audit</span>
+					</div>
+					<div class="spine"></div>
+					<p class="spine-label">@earendil-works/pi-coding-agent</p>
+					<div class="spine"></div>
+					<div class="plate">
+						<strong class="zh">本地工作区</strong>
+						<strong class="en">Local workspace</strong>
+						<span class="zh">未信任的目录不会获得完整文件和执行能力</span>
+						<span class="en">Untrusted folders do not get full file or execution access</span>
+					</div>
+				</div>
+			</section>
+
+			<section class="wrap section">
+				<h2 class="zh">它做什么</h2>
+				<h2 class="en">What it does</h2>
+				<p class="zh">
+					桌面端负责窗口、工作区和授权。会话循环、工具和模型协议交给已经发布的 Pi 包，不在本仓库里改上游。
+				</p>
+				<p class="en">
+					The desktop owns the window, the workspace, and authorization. The session loop, tools, and model protocol come from the published Pi package. This repository does not patch upstream.
+				</p>
+				<div class="pairs">
+					<div>
+						<h3 class="zh">工作区</h3>
+						<h3 class="en">Workspace</h3>
+						<ul class="zh">
+							<li>本地项目、历史与持久化状态</li>
+							<li>文件浏览和预览</li>
+							<li>Git 变更、分支、Worktree</li>
+							<li>内嵌终端</li>
+						</ul>
+						<ul class="en">
+							<li>Local projects, history, persisted state</li>
+							<li>File browsing and preview</li>
+							<li>Git changes, branches, worktrees</li>
+							<li>Embedded terminal</li>
+						</ul>
+					</div>
+					<div>
+						<h3 class="zh">会话</h3>
+						<h3 class="en">Sessions</h3>
+						<ul class="zh">
+							<li>多轮对话、搜索、分支、Fork</li>
+							<li>流式回复与思考过程</li>
+							<li>Markdown、KaTeX、Mermaid</li>
+							<li>图片、文件引用、会话引用</li>
+						</ul>
+						<ul class="en">
+							<li>Multi-turn chat, search, branches, fork</li>
+							<li>Streaming replies and reasoning</li>
+							<li>Markdown, KaTeX, Mermaid</li>
+							<li>Images, file refs, session refs</li>
+						</ul>
+					</div>
+					<div>
+						<h3 class="zh">模型与扩展</h3>
+						<h3 class="en">Models and extensions</h3>
+						<ul class="zh">
+							<li>供应商、API Key、OAuth</li>
+							<li>模型发现与连接测试</li>
+							<li>Skills 搜索、安装、启停</li>
+							<li>Plugins 安装与配置</li>
+						</ul>
+						<ul class="en">
+							<li>Providers, API keys, OAuth</li>
+							<li>Model discovery and connection tests</li>
+							<li>Skill search, install, toggle</li>
+							<li>Plugin install and configuration</li>
+						</ul>
+					</div>
+					<div>
+						<h3 class="zh">桌面</h3>
+						<h3 class="en">Desktop</h3>
+						<ul class="zh">
+							<li>中英文、明暗主题、自定义 CSS</li>
+							<li>系统托盘、窗口状态恢复</li>
+							<li>本仓库 GitHub Releases 更新</li>
+						</ul>
+						<ul class="en">
+							<li>Chinese and English, light and dark, custom CSS</li>
+							<li>Tray and restored window state</li>
+							<li>Updates from this repo’s GitHub Releases</li>
+						</ul>
+					</div>
+				</div>
+			</section>
+
+			<section class="wrap section">
+				<h2 class="zh">安全边界</h2>
+				<h2 class="en">Security boundary</h2>
+				<div class="brief">
+					<p class="zh">
+						渲染进程不能直接碰文件系统、子进程或网络。它只能走白名单 IPC。打开项目要先确认信任；每次内置工具调用要单独点头。已存密钥不会回到渲染进程。
+					</p>
+					<p class="en">
+						The renderer cannot touch the filesystem, child processes, or the network directly. It talks through a allowlisted IPC bridge. Opening a project requires trust. Each built-in tool call needs its own approval. Stored credentials never return to the renderer.
+					</p>
+					<p class="zh">
+						审计只记元数据。更新源锁在本项目的 GitHub Releases。只打开你信任的目录——项目说明和扩展可以改变代理行为。
+					</p>
+					<p class="en">
+						Audit logs keep metadata only. The update feed is this project’s GitHub Releases. Only open directories you trust — project instructions and extensions can change agent behavior.
+					</p>
+				</div>
+			</section>
+
+			<section class="wrap section">
+				<h2 class="zh">下载与构建</h2>
+				<h2 class="en">Download and build</h2>
+				<dl class="dl">
+					<dt>macOS</dt>
+					<dd class="zh">Releases 里的 <code>.dmg</code> 或 <code>.zip</code></dd>
+					<dd class="en"><code>.dmg</code> or <code>.zip</code> from Releases</dd>
+					<dt>Windows</dt>
+					<dd class="zh">NSIS <code>.exe</code> 或 <code>.zip</code></dd>
+					<dd class="en">NSIS <code>.exe</code> or <code>.zip</code></dd>
+					<dt class="zh">开发</dt>
+					<dt class="en">Develop</dt>
+					<dd>Node.js 22.19+ · <code>npm install</code> · <code>npm run start</code></dd>
+				</dl>
+				<pre><code>git clone https://github.com/Eileenes/pi-desktop.git
+cd pi-desktop
+npm install
+npm run start</code></pre>
+			</section>
+		</main>
+
+		<footer class="wrap foot">
+			<span class="zh">Earendil Works · 消费已发布的 Pi，不重新发明运行时。</span>
+			<span class="en">Earendil Works · Consumes published Pi. Does not reinvent the runtime.</span>
+			<span>
+				<a href="https://github.com/badlogic/pi-mono">Pi</a>
+				·
+				<a href="https://github.com/Eileenes/pi-desktop/blob/main/SECURITY.md">Security</a>
+				·
+				<a href="https://github.com/Eileenes/pi-desktop/blob/main/LICENSE">License</a>
+			</span>
+		</footer>
+
+		<script>
+			const root = document.documentElement;
+			const toggle = document.getElementById("lang-toggle");
+			const saved = localStorage.getItem("pi-desktop-lang");
+			const start = saved === "en" || saved === "zh" ? saved : "zh";
+
+			function setLang(lang) {
+				root.dataset.lang = lang;
+				root.lang = lang === "en" ? "en" : "zh-CN";
+				toggle.textContent = lang === "zh" ? "English" : "中文";
+				localStorage.setItem("pi-desktop-lang", lang);
+			}
+
+			setLang(start);
+			toggle.addEventListener("click", () => {
+				setLang(root.dataset.lang === "zh" ? "en" : "zh");
+			});
+		</script>
+	</body>
+</html>

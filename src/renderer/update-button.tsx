@@ -21,27 +21,50 @@ function UpgradeIcon() {
 	);
 }
 
-function statusClass(kind: "downloading" | "installing" | "ready" | "failed", variant: "footer" | "settings"): string {
-	const size =
-		variant === "settings" ? "h-8 px-3 text-[length:var(--text-sm)]" : "h-7 px-2.5 text-[length:var(--text-xs)]";
-	const base = `inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-full border-[0.5px] font-medium leading-[18px] whitespace-nowrap ${size}`;
-	if (kind === "downloading") {
-		return `${base} cursor-default border-[color-mix(in_oklab,var(--ds-accent)_35%,transparent)] bg-[var(--ds-bg-hover)] text-[color:var(--ds-text-primary)]`;
-	}
-	if (kind === "installing") {
-		return `${base} cursor-progress border-[var(--ds-border-default)] bg-[var(--ds-bg-hover)] text-[color:var(--ds-text-primary)]`;
-	}
-	if (kind === "ready") {
-		return `${base} border-transparent bg-[var(--ds-accent)] text-[color:var(--ds-on-accent)]`;
-	}
-	return `${base} border-[color-mix(in_oklab,var(--ds-error)_40%,transparent)] bg-[color-mix(in_oklab,var(--ds-error)_12%,transparent)] text-[color:var(--ds-error)]`;
+function InstallIcon() {
+	return (
+		<svg
+			width="16"
+			height="16"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2"
+			aria-hidden="true"
+		>
+			<path d="M12 4v11" strokeLinecap="round" />
+			<path d="m7 11 5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+			<path d="M5 20h14" strokeLinecap="round" />
+		</svg>
+	);
 }
 
+function SpinnerIcon() {
+	return (
+		<svg
+			className="animate-spin"
+			width="16"
+			height="16"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2"
+			aria-hidden="true"
+		>
+			<circle cx="12" cy="12" r="9" className="opacity-25" />
+			<path d="M21 12a9 9 0 0 0-9-9" strokeLinecap="round" />
+		</svg>
+	);
+}
+
+const iconButtonClass =
+	"relative inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-xs)] border-0 bg-transparent p-0 text-[color:var(--ds-accent)] hover:bg-[var(--hover)] hover:text-[color:var(--ds-accent)]";
+
 /**
- * Footer: a new-version icon, then download percent, then an Update button.
- * Settings uses the same states with slightly more label room.
+ * Footer/settings: icon-only states. New version starts a download; a ready
+ * install icon applies it and restarts. No extra labels or cancel control.
  */
-export const UpdateButton = memo(function UpdateButton({ variant }: { variant: "footer" | "settings" }) {
+export const UpdateButton = memo(function UpdateButton(_props: { variant: "footer" | "settings" }) {
 	const { t } = useI18n();
 	const update = useAppUpdate();
 	const percent = updatePercent(update);
@@ -51,16 +74,20 @@ export const UpdateButton = memo(function UpdateButton({ variant }: { variant: "
 
 	if (update.phase === "downloading") {
 		return (
-			<output className={statusClass("downloading", variant)} aria-live="polite">
-				{t("updateDownloading", { percent: percentLabel })}
+			<output
+				className={iconButtonClass}
+				aria-live="polite"
+				title={t("updateDownloading", { percent: percentLabel })}
+			>
+				<SpinnerIcon />
 			</output>
 		);
 	}
 
 	if (update.phase === "installing") {
 		return (
-			<Button className={statusClass("installing", variant)} disabled>
-				{t("updateInstalling")}
+			<Button size="icon" className={iconButtonClass} disabled title={t("updateInstalling")}>
+				<SpinnerIcon />
 			</Button>
 		);
 	}
@@ -68,12 +95,14 @@ export const UpdateButton = memo(function UpdateButton({ variant }: { variant: "
 	if (update.phase === "ready") {
 		return (
 			<Button
+				size="icon"
 				variant="primary"
-				className={statusClass("ready", variant)}
+				className="relative inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-xs)] border-0 p-0"
 				title={t("updateInstallHint")}
+				aria-label={t("update")}
 				onClick={() => update.install()}
 			>
-				{t("update")}
+				<InstallIcon />
 			</Button>
 		);
 	}
@@ -82,8 +111,14 @@ export const UpdateButton = memo(function UpdateButton({ variant }: { variant: "
 		const detail =
 			update.message === "no-installer" ? t("noInstallerForPlatform") : (update.message ?? t("updateRetry"));
 		return (
-			<Button className={statusClass("failed", variant)} title={detail} onClick={() => update.download()}>
-				{variant === "settings" ? detail : t("updateRetry")}
+			<Button
+				size="icon"
+				className={iconButtonClass}
+				title={detail}
+				aria-label={t("updateRetry")}
+				onClick={() => update.download()}
+			>
+				<UpgradeIcon />
 			</Button>
 		);
 	}
@@ -94,8 +129,8 @@ export const UpdateButton = memo(function UpdateButton({ variant }: { variant: "
 		<Button
 			size="icon"
 			aria-label={label}
-			className="relative inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-xs)] border-0 bg-transparent p-0 text-[color:var(--ds-accent)] hover:bg-[var(--hover)] hover:text-[color:var(--ds-accent)]"
-			title={update.latestVersion ? t("updateToVersion", { version: update.latestVersion }) : label}
+			className={iconButtonClass}
+			title={t("updateToVersion", { version: update.latestVersion })}
 			onClick={() => update.download()}
 		>
 			<UpgradeIcon />

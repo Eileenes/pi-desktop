@@ -149,10 +149,7 @@ function ThinkingLevelMapEditor({
 				const state = !hasValue ? "omit" : raw === null ? "null" : "string";
 				const customValue = typeof raw === "string" ? raw : "";
 				return (
-					<label
-						className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]"
-						key={level}
-					>
+					<label className="grid gap-1 text-[length:var(--text-sm)] font-medium" key={level}>
 						<span
 							className={`inline-flex items-center gap-1.5 ${state === "null" ? "text-[color:var(--text-dim)] line-through" : "text-[color:var(--muted)]"}`}
 						>
@@ -227,7 +224,7 @@ const AuthenticationDeviceCode = memo(function AuthenticationDeviceCode({
 		<div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-0.75 rounded-[var(--radius-s)] border border-[color-mix(in_srgb,var(--accent)_30%,var(--border-subtle))] px-2.75 py-2.5">
 			<div className="grid min-w-0 gap-0.5">
 				<span className="text-[length:var(--text-2xs)] text-[color:var(--text-dim)]">{t("deviceCode")}</span>
-				<strong className="font-[family-name:var(--font-mono)] text-[length:var(--text-lg-plus)] leading-tight tracking-[0.08em] text-[color:var(--text)]">
+				<strong className="font-[family-name:var(--font-mono)] text-[length:var(--text-md)] leading-tight tracking-[var(--tracking-normal)] text-[color:var(--text)]">
 					{code}
 				</strong>
 			</div>
@@ -607,25 +604,26 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 			bodyClassName="flex min-h-0 flex-col overflow-hidden p-0"
 			onClose={providerSetupInProgress || settingUpProvider ? () => undefined : requestClose}
 		>
-			<div className="flex min-h-0 flex-1 max-md:flex-col">
-				<aside className="flex w-[230px] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--surface-recessed)_88%,var(--surface-1))] max-md:max-h-[220px] max-md:w-full max-md:border-r-0 max-md:border-b">
-					<div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
+			<div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)] gap-4 px-6 pt-2 pb-4 max-md:grid-cols-1">
+				<aside className="flex min-h-0 flex-col overflow-hidden max-md:max-h-[220px]">
+					<div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-1 py-2">
 						<Button
 							variant="bare"
-							className={`flex w-full min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-[length:var(--text-sm)] text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] ${selection?.type === "scope" ? "bg-[var(--hover-strong)] font-semibold text-[color:var(--text)]" : ""}`}
+							className="flex w-full min-w-0 shrink-0 items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5! py-2.5! min-h-9! text-left text-[length:var(--text-sm)] font-medium text-[color:var(--text)] hover:bg-[var(--hover)]"
 							onClick={() => setSelection({ type: "scope" })}
 						>
-							<span>{t("modelScopeTitle")}</span>
+							<span className="min-w-0 flex-1 truncate">{t("modelScopeTitle")}</span>
 							<small className="ml-auto font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] text-[color:var(--muted)]">
 								enabledModels
 							</small>
 						</Button>
-						<div className="mx-2 my-1.5 border-t border-[var(--border-subtle)]" />
 						{providers.map((provider) => (
 							<Button
 								variant="bare"
 								key={provider.id}
-								className={`flex w-full min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-[length:var(--text-sm)] text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] ${selectedProviderId === provider.id ? "text-[color:var(--success)]" : ""}`}
+								className={`flex w-full min-w-0 shrink-0 items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5! py-2.5! min-h-9! text-left text-[length:var(--text-sm)] text-[color:var(--text)] hover:bg-[var(--hover)] ${
+									selectedProviderId === provider.id ? "font-semibold" : "font-medium"
+								}`}
 								onClick={() => {
 									onChangeProvider(provider.id);
 									setSelection({ type: "managed", providerId: provider.id });
@@ -633,7 +631,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								}}
 							>
 								<ProviderMark providerId={provider.id} name={provider.name} />
-								<span>{provider.name}</span>
+								<span className="min-w-0 flex-1 truncate">{provider.name}</span>
 								{provider.configured ? (
 									<span
 										className="ml-auto size-1.5 rounded-full bg-[var(--success)]"
@@ -642,32 +640,29 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								) : null}
 							</Button>
 						))}
-						{providers.length && config.length ? (
-							<div className="mx-2 my-1.5 border-t border-[var(--border-subtle)]" />
-						) : null}
 						{config.map((provider) => (
-							<div key={provider.id} className="mb-1">
+							<div key={provider.id} className="grid gap-2.5">
 								<Button
 									variant="bare"
-									className={`flex w-full min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-[length:var(--text-sm)] text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] ${selection?.type === "provider" && selection.providerId === provider.id ? "bg-[var(--hover-strong)] font-semibold text-[color:var(--text)]" : ""}`}
+									className="flex w-full min-w-0 shrink-0 items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5! py-2.5! min-h-9! text-left text-[length:var(--text-sm)] font-medium text-[color:var(--text)] hover:bg-[var(--hover)]"
 									onClick={() => {
 										setSelection({ type: "provider", providerId: provider.id });
 										resetDiscovery();
 									}}
 								>
 									<ProviderMark providerId={provider.id} name={provider.name ?? provider.id} />
-									<span>{provider.name ?? provider.id}</span>
+									<span className="min-w-0 flex-1 truncate">{provider.name ?? provider.id}</span>
 								</Button>
 								{provider.models?.map((model, index) => (
 									<Button
 										variant="bare"
 										key={`${model.id}-${index}`}
-										className={`flex w-full min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-[length:var(--text-sm)] text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] pl-[26px] text-[length:var(--text-xs)] ${selection?.type === "model" && selection.providerId === provider.id && selection.modelIndex === index ? "bg-[var(--hover-strong)] font-semibold text-[color:var(--text)]" : ""}`}
+										className="flex w-full min-w-0 shrink-0 items-center gap-2.5 rounded-[var(--radius-sm)] py-2.5! pr-2.5! pl-8! min-h-9! text-left text-[length:var(--text-sm)] font-medium text-[color:var(--text)] hover:bg-[var(--hover)]"
 										onClick={() =>
 											setSelection({ type: "model", providerId: provider.id, modelIndex: index })
 										}
 									>
-										<span>{model.name ?? model.id}</span>
+										<span className="min-w-0 flex-1 truncate">{model.name ?? model.id}</span>
 										{model.reasoning ? (
 											<span className="shrink-0 rounded-[var(--radius-3xs)] bg-[color-mix(in_oklab,var(--ds-purple)_12%,transparent)] px-1 py-px text-[length:var(--text-2xs)] font-bold text-[color-mix(in_oklab,var(--ds-purple)_80%,transparent)]">
 												T
@@ -683,10 +678,12 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</p>
 						) : null}
 					</div>
-					<div className="shrink-0 border-t border-[var(--border-subtle)] p-2">
+					<div className="shrink-0 px-2.5 pt-2">
 						<Button
+							size="sm"
 							variant="outline"
 							type="button"
+							className="h-8 w-full"
 							onClick={() => {
 								setProviderPickerQuery("");
 								setProviderPickerOpen(true);
@@ -697,16 +694,16 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 					</div>
 				</aside>
 
-				<section className="min-w-0 flex-1 overflow-y-auto p-[18px]">
+				<section className="min-h-0 min-w-0 overflow-y-auto">
 					{selection?.type === "scope" ? (
-						<div className="grid max-w-[610px] gap-4">
-							<div className="flex items-center justify-between text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.06em] text-[color:var(--muted)]">
+						<div className="grid content-start gap-3 rounded-[var(--radius-lg)] bg-[var(--ds-tile)] px-4 py-3.5">
+							<div className="flex items-center justify-between text-[length:var(--text-md)] font-semibold text-[color:var(--text)]">
 								<span>{t("modelScopeTitle")}</span>
 								<span className="rounded-full bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] px-1.5 py-0.5 text-[length:var(--text-2xs)] text-[color:var(--accent)]">
 									{t("globalSetting")}
 								</span>
 							</div>
-							<p className="text-[length:var(--text-xs)] leading-normal text-[color:var(--muted)]">
+							<p className="mt-1 mb-0 text-[length:var(--text-xs)] leading-normal text-[color:var(--muted)]">
 								{t("scopeDescription1")} <code>:thinking</code> {t("scopeDescription2")}
 								<code>anthropic/*:high</code>
 								{t("scopeDescription3")}
@@ -743,14 +740,14 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</Button>
 						</div>
 					) : managedProvider ? (
-						<div className="grid max-w-[610px] gap-4">
-							<div className="flex items-center justify-between text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.06em] text-[color:var(--muted)]">
+						<div className="grid content-start gap-3 rounded-[var(--radius-lg)] bg-[var(--ds-tile)] px-4 py-3.5">
+							<div className="flex items-center justify-between text-[length:var(--text-md)] font-semibold text-[color:var(--text)]">
 								<span>{managedProvider.name}</span>
 								<span className="rounded-full bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] px-1.5 py-0.5 text-[length:var(--text-2xs)] text-[color:var(--accent)]">
 									{managedProvider.credentialType === "oauth" ? "OAuth" : "API Key"}
 								</span>
 							</div>
-							<p className="text-[length:var(--text-xs)] leading-normal text-[color:var(--muted)]">
+							<p className="mt-1 mb-0 text-[length:var(--text-xs)] leading-normal text-[color:var(--muted)]">
 								{t("connectedProviderDescription")}
 							</p>
 							<div className="flex flex-wrap gap-2">
@@ -808,14 +805,14 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</div>
 						</div>
 					) : selectedProvider && selection?.type === "provider" ? (
-						<div className="grid max-w-[610px] gap-4">
-							<div className="flex items-center justify-between text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.06em] text-[color:var(--muted)]">
+						<div className="grid content-start gap-3 rounded-[var(--radius-lg)] bg-[var(--ds-tile)] px-4 py-3.5">
+							<div className="flex items-center justify-between text-[length:var(--text-md)] font-semibold text-[color:var(--text)]">
 								<span>{t("provider")}</span>
 								<Button size="sm" type="button" onClick={removeProvider}>
 									{t("delete")}
 								</Button>
 							</div>
-							<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
+							<label className="grid gap-1 text-[length:var(--text-sm)] font-medium">
 								{t("providerName")}
 								<Field
 									defaultValue={selectedProvider.id}
@@ -823,7 +820,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									onBlur={(event) => renameProvider(event.target.value)}
 								/>
 							</label>
-							<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
+							<label className="grid gap-1 text-[length:var(--text-sm)] font-medium">
 								{t("displayName")}
 								<Field
 									value={selectedProvider.name ?? ""}
@@ -836,7 +833,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									}
 								/>
 							</label>
-							<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
+							<label className="grid gap-1 text-[length:var(--text-sm)] font-medium">
 								Base URL
 								<Field
 									className="font-[family-name:var(--font-mono)]"
@@ -851,7 +848,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									}}
 								/>
 							</label>
-							<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
+							<label className="grid gap-1 text-[length:var(--text-sm)] font-medium">
 								API Key
 								<div className="relative">
 									<Field
@@ -880,7 +877,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								</div>
 								<small>{t("apiKeyHint")}</small>
 							</label>
-							<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
+							<label className="grid gap-1 text-[length:var(--text-sm)] font-medium">
 								API
 								<Field
 									as="select"
@@ -976,8 +973,8 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							</Button>
 						</div>
 					) : selectedProvider && selectedModel ? (
-						<div className="grid max-w-[610px] gap-4">
-							<div className="flex items-center justify-between text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.06em] text-[color:var(--muted)]">
+						<div className="grid content-start gap-3 rounded-[var(--radius-lg)] bg-[var(--ds-tile)] px-4 py-3.5">
+							<div className="flex items-center justify-between text-[length:var(--text-md)] font-semibold text-[color:var(--text)]">
 								<span>{t("models")}</span>
 								<div className="flex items-center gap-2">
 									<Button
@@ -1005,7 +1002,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								</p>
 							) : null}
 							<div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-								<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
+								<label className="grid gap-1 text-[length:var(--text-sm)] font-medium">
 									{t("idLabel")}
 									<Field
 										className="font-[family-name:var(--font-mono)]"
@@ -1013,7 +1010,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 										onChange={(event) => updateModel((model) => ({ ...model, id: event.target.value }))}
 									/>
 								</label>
-								<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
+								<label className="grid gap-1 text-[length:var(--text-sm)] font-medium">
 									{t("nameLabel")}
 									<Field
 										value={selectedModel.name ?? ""}
@@ -1024,7 +1021,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									/>
 								</label>
 							</div>
-							<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
+							<label className="grid gap-1 text-[length:var(--text-sm)] font-medium">
 								{t("apiOverride")}
 								<Field
 									as="select"
@@ -1039,8 +1036,8 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									))}
 								</Field>
 							</label>
-							<div className="flex gap-5">
-								<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
+							<div className="flex gap-3">
+								<label className="grid gap-1 text-[length:var(--text-sm)] font-medium">
 									<input
 										type="checkbox"
 										checked={selectedModel.reasoning ?? false}
@@ -1050,7 +1047,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									/>
 									{t("reasoningLabel")}
 								</label>
-								<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
+								<label className="grid gap-1 text-[length:var(--text-sm)] font-medium">
 									<input
 										type="checkbox"
 										checked={selectedModel.input?.includes("image") ?? false}
@@ -1064,7 +1061,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									{t("imageInputLabel")}
 								</label>
 								{selectedModel.reasoning ? (
-									<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
+									<label className="grid gap-1 text-[length:var(--text-sm)] font-medium">
 										<input
 											type="checkbox"
 											checked={hasDeepSeekThinkingCompat(selectedModel)}
@@ -1106,7 +1103,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 							) : null}
 							{selectedModel.reasoning ? (
 								<div className="border-t border-[var(--border-subtle)] pt-3.5">
-									<div className="mb-2 flex items-center justify-between text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.06em] text-[color:var(--muted)]">
+									<div className="mb-2 flex items-center justify-between text-[length:var(--text-xs)] font-semibold text-[color:var(--muted)]">
 										<span>Thinking level map</span>
 										{selectedModel.thinkingLevelMap ? (
 											<Button
@@ -1125,7 +1122,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								</div>
 							) : null}
 							<div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-								<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
+								<label className="grid gap-1 text-[length:var(--text-sm)] font-medium">
 									{t("contextWindowLabel")}
 									<Field
 										type="number"
@@ -1139,7 +1136,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 										}
 									/>
 								</label>
-								<label className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]">
+								<label className="grid gap-1 text-[length:var(--text-sm)] font-medium">
 									{t("maxTokensLabel")}
 									<Field
 										type="number"
@@ -1155,15 +1152,12 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								</label>
 							</div>
 							<div>
-								<p className="mb-2 text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.06em] text-[color:var(--muted)]">
+								<p className="mb-2 text-[length:var(--text-xs)] font-semibold text-[color:var(--muted)]">
 									{t("costLabel")}
 								</p>
 								<div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
 									{COST_FIELDS.map((field) => (
-										<label
-											className="grid gap-1.5 text-[length:var(--text-sm)] font-medium text-[color:var(--muted)]"
-											key={field}
-										>
+										<label className="grid gap-1 text-[length:var(--text-sm)] font-medium" key={field}>
 											{field}
 											<Field
 												type="number"
@@ -1184,7 +1178,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 						</div>
 					) : (
 						<div className="grid justify-items-start gap-2 px-5 py-12 text-[color:var(--muted)]">
-							<strong>{t("setupProvidersTitle")}</strong>
+							<strong className="text-[length:var(--text-md)] font-semibold">{t("setupProvidersTitle")}</strong>
 							<p>{t("setupProvidersHint")}</p>
 							<Button variant="primary" type="button" onClick={addProvider}>
 								{t("addProvider")}
@@ -1279,7 +1273,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 				</div>
 			) : null}
 
-			<footer className="flex items-center gap-2 border-t border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--accent)_4%,var(--surface-1))] px-4 py-2.5">
+			<footer className="flex items-center gap-2 border-t border-[var(--ds-border-subtle)] px-4 py-3">
 				{saveError ? (
 					<span className="mr-auto text-[length:var(--text-xs)] leading-[1.45] text-[color:var(--danger)]">
 						{saveError}
@@ -1348,7 +1342,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 								}}
 							>
 								<span>
-									<strong>{t("customEndpointTitle")}</strong>
+									<strong className="text-[length:var(--text-md)] font-semibold">
+										{t("customEndpointTitle")}
+									</strong>
 									<small>{t("customEndpointSubtitle")}</small>
 								</span>
 								<b className="grid size-[26px] place-items-center rounded-[var(--radius-2xs)] bg-[var(--hover)] text-[length:var(--text-2xs)] text-[color:var(--text-dim)]">
@@ -1379,7 +1375,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 										}}
 									>
 										<span>
-											<strong>{provider.name}</strong>
+											<strong className="text-[length:var(--text-md)] font-semibold">{provider.name}</strong>
 											<small>
 												{provider.supportsApiKey && provider.supportsOAuth
 													? "API Key / OAuth"

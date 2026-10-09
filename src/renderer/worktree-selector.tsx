@@ -11,7 +11,7 @@ import {
 import { useI18n } from "./i18n.ts";
 import { Button } from "./ui/button.tsx";
 import { Field } from "./ui/field.tsx";
-import { MenuHeading } from "./ui/menu.tsx";
+import { Menu, MenuHeading, MenuItem } from "./ui/menu.tsx";
 
 interface WorktreeSectionProps {
 	workspacePath: string;
@@ -44,6 +44,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 	const [forceRemovePath, setForceRemovePath] = useState<string>();
 	const [fetchingBranches, setFetchingBranches] = useState(false);
 	const [worktreeFilter, setWorktreeFilter] = useState("");
+	const [branchPickerOpen, setBranchPickerOpen] = useState(false);
 
 	const load = useCallback(async () => {
 		setError(undefined);
@@ -271,39 +272,57 @@ export const WorktreeSection = memo(function WorktreeSection({
 				</Button>
 			</div>
 			{branches.local.length || branches.remote.length ? (
-				<label className="mx-2.5 mb-2 grid gap-1 text-[length:var(--text-2xs)] text-[color:var(--muted)] [&>.ui-field]:w-full">
-					<span>{t("switchCurrentBranch")}</span>
-					<div className="flex min-w-0 items-center gap-1 [&>.ui-field]:min-w-0 [&>.ui-field]:flex-1">
-						<Field
-							as="select"
-							defaultValue=""
-							disabled={busy || fetchingBranches || !projectTrusted}
-							title={!projectTrusted ? t("trustProjectFirst") : undefined}
-							onChange={(event) => void handleSwitch(event.target.value)}
-						>
-							<option value="">{t("chooseBranch")}</option>
-							{branches.local.length ? (
-								<optgroup label={t("localBranches")}>
+				<div className="mx-2.5 mb-2 grid gap-1">
+					<span className="text-[length:var(--text-xs)] text-[color:var(--muted)]">
+						{t("switchCurrentBranch")}
+					</span>
+					<div className="flex min-w-0 items-start gap-1.5">
+						<div className="grid min-w-0 flex-1 gap-1">
+							<Button
+								size="sm"
+								variant="outline"
+								type="button"
+								className="h-8 w-full justify-between px-2 text-[length:var(--text-sm)]"
+								disabled={busy || fetchingBranches || !projectTrusted}
+								title={!projectTrusted ? t("trustProjectFirst") : undefined}
+								aria-expanded={branchPickerOpen}
+								aria-haspopup="menu"
+								onClick={() => setBranchPickerOpen((open) => !open)}
+							>
+								<span className="truncate">{t("chooseBranch")}</span>
+								<span aria-hidden="true">▾</span>
+							</Button>
+							{branchPickerOpen ? (
+								<Menu inline className="max-h-[200px] overflow-auto">
+									{branches.local.length ? <MenuHeading>{t("localBranches")}</MenuHeading> : null}
 									{branches.local.map((branch) => (
-										<option key={`local-${branch}`} value={branch}>
-											{branch}
-										</option>
+										<MenuItem
+											key={`local-${branch}`}
+											label={displayBranch(branch)}
+											onSelect={() => {
+												setBranchPickerOpen(false);
+												void handleSwitch(branch);
+											}}
+										/>
 									))}
-								</optgroup>
-							) : null}
-							{branches.remote.length ? (
-								<optgroup label={t("remoteBranches")}>
+									{branches.remote.length ? <MenuHeading>{t("remoteBranches")}</MenuHeading> : null}
 									{branches.remote.map((branch) => (
-										<option key={`remote-${branch}`} value={branch}>
-											{displayRemoteBranch(branch)} ({branch.split("/", 1)[0] ?? "remote"})
-										</option>
+										<MenuItem
+											key={`remote-${branch}`}
+											label={`${displayRemoteBranch(branch)} (${branch.split("/", 1)[0] ?? "remote"})`}
+											onSelect={() => {
+												setBranchPickerOpen(false);
+												void handleSwitch(branch);
+											}}
+										/>
 									))}
-								</optgroup>
+								</Menu>
 							) : null}
-						</Field>
+						</div>
 						<Button
+							size="sm"
 							variant="outline"
-							className="px-[7px] py-1 text-[length:var(--text-2xs)] whitespace-nowrap"
+							className="h-8 shrink-0 px-2 text-[length:var(--text-sm)] whitespace-nowrap"
 							type="button"
 							disabled={busy || fetchingBranches || !projectTrusted}
 							title={!projectTrusted ? t("trustProjectFirst") : t("fetchLatestRemoteHint")}
@@ -312,7 +331,7 @@ export const WorktreeSection = memo(function WorktreeSection({
 							{fetchingBranches ? t("refreshing") : t("refresh")}
 						</Button>
 					</div>
-				</label>
+				</div>
 			) : null}
 			{error ? (
 				<p className="m-0 px-3 pb-2 text-[length:var(--text-2xs)] text-[color:var(--danger)]">{error}</p>

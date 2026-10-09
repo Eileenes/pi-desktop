@@ -140,24 +140,26 @@
 	--font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
 		"Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
 	--font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-	--text-2xs: calc(10.5px * var(--font-scale));
+	/* Five steps: 11 caption, 13 body, 15 title, 18 section, 28 display.
+	   Older names stay so screens do not each invent a size. */
+	--text-2xs: calc(11px * var(--font-scale));
 	--text-xs: calc(11px * var(--font-scale));
-	--text-xs-plus: calc(11.5px * var(--font-scale));
-	--text-sm: calc(12px * var(--font-scale));
-	--text-sm-plus: calc(12.5px * var(--font-scale));
+	--text-xs-plus: calc(11px * var(--font-scale));
+	--text-sm: calc(13px * var(--font-scale));
+	--text-sm-plus: calc(13px * var(--font-scale));
 	--text-md: calc(13px * var(--font-scale));
-	--text-md-plus: calc(13.5px * var(--font-scale));
+	--text-md-plus: calc(13px * var(--font-scale));
 	--text-base: calc(15px * var(--font-scale));
 	--text-lg: calc(15px * var(--font-scale));
-	--text-base-plus: calc(16px * var(--font-scale));
-	--text-xl: calc(16px * var(--font-scale));
+	--text-base-plus: calc(15px * var(--font-scale));
+	--text-xl: calc(15px * var(--font-scale));
 	--text-lg-plus: calc(18px * var(--font-scale));
-	--text-2xl: calc(20px * var(--font-scale));
+	--text-2xl: calc(18px * var(--font-scale));
 	--text-display: calc(28px * var(--font-scale));
 	--font-weight-normal: 400;
 	--font-weight-medium: 500;
-	--font-weight-medium-plus: 520;
-	--font-weight-strong: 560;
+	--font-weight-medium-plus: 500;
+	--font-weight-strong: 600;
 	--font-weight-semibold: 600;
 	--leading-none: 1;
 	--leading-heading: 1.15;
@@ -591,7 +593,7 @@ body{
 	color: var(--text);
 	background: var(--bg);
 	font-family: var(--font-sans);
-	font-size: var(--text-base);
+	font-size: var(--text-md);
 	line-height: var(--leading-body);
 	-webkit-font-smoothing: antialiased;
 	text-rendering: optimizeLegibility;

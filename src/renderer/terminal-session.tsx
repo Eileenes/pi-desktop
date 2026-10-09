@@ -83,7 +83,7 @@ export function TerminalSession({ onReady, onError, onExit, visible }: TerminalS
 		if (!host) return;
 		const term = new XTerm({
 			fontSize: 13,
-			fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Cascadia Mono", monospace',
+			fontFamily: 'ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
 			lineHeight: 1.25,
 			cursorBlink: true,
 			scrollback: 5_000,

@@ -266,17 +266,29 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 			<Button
 				variant="bare"
 				key={packageKey(pkg)}
-				className={`grid w-full grid-cols-[7px_minmax(0,1fr)] items-start gap-2 rounded-[var(--radius-2xs)] p-2 text-left text-[color:var(--text-dim)] hover:bg-[var(--hover)] ${selectedKey === packageKey(pkg) ? "bg-[var(--hover-strong)]" : ""}`}
+				className="grid w-full shrink-0 grid-cols-[8px_minmax(0,1fr)] items-start gap-2.5 rounded-[var(--radius-sm)] px-2.5! py-2.5! min-h-9! text-left hover:bg-[var(--hover)]"
 				title={pkg.source}
 				onClick={() => setSelectedKey(packageKey(pkg))}
 			>
 				<span
 					className={`mt-1.5 size-[7px] rounded-full ${pkg.status === "loaded" ? "bg-[var(--accent)]" : pkg.status === "installed" ? "bg-[var(--warning)]" : pkg.status === "error" || pkg.status === "missing" ? "bg-[var(--danger)]" : "bg-[var(--muted)]"}`}
 				/>
-				<span className="grid min-w-0 gap-0.5">
-					<strong>{pkg.source}</strong>
-					<small>{resourceSummary(pkg, t)}</small>
-					{pkg.version || pkg.configuredVersion ? <small>{versionSummary(pkg, t)}</small> : null}
+				<span className="grid min-w-0 gap-1">
+					<strong
+						className={`truncate text-[length:var(--text-sm)] text-[color:var(--text)] ${
+							selectedKey === packageKey(pkg) ? "font-semibold" : "font-medium"
+						}`}
+					>
+						{pkg.source}
+					</strong>
+					<small className="truncate text-[length:var(--text-xs)] text-[color:var(--muted)]">
+						{resourceSummary(pkg, t)}
+					</small>
+					{pkg.version || pkg.configuredVersion ? (
+						<small className="truncate text-[length:var(--text-xs)] text-[color:var(--muted)]">
+							{versionSummary(pkg, t)}
+						</small>
+					) : null}
 					{pkg.filtered ? <small className="text-[color:var(--warning)]">{t("filteredLabel")}</small> : null}
 				</span>
 			</Button>
@@ -302,17 +314,17 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 					) : null}
 				</output>
 			) : null}
-			<div className="flex min-h-0 flex-1 max-md:flex-col">
-				<aside className="flex w-[230px] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--surface-recessed)_88%,var(--surface-1))] max-md:max-h-[220px] max-md:w-full max-md:border-r-0 max-md:border-b">
-					<div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
+			<div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)] gap-4 px-6 pt-2 pb-4 max-md:grid-cols-1">
+				<aside className="flex min-h-0 flex-col overflow-hidden max-md:max-h-[220px]">
+					<div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1 py-2">
 						{loading ? (
 							<p className="px-3 py-7 text-center text-[length:var(--text-sm)] text-[color:var(--muted)]">
 								{t("loadingPlugins")}
 							</p>
 						) : null}
 						{groupedPackages.map((group) => (
-							<div className="mt-1" key={group.scope}>
-								<div className="px-2 pt-2.5 pb-1 text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.06em] text-[color:var(--muted)]">
+							<div className="grid gap-2.5" key={group.scope}>
+								<div className="px-2.5 text-[length:var(--text-xs)] font-semibold text-[color:var(--muted)]">
 									{SCOPE_LABEL[group.scope]}
 								</div>
 								{group.packages.map(renderPackageRow)}
@@ -324,30 +336,46 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 							</p>
 						) : null}
 					</div>
-					<div className="shrink-0 border-t border-[var(--border-subtle)] p-2">
+					<div className="shrink-0 px-2.5 pt-2">
 						<Button
-							variant="bare"
-							className={`flex w-full min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-[length:var(--text-sm)] text-[color:var(--text-dim)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] ${selectedKey === "add" ? "bg-[var(--hover-strong)] font-semibold text-[color:var(--text)]" : ""}`}
+							size="sm"
+							variant="outline"
+							type="button"
+							className="h-8 w-full gap-1.5"
 							onClick={() => {
 								setSelectedKey("add");
 								setError(undefined);
 								setSuccess(undefined);
 							}}
 						>
-							<svg aria-hidden="true" viewBox="0 0 24 24">
+							<svg
+								width="14"
+								height="14"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="1.75"
+								strokeLinecap="round"
+								aria-hidden="true"
+								className="shrink-0"
+							>
 								<path d="M12 5v14M5 12h14" />
 							</svg>
-							{t("addPlugin").replace(/^＋\s*/u, "")}
+							<span className="truncate">{t("addPlugin").replace(/^＋\s*/u, "")}</span>
 						</Button>
 					</div>
 				</aside>
-				<section className="min-w-0 flex-1 overflow-y-auto p-[18px]">
+				<section className="min-h-0 min-w-0 overflow-y-auto">
 					{selectedKey === "add" ? (
-						<div className="flex min-h-full max-w-[660px] flex-col gap-[18px]">
+						<div className="grid content-start gap-3 rounded-[var(--radius-lg)] bg-[var(--ds-tile)] px-4 py-3.5">
 							<div className="flex items-start justify-between gap-4">
 								<div>
-									<strong>{t("addPlugin").replace(/^＋\s*/u, "")}</strong>
-									<code>{installLocation(installScope, workspacePath)}</code>
+									<strong className="text-[length:var(--text-md)] font-semibold">
+										{t("addPlugin").replace(/^＋\s*/u, "")}
+									</strong>
+									<p className="mt-1 mb-0 text-[length:var(--text-xs)] leading-normal text-[color:var(--muted)]">
+										<code>{installLocation(installScope, workspacePath)}</code>
+									</p>
 								</div>
 								<a
 									href="https://pi.dev/packages"
@@ -428,7 +456,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 									{busyAction === "install" ? t("installing") : t("installPluginAction")}
 								</Button>
 							</div>
-							<div className="grid gap-1.5">
+							<div className="grid gap-2.5">
 								<span>{t("examplesLabel")}</span>
 								{["npm:@scope/pi-plugin", "git:https://github.com/user/repo", "/absolute/path/to/plugin"].map(
 									(example) => (
@@ -450,7 +478,8 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 							) : null}
 						</div>
 					) : selected ? (
-						<div className="flex max-w-[680px] flex-col gap-5">
+						<div className="grid content-start gap-3 rounded-[var(--radius-lg)] bg-[var(--ds-tile)] px-4 py-3.5">
+							<strong className="text-[length:var(--text-md)] font-semibold">{selected.source}</strong>
 							<div className="flex flex-wrap items-start justify-between gap-3">
 								<div className="flex min-w-[180px] flex-1 items-center gap-2">
 									<Switch
@@ -547,7 +576,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 									</Button>
 								</div>
 							</div>
-							<div className="grid max-w-none grid-cols-[minmax(96px,130px)_minmax(0,1fr)] items-baseline gap-x-3.5 gap-y-2 rounded-[var(--radius-s)] border border-[var(--border-subtle)] p-3.5">
+							<div className="grid grid-cols-[minmax(96px,130px)_minmax(0,1fr)] items-baseline gap-x-3.5 gap-y-2 text-[length:var(--text-sm)] [&>span]:text-[length:var(--text-xs)] [&>span]:text-[color:var(--muted)]">
 								<span>{t("statusLabel")}</span>
 								<strong
 									className={`font-medium ${selected.status === "installed" ? "text-[color:var(--warning)]" : selected.status === "error" || selected.status === "missing" ? "text-[color:var(--danger)]" : selected.status === "disabled" ? "text-[color:var(--muted)]" : "text-[color:var(--text-dim)]"}`}
@@ -588,7 +617,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 												className="grid gap-1.5 border-t border-[var(--border-subtle)] py-3 first:border-t-0 first:pt-0 last:pb-0"
 												key={kind}
 											>
-												<span className="text-[length:var(--text-2xs)] font-bold uppercase tracking-wide text-[color:var(--muted)]">
+												<span className="text-[length:var(--text-xs)] font-semibold text-[color:var(--muted)]">
 													{t(labelKey)}
 												</span>
 												{paths.map((resource) => (
@@ -608,7 +637,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 								</div>
 							</div>
 							{selected.diagnostics.length ? (
-								<div className="grid gap-1.5">
+								<div className="grid gap-2.5">
 									{selected.diagnostics.map((diagnostic, index) => (
 										<p
 											className={`m-0 rounded-[var(--radius-2xs)] bg-[var(--overlay-5)] px-2 py-1.5 text-[length:var(--text-xs)] text-[color:var(--text-dim)] ${diagnostic.type === "error" ? "text-[color:var(--danger)]" : diagnostic.type === "warning" ? "text-[color:var(--warning)]" : ""}`}
@@ -638,7 +667,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 					)}
 				</section>
 			</div>
-			<footer className="flex items-center gap-2 border-t border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--accent)_4%,var(--surface-1))] px-4 py-2.5">
+			<footer className="flex items-center gap-2 border-t border-[var(--ds-border-subtle)] px-4 py-3">
 				<div className="mr-auto min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[length:var(--text-xs)] text-[color:var(--muted)]">
 					{error ? (
 						<span className="text-[color:var(--danger)]">{error}</span>

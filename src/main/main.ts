@@ -672,17 +672,6 @@ function registerIpc(): void {
 		) {
 			throw new Error("无效的会话删除请求。");
 		}
-		const confirmed = await dialog.showMessageBox(mainWindow!, {
-			type: "warning",
-			title: "删除会话",
-			message: "确定删除这个会话？",
-			detail: "会话历史文件将被永久删除。",
-			buttons: ["取消", "删除"],
-			defaultId: 0,
-			cancelId: 0,
-			noLink: true,
-		});
-		if (confirmed.response !== 1) return getHost().getSnapshot();
 		return getHost().deleteSession(value.sessionPath);
 	});
 	ipcMain.handle("pi-desktop:execute-bash", async (event, value: unknown): Promise<string> => {

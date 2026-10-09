@@ -2937,7 +2937,6 @@ export function App() {
 
 	const [branchMenuOpen, setBranchMenuOpen] = useState(false);
 	const [sessionMenuOpen, setSessionMenuOpen] = useState<string>();
-	const [deleteSessionPath, setDeleteSessionPath] = useState<string>();
 	const [moreMenuOpen, setMoreMenuOpen] = useState(false);
 	const [terminalOpen, setTerminalOpen] = useState(false);
 	const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
@@ -3506,7 +3505,6 @@ export function App() {
 				historyMenuOpen ||
 				projectMenuOpen ||
 				sessionMenuOpen ||
-				deleteSessionPath ||
 				moreMenuOpen ||
 				fileActionsMenuOpen ||
 				projectRowMenuOpen,
@@ -3613,12 +3611,12 @@ export function App() {
 		)
 			return;
 		const close = (event: MouseEvent) => {
-			const target = event.target;
+			const raw = event.target;
+			const target = raw instanceof Element ? raw : raw instanceof Node ? raw.parentElement : null;
 			if (!(target instanceof Element)) {
 				setProjectMenuOpen(false);
 				setBranchMenuOpen(false);
 				setSessionMenuOpen(undefined);
-				setDeleteSessionPath(undefined);
 				setMoreMenuOpen(false);
 				setSettingsMenuOpen(false);
 				setFileActionsMenuOpen(false);
@@ -3627,9 +3625,9 @@ export function App() {
 			}
 			if (!target.closest(".project-menu-root")) {
 				setProjectMenuOpen(false);
-				setBranchMenuOpen(false);
 				setProjectRowMenuOpen(undefined);
 			}
+			if (!target.closest(".branch-menu-root")) setBranchMenuOpen(false);
 			if (!target.closest(".session-row-wrap")) setSessionMenuOpen(undefined);
 			if (!target.closest(".top-bar-more-wrap")) setMoreMenuOpen(false);
 			if (!target.closest(".footer-menu-wrap")) setSettingsMenuOpen(false);
@@ -4442,16 +4440,11 @@ export function App() {
 		}
 	}
 
-	async function handleDeleteSession(sessionPath: string, skipConfirmation = false): Promise<void> {
-		if (!skipConfirmation && deleteSessionPath !== sessionPath) {
-			setDeleteSessionPath(sessionPath);
-			return;
-		}
+	async function handleDeleteSession(sessionPath: string): Promise<void> {
 		try {
 			const deletedId = snapshot.sessions.find((item) => item.path === sessionPath)?.id;
 			if (deletedId) forgetScrollPosition(deletedId);
 			await deleteSession(sessionPath);
-			setDeleteSessionPath(undefined);
 			pushNotice("success", t("sessionDeleted"));
 		} catch (error) {
 			pushNotice("error", error instanceof Error ? error.message : String(error));
@@ -5123,9 +5116,6 @@ export function App() {
 								{group.entries.map(([root, items]) => {
 									const flattenedItems = flattenSessionTree(items);
 									const active = items.some((item) => item.id === session?.id);
-									const branch =
-										items.find((item) => item.worktreeBranch)?.worktreeBranch ??
-										gitWorktrees.find((tree) => tree.path.replace(/[\\/]+$/u, "") === root)?.branch;
 									const collapsed = collapsedProjects.has(root);
 									const expanded = expandedProjects.has(root);
 									const visibleItems = (() => {
@@ -5177,7 +5167,6 @@ export function App() {
 														>
 															{projectLabel(root)}
 														</span>
-														{branch ? <small>⎇ {formatGitBranch(branch)}</small> : null}
 													</span>
 												</Button>
 												<div className="ml-1 flex flex-row-reverse items-center gap-px [&>button]:inline-grid [&>button]:place-items-center [&>button]:p-0 [&>button]:leading-none">
@@ -5460,9 +5449,9 @@ export function App() {
 																			label={t("deleteSession")}
 																			danger
 																			disabled={item.phase === "running"}
-																			onSelect={(event) => {
+																			onSelect={() => {
 																				setSessionMenuOpen(undefined);
-																				void handleDeleteSession(item.path, event.shiftKey);
+																				void handleDeleteSession(item.path);
 																			}}
 																		/>
 																		<div className="mx-1.5 mt-[3px] mb-0.5 flex items-center gap-[7px] border-t border-[var(--border-subtle)] px-1.5 pt-[5px] pb-0.5 font-[family-name:var(--font-mono)] text-[length:var(--text-xs)] whitespace-nowrap text-[color:var(--muted)] [&>span]:overflow-hidden [&>span]:text-ellipsis">
@@ -5677,8 +5666,8 @@ export function App() {
 					</div>
 					<div className={SIDEBAR_HOVER_DIVIDER} />
 					<Button
-						size="sm"
-						className={SIDEBAR_HOVER_ROW}
+						variant="bare"
+						className={`${SIDEBAR_HOVER_ROW} w-full shrink-0 justify-start px-2! py-1.5! hover:bg-[var(--hover)] hover:text-[color:var(--text)]`}
 						onMouseDown={(event) => event.preventDefault()}
 						onClick={() => {
 							setEditingProjectRoot(hoverCard.root);
@@ -5689,8 +5678,8 @@ export function App() {
 						<span>{t("editProject")}</span>
 					</Button>
 					<Button
-						size="sm"
-						className={SIDEBAR_HOVER_ROW}
+						variant="bare"
+						className={`${SIDEBAR_HOVER_ROW} w-full shrink-0 justify-start px-2! py-1.5! hover:bg-[var(--hover)] hover:text-[color:var(--text)]`}
 						onMouseDown={(event) => event.preventDefault()}
 						onClick={() => {
 							void handleRevealProject(hoverCard.root);
@@ -6419,7 +6408,7 @@ export function App() {
 					 */}
 					{snapshot.workspacePath && composerBranch ? (
 						<div className="mx-auto mb-2 flex w-[min(var(--ds-composer-max-width),100%)] items-center gap-[18px] pl-3.5 text-[length:var(--text-sm)] text-[color:var(--ds-text-muted)]">
-							<div className="relative inline-flex min-w-0">
+							<div className="branch-menu-root relative inline-flex min-w-0">
 								<Button
 									size="sm"
 									className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 border-0 bg-transparent font-[inherit] text-inherit hover:text-[color:var(--ds-text-primary)] [&>svg]:shrink-0 [&>svg]:opacity-70 [&>span]:truncate"
@@ -6431,7 +6420,7 @@ export function App() {
 									<span>{formatGitBranch(composerBranch)}</span>
 								</Button>
 								{branchMenuOpen ? (
-									<Menu className="absolute top-[calc(100%+6px)] left-0 z-[80] max-h-[min(360px,46vh)] w-max min-w-[220px] overflow-auto">
+									<Menu className="absolute bottom-[calc(100%+6px)] left-0 z-[80] max-h-[min(520px,70vh)] w-[min(420px,calc(100vw-48px))] min-w-[220px] overflow-auto">
 										<WorktreeSection
 											workspacePath={snapshot.workspacePath}
 											projectTrusted={snapshot.projectTrusted}
@@ -7363,32 +7352,6 @@ export function App() {
 					lines={extensionCustomUi.lines}
 					onInput={(id, data) => void sendExtensionCustomInput(id, data).catch(() => {})}
 				/>
-			) : null}
-			{deleteSessionPath ? (
-				<Modal
-					title={t("deleteSessionTitle")}
-					className="max-h-none w-[min(420px,100%)]"
-					footerClassName="is-end"
-					onClose={() => setDeleteSessionPath(undefined)}
-					footer={
-						<>
-							<Button variant="outline" type="button" onClick={() => setDeleteSessionPath(undefined)}>
-								{t("cancel")}
-							</Button>
-							<Button
-								variant="danger"
-								type="button"
-								onClick={() => void handleDeleteSession(deleteSessionPath, true)}
-							>
-								{t("deleteSession")}
-							</Button>
-						</>
-					}
-				>
-					<p className="m-0 text-[length:var(--text-sm)] leading-[1.55] text-[color:var(--muted)]">
-						{t("deleteSessionHint")}
-					</p>
-				</Modal>
 			) : null}
 			{pendingFileConflicts ? (
 				<Modal

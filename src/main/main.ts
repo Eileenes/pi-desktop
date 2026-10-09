@@ -207,22 +207,6 @@ function assertMainWindowSender(event: IpcMainInvokeEvent): void {
 	}
 }
 
-async function confirmPluginMutation(kind: "install" | "update", source: string, local: boolean): Promise<boolean> {
-	if (!mainWindow || mainWindow.isDestroyed()) return false;
-	const scope = local ? "项目" : "全局";
-	const confirmation = await dialog.showMessageBox(mainWindow, {
-		type: "warning",
-		title: kind === "install" ? "确认安装插件" : "确认更新插件",
-		message: kind === "install" ? `安装${scope}插件？` : `更新${scope}插件？`,
-		detail: source,
-		buttons: ["取消", kind === "install" ? "安装" : "更新"],
-		defaultId: 0,
-		cancelId: 0,
-		noLink: true,
-	});
-	return confirmation.response === 1;
-}
-
 function isExactRecord(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
 	const actualKeys = Object.keys(value);
@@ -1037,18 +1021,6 @@ function registerIpc(): void {
 		if (!isDesktopRemoveWorktreeInput(value)) {
 			throw new Error("无效的 worktree 删除请求。");
 		}
-		const confirmed = await dialog.showMessageBox({
-			type: "warning",
-			buttons: ["取消", "移除"],
-			defaultId: 0,
-			cancelId: 0,
-			title: "移除 Worktree",
-			message: value.force ? `强制移除 ${value.path}？` : `确定移除 ${value.path}？`,
-			detail: value.force
-				? "这会丢弃该 Worktree 中所有未提交和未跟踪的文件，且无法撤销。"
-				: "如果 Worktree 有未提交修改，下一步会提供强制移除选项。",
-		});
-		if (confirmed.response !== 1) return {};
 		return getHost().removeGitWorktree(value.path, value.force === true);
 	});
 	ipcMain.handle("pi-desktop:open-workspace-path", async (event, value: unknown): Promise<DesktopSnapshot> => {
@@ -1188,9 +1160,6 @@ function registerIpc(): void {
 			if (value.local && !host.getSnapshot().projectTrusted) {
 				throw new Error("请先信任当前项目，再安装项目插件。");
 			}
-			if (!(await confirmPluginMutation("install", value.source, value.local))) {
-				return { snapshot: host.getSnapshot(), performed: false };
-			}
 			return { snapshot: await host.installPlugin(value.source, value.local), performed: true };
 		},
 	);
@@ -1204,9 +1173,6 @@ function registerIpc(): void {
 			const host = getHost();
 			if (value.local && !host.getSnapshot().projectTrusted) {
 				throw new Error("请先信任当前项目，再更新项目插件。");
-			}
-			if (!(await confirmPluginMutation("update", value.source, value.local))) {
-				return { snapshot: host.getSnapshot(), performed: false };
 			}
 			return { snapshot: await host.updatePlugin(value.source, value.local), performed: true };
 		},
@@ -1264,17 +1230,6 @@ function registerIpc(): void {
 			throw new Error("无效的技能资源包。");
 		}
 		if (input.scope !== "global" && input.scope !== "project") throw new Error("无效的技能安装范围。");
-		const confirmation = await dialog.showMessageBox(mainWindow!, {
-			type: "warning",
-			title: "确认安装技能",
-			message: `安装${input.scope === "project" ? "项目" : "全局"}技能？`,
-			detail: input.pkg,
-			buttons: ["取消", "安装"],
-			defaultId: 0,
-			cancelId: 0,
-			noLink: true,
-		});
-		if (confirmation.response !== 1) return getHost().getSnapshot();
 		return getHost().installSkill(input.pkg, input.scope);
 	});
 	ipcMain.handle("pi-desktop:check-skill-updates", async (event, value: unknown) => {

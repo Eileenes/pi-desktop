@@ -5,12 +5,13 @@ import {
 	installPlugin,
 	reloadSession,
 	removePlugin,
-	selectDirectory,
 	togglePlugin,
 	updatePlugin,
 } from "./desktop-store.ts";
+import { DirectoryPicker } from "./directory-picker.tsx";
 import { type I18n, type TranslationKey, useI18n } from "./i18n.ts";
 import { Button } from "./ui/button.tsx";
+import { ConfirmDialog } from "./ui/confirm-dialog.tsx";
 import { Field } from "./ui/field.tsx";
 import { Modal } from "./ui/modal.tsx";
 import { Segment, Segmented } from "./ui/segmented.tsx";
@@ -137,6 +138,12 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 	const [error, setError] = useState<string>();
 	const [success, setSuccess] = useState<string>();
 	const [removeArmed, setRemoveArmed] = useState(false);
+	const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
+	const [pendingMutation, setPendingMutation] = useState<{
+		kind: "install" | "update";
+		source: string;
+		local: boolean;
+	}>();
 	const installInputRef = useRef<HTMLInputElement>(null);
 	const busy = busyAction !== undefined;
 	const cwdLabel = workspacePath ? shortenPath(workspacePath) : "~/.pi/agent";
@@ -244,10 +251,22 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 		}
 	}
 
-	async function handleInstall(): Promise<void> {
+	function requestInstall(): void {
 		const source = normalizeInstallSource(installSource);
 		if (!source) return;
-		const local = installScope === "project";
+		setPendingMutation({ kind: "install", source, local: installScope === "project" });
+	}
+
+	async function performMutation(): Promise<void> {
+		const pending = pendingMutation;
+		setPendingMutation(undefined);
+		if (!pending) return;
+		if (pending.kind === "update") {
+			await run("update", () => updatePlugin(pending.source, pending.local), t("pluginUpdated"));
+			return;
+		}
+		const source = pending.source;
+		const local = pending.local;
 		await run(
 			"install",
 			async () => {
@@ -299,7 +318,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 		<Modal
 			title={t("plugins")}
 			subtitle={cwdLabel}
-			className="h-[min(78vh,760px)] max-h-[calc(100dvh-16px)] w-[min(900px,100%)] overflow-hidden"
+			className="is-wide h-[min(78vh,760px)] max-h-[calc(100dvh-16px)] overflow-hidden"
 			bodyClassName="flex min-h-0 flex-col overflow-hidden p-0"
 			onClose={onClose}
 		>
@@ -411,7 +430,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 										onKeyDown={(event) => {
 											if (event.key === "Enter" && normalizeInstallSource(installSource) && !busy) {
 												event.preventDefault();
-												void handleInstall();
+												requestInstall();
 											}
 										}}
 									/>
@@ -419,15 +438,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 										variant="outline"
 										type="button"
 										disabled={busy}
-										onClick={() =>
-											void selectDirectory()
-												.then((path) => {
-													if (path) setInstallSource(path);
-												})
-												.catch((reason: unknown) => {
-													setError(reason instanceof Error ? reason.message : String(reason));
-												})
-										}
+										onClick={() => setDirectoryPickerOpen(true)}
 									>
 										{t("browse")}
 									</Button>
@@ -451,7 +462,7 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 									variant="primary"
 									type="button"
 									disabled={!normalizeInstallSource(installSource) || busy}
-									onClick={() => void handleInstall()}
+									onClick={() => requestInstall()}
 								>
 									{busyAction === "install" ? t("installing") : t("installPluginAction")}
 								</Button>
@@ -522,11 +533,11 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 										type="button"
 										disabled={busy || (selected.scope === "project" && !projectResourcesLoaded)}
 										onClick={() =>
-											void run(
-												"update",
-												() => updatePlugin(selected.source, selected.scope === "project"),
-												t("pluginUpdated"),
-											)
+											setPendingMutation({
+												kind: "update",
+												source: selected.source,
+												local: selected.scope === "project",
+											})
 										}
 									>
 										{busyAction === "update" ? t("updatingPlugin") : t("update")}
@@ -691,6 +702,25 @@ export const PluginsConfigModal = memo(function PluginsConfigModal({
 					{t("close")}
 				</Button>
 			</footer>
+			{pendingMutation ? (
+				<ConfirmDialog
+					title={pendingMutation.kind === "install" ? t("installPluginAction") : t("update")}
+					message={pendingMutation.kind === "install" ? t("installPluginAction") : t("update")}
+					detail={pendingMutation.source}
+					confirmLabel={pendingMutation.kind === "install" ? t("installPluginAction") : t("update")}
+					onCancel={() => setPendingMutation(undefined)}
+					onConfirm={() => void performMutation()}
+				/>
+			) : null}
+			{directoryPickerOpen ? (
+				<DirectoryPicker
+					onClose={() => setDirectoryPickerOpen(false)}
+					onSelect={(path) => {
+						setInstallSource(path);
+						setDirectoryPickerOpen(false);
+					}}
+				/>
+			) : null}
 		</Modal>
 	);
 });

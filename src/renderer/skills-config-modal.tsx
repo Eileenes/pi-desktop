@@ -11,6 +11,7 @@ import {
 } from "./desktop-store.ts";
 import { useI18n } from "./i18n.ts";
 import { Button } from "./ui/button.tsx";
+import { ConfirmDialog } from "./ui/confirm-dialog.tsx";
 import { Field } from "./ui/field.tsx";
 import { Modal } from "./ui/modal.tsx";
 import { Segment, Segmented } from "./ui/segmented.tsx";
@@ -245,6 +246,7 @@ function AddSkillPanel({
 	const [installing, setInstalling] = useState<string>();
 	const [installError, setInstallError] = useState<string>();
 	const [newlyInstalled, setNewlyInstalled] = useState<Set<string>>(new Set());
+	const [pendingInstall, setPendingInstall] = useState<string>();
 	const [scope, setScope] = useState<"global" | "project">("global");
 
 	const search = useCallback(
@@ -369,7 +371,7 @@ function AddSkillPanel({
 									variant={isInstalled ? "outline" : "primary"}
 									className={isInstalled ? "is-success" : ""}
 									disabled={isInstalled || installing !== undefined}
-									onClick={() => void install(result.package)}
+									onClick={() => setPendingInstall(result.package)}
 								>
 									{isInstalled ? t("installed") : isInstalling ? t("installing") : t("install")}
 								</Button>
@@ -389,6 +391,20 @@ function AddSkillPanel({
 					</Button>{" "}
 					{t("searchSkillsHintSuffix")}
 				</p>
+			) : null}
+			{pendingInstall ? (
+				<ConfirmDialog
+					title={t("install")}
+					message={t("install")}
+					detail={pendingInstall}
+					confirmLabel={t("install")}
+					onCancel={() => setPendingInstall(undefined)}
+					onConfirm={() => {
+						const pkg = pendingInstall;
+						setPendingInstall(undefined);
+						void install(pkg);
+					}}
+				/>
 			) : null}
 		</div>
 	);
@@ -596,7 +612,7 @@ export const SkillsConfigModal = memo(function SkillsConfigModal({
 		<Modal
 			title={t("skills")}
 			subtitle={workspacePath ? shortenPath(workspacePath) : "~"}
-			className="h-[min(78vh,760px)] max-h-[calc(100dvh-16px)] w-[min(900px,100%)] overflow-hidden"
+			className="is-wide h-[min(78vh,760px)] max-h-[calc(100dvh-16px)] overflow-hidden"
 			bodyClassName="flex min-h-0 flex-col overflow-hidden p-0"
 			onClose={onClose}
 		>

@@ -20,6 +20,7 @@ import {
 import { useI18n } from "./i18n.ts";
 import { ProviderIconMark } from "./provider-icons.tsx";
 import { Button } from "./ui/button.tsx";
+import { ConfirmDialog } from "./ui/confirm-dialog.tsx";
 import { Field } from "./ui/field.tsx";
 import { Modal } from "./ui/modal.tsx";
 import { Segment, Segmented } from "./ui/segmented.tsx";
@@ -282,6 +283,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	const [discoveryQuery, setDiscoveryQuery] = useState("");
 	const [selectedDiscovered, setSelectedDiscovered] = useState<string[]>([]);
 	const [confirmDiscard, setConfirmDiscard] = useState(false);
+	const [pendingDelete, setPendingDelete] = useState<"provider" | "model">();
 	const [providerPickerOpen, setProviderPickerOpen] = useState(false);
 	const [confirmDisconnectProviderId, setConfirmDisconnectProviderId] = useState<string>();
 	const [providerPickerQuery, setProviderPickerQuery] = useState("");
@@ -410,7 +412,12 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 	}
 
 	function removeProvider(): void {
-		if (!selectedProvider || !window.confirm(t("removeProviderConfirm", { id: selectedProvider.id }))) return;
+		if (!selectedProvider) return;
+		setPendingDelete("provider");
+	}
+
+	function commitRemoveProvider(): void {
+		if (!selectedProvider) return;
 		const remaining = config.filter((provider) => provider.id !== selectedProvider.id);
 		setConfig(remaining);
 		setSelection(remaining[0] ? { type: "provider", providerId: remaining[0].id } : undefined);
@@ -436,7 +443,11 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 
 	function removeModel(): void {
 		if (!selectedProvider || !selectedModel || selection?.type !== "model") return;
-		if (!window.confirm(t("removeModelConfirm", { id: selectedModel.name ?? selectedModel.id }))) return;
+		setPendingDelete("model");
+	}
+
+	function commitRemoveModel(): void {
+		if (!selectedProvider || !selectedModel || selection?.type !== "model") return;
 		updateProvider(selectedProvider.id, (provider) => ({
 			...provider,
 			models: provider.models?.filter((_, index) => index !== selection.modelIndex),
@@ -600,7 +611,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 		<Modal
 			title={t("models")}
 			subtitle="~/.pi/agent/models.json"
-			className="h-[min(78vh,760px)] max-h-[calc(100dvh-16px)] w-[min(900px,100%)] overflow-hidden"
+			className="is-wide h-[min(78vh,760px)] max-h-[calc(100dvh-16px)] overflow-hidden"
 			bodyClassName="flex min-h-0 flex-col overflow-hidden p-0"
 			onClose={providerSetupInProgress || settingUpProvider ? () => undefined : requestClose}
 		>
@@ -630,7 +641,9 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 									if (!provider.configured) requestProviderSetup(provider);
 								}}
 							>
-								<ProviderMark providerId={provider.id} name={provider.name} />
+								<span className="shrink-0">
+									<ProviderMark providerId={provider.id} name={provider.name} />
+								</span>
 								<span className="min-w-0 flex-1 truncate">{provider.name}</span>
 								{provider.configured ? (
 									<span
@@ -1303,7 +1316,7 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 			{providerPickerOpen ? (
 				// biome-ignore lint/a11y/noStaticElementInteractions: 点击遮罩关闭嵌套对话框
 				<div
-					className="absolute inset-0 z-10 grid place-items-center bg-black/35 p-4"
+					className="absolute inset-0 z-10 grid min-h-0 place-items-center overflow-hidden bg-black/35 p-4"
 					onKeyDown={(event) => {
 						if (event.key === "Escape") {
 							event.preventDefault();
@@ -1317,76 +1330,94 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 					}}
 				>
 					<div
-						className="max-h-[72%] w-[min(820px,100%)] overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg)] shadow-[0_8px_32px_rgb(0_0_0_/_22%)]"
+						className="flex max-h-[calc(100%-16px)] min-h-0 w-[min(640px,calc(100%-24px))] flex-col overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg)] shadow-[0_8px_32px_rgb(0_0_0_/_22%)]"
 						role="dialog"
 						aria-modal="true"
 						aria-label={t("addProvider")}
 					>
-						<div className="border-b border-[var(--border-subtle)] px-3.5 py-2.5 text-[length:var(--text-md)] text-[color:var(--text)]">
-							{t("addProvider")}
-						</div>
-						<Field
-							className="mx-3.5 mt-3 w-[calc(100%-28px)]"
-							ref={providerPickerInputRef}
-							value={providerPickerQuery}
-							placeholder={t("filterProviders")}
-							onChange={(event) => setProviderPickerQuery(event.target.value)}
-						/>
-						<div className="grid max-h-[420px] grid-cols-2 gap-2 overflow-auto p-3.5">
-							<Button
-								variant="bare"
-								className="flex min-w-0 items-center gap-2 rounded-[var(--radius-xs)] border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2.5 text-left text-[color:var(--text)] hover:border-[var(--accent)] hover:bg-[var(--hover)] disabled:opacity-50"
-								onClick={() => {
-									addProvider();
-									setProviderPickerOpen(false);
-								}}
+						<div className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-5 py-2.5 text-[length:var(--text-md)] text-[color:var(--text)]">
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="1.75"
+								strokeLinecap="round"
+								aria-hidden="true"
 							>
-								<span>
-									<strong className="text-[length:var(--text-md)] font-semibold">
-										{t("customEndpointTitle")}
-									</strong>
-									<small>{t("customEndpointSubtitle")}</small>
-								</span>
-								<b className="grid size-[26px] place-items-center rounded-[var(--radius-2xs)] bg-[var(--hover)] text-[length:var(--text-2xs)] text-[color:var(--text-dim)]">
-									＋
-								</b>
-							</Button>
-							{providers
-								.filter((provider) => {
-									if (provider.configured) return false;
-									const query = providerPickerQuery.trim().toLocaleLowerCase();
-									return (
-										!query ||
-										provider.name.toLocaleLowerCase().includes(query) ||
-										provider.id.toLocaleLowerCase().includes(query)
-									);
-								})
-								.map((provider) => (
-									<Button
-										variant="bare"
-										className="flex min-w-0 items-center gap-2 rounded-[var(--radius-xs)] border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2.5 text-left text-[color:var(--text)] hover:border-[var(--accent)] hover:bg-[var(--hover)] disabled:opacity-50"
-										key={provider.id}
-										disabled={settingUpProvider || providerSetupInProgress}
-										onClick={() => {
-											onChangeProvider(provider.id);
-											setProviderPickerOpen(false);
-											setSelection({ type: "managed", providerId: provider.id });
-											if (!provider.configured) requestProviderSetup(provider);
-										}}
-									>
-										<span>
-											<strong className="text-[length:var(--text-md)] font-semibold">{provider.name}</strong>
-											<small>
-												{provider.supportsApiKey && provider.supportsOAuth
-													? "API Key / OAuth"
-													: provider.supportsOAuth
-														? (provider.oauthName ?? "OAuth")
-														: "API Key"}
-											</small>
-										</span>
-										<ProviderMark providerId={provider.id} name={provider.name} />
-									</Button>
-								))}
+								<circle cx="12" cy="12" r="8.25" />
+								<path d="M12 8.5v7M8.5 12h7" />
+							</svg>
+							<span>{t("addProvider").replace(/^＋\s*/u, "")}</span>
+						</div>
+						<div className="mx-auto flex min-h-0 w-full max-w-[520px] flex-1 flex-col px-4">
+							<div className="mt-3 w-[calc(50%-4px)]">
+								<Field
+									ref={providerPickerInputRef}
+									value={providerPickerQuery}
+									placeholder={t("filterProviders")}
+									onChange={(event) => setProviderPickerQuery(event.target.value)}
+								/>
+							</div>
+							<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] content-start gap-2 overflow-y-auto pt-2 pb-4">
+								<Button
+									variant="bare"
+									className="flex max-w-full min-h-9! min-w-0 items-center gap-2 overflow-hidden rounded-[var(--radius-sm)] px-2.5! py-2.5! text-left text-[length:var(--text-sm)] text-[color:var(--text)] hover:bg-[var(--hover)] disabled:opacity-50"
+									onClick={() => {
+										addProvider();
+										setProviderPickerOpen(false);
+									}}
+								>
+									<span className="flex min-w-0 flex-1 items-baseline gap-2 overflow-hidden">
+										<strong className="min-w-0 truncate font-medium">{t("customEndpointTitle")}</strong>
+										<small className="max-w-[40%] min-w-0 shrink truncate text-[length:var(--text-xs)] text-[color:var(--muted)]">
+											{t("customEndpointSubtitle")}
+										</small>
+									</span>
+									<b className="grid size-5 shrink-0 place-items-center rounded-[var(--radius-2xs)] bg-[var(--hover)] text-[length:var(--text-2xs)] text-[color:var(--text-dim)]">
+										＋
+									</b>
+								</Button>
+								{providers
+									.filter((provider) => {
+										if (provider.configured) return false;
+										const query = providerPickerQuery.trim().toLocaleLowerCase();
+										return (
+											!query ||
+											provider.name.toLocaleLowerCase().includes(query) ||
+											provider.id.toLocaleLowerCase().includes(query)
+										);
+									})
+									.map((provider) => (
+										<Button
+											variant="bare"
+											className="flex max-w-full min-h-9! min-w-0 items-center gap-2 overflow-hidden rounded-[var(--radius-sm)] px-2.5! py-2.5! text-left text-[length:var(--text-sm)] text-[color:var(--text)] hover:bg-[var(--hover)] disabled:opacity-50"
+											key={provider.id}
+											disabled={settingUpProvider || providerSetupInProgress}
+											onClick={() => {
+												onChangeProvider(provider.id);
+												setProviderPickerOpen(false);
+												setSelection({ type: "managed", providerId: provider.id });
+												if (!provider.configured) requestProviderSetup(provider);
+											}}
+										>
+											<span className="flex min-w-0 flex-1 items-baseline gap-2 overflow-hidden">
+												<strong className="min-w-0 truncate font-medium">{provider.name}</strong>
+												<small className="max-w-[40%] min-w-0 shrink truncate text-[length:var(--text-xs)] text-[color:var(--muted)]">
+													{provider.supportsApiKey && provider.supportsOAuth
+														? "API Key / OAuth"
+														: provider.supportsOAuth
+															? (provider.oauthName ?? "OAuth")
+															: "API Key"}
+												</small>
+											</span>
+											<span className="shrink-0">
+												<ProviderMark providerId={provider.id} name={provider.name} />
+											</span>
+										</Button>
+									))}
+							</div>
 						</div>
 					</div>
 				</div>
@@ -1429,6 +1460,32 @@ export const ModelsConfigModal = memo(function ModelsConfigModal({
 				>
 					<p>{t("chooseAuthMethod")}</p>
 				</Modal>
+			) : null}
+			{pendingDelete === "provider" && selectedProvider ? (
+				<ConfirmDialog
+					title={t("delete")}
+					message={t("removeProviderConfirm", { id: selectedProvider.id })}
+					confirmLabel={t("delete")}
+					danger
+					onCancel={() => setPendingDelete(undefined)}
+					onConfirm={() => {
+						commitRemoveProvider();
+						setPendingDelete(undefined);
+					}}
+				/>
+			) : null}
+			{pendingDelete === "model" && selectedModel ? (
+				<ConfirmDialog
+					title={t("remove")}
+					message={t("removeModelConfirm", { id: selectedModel.name ?? selectedModel.id })}
+					confirmLabel={t("remove")}
+					danger
+					onCancel={() => setPendingDelete(undefined)}
+					onConfirm={() => {
+						commitRemoveModel();
+						setPendingDelete(undefined);
+					}}
+				/>
 			) : null}
 			{confirmDiscard ? (
 				<Modal

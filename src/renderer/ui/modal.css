@@ -18,7 +18,7 @@
 .modal-panel {
 	display: flex;
 	flex-direction: column;
-	width: min(900px, 100%);
+	width: min(640px, 100%);
 	max-height: min(78vh, 780px);
 	min-height: 0;
 	border: 0;
@@ -121,12 +121,17 @@
 	justify-content: flex-end;
 }
 
+.modal-panel.is-wide {
+	width: min(720px, 100%);
+}
+
 @media (width <= 640px) {
 	.modal-backdrop {
 		padding: 8px;
 	}
 
-	.modal-panel {
+	.modal-panel,
+	.modal-panel.is-wide {
 		width: 100%;
 		max-height: calc(100dvh - 16px);
 		border-radius: var(--radius-lg);

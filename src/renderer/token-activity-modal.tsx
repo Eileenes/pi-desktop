@@ -252,7 +252,7 @@ export const TokenActivityModal = memo(function TokenActivityModal({ onClose }: 
 		<Modal
 			title={t("tokenActivity")}
 			subtitle={activity ? t("tokenActivityRange", { from: activity.from, to: activity.to }) : undefined}
-			className="max-h-[min(82vh,820px)] w-[min(980px,calc(100vw-32px))]"
+			className="is-wide max-h-[min(82vh,820px)]"
 			bodyClassName="grid gap-[var(--space-4)] px-[var(--space-5)] pt-[var(--space-4)] pb-[var(--space-5)]"
 			onClose={onClose}
 		>

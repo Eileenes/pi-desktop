@@ -26,7 +26,7 @@ export const ExtensionCustomPanel = memo(function ExtensionCustomPanel({
 	return (
 		<div className="fixed inset-0 z-[120] grid place-items-center bg-[rgb(0_0_0/28%)] p-5 backdrop-blur-[2px]">
 			<div
-				className="relative flex max-h-[min(760px,calc(100vh-40px))] w-[min(920px,100%)] flex-col overflow-hidden rounded-[var(--ds-panel-radius)] border-0 bg-[var(--surface-1)] shadow-[0_0_0_0.5px_var(--ds-border-default),var(--ds-shadow-dialog)]"
+				className="relative flex max-h-[min(760px,calc(100vh-40px))] w-[min(720px,100%)]! flex-col overflow-hidden rounded-[var(--ds-panel-radius)] border-0 bg-[var(--surface-1)] shadow-[0_0_0_0.5px_var(--ds-border-default),var(--ds-shadow-dialog)]"
 				role="dialog"
 				aria-modal="true"
 				aria-label={t("extensionPanel")}

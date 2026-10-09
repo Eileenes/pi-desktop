@@ -42,7 +42,6 @@ import {
 	autoNameSession,
 	cancelProviderSetup,
 	chooseImages,
-	chooseWorkspace,
 	clearSessionQueue,
 	closeWindow,
 	compactSession,
@@ -84,7 +83,6 @@ import {
 	saveFullBashOutput,
 	saveWorkspaceFile,
 	searchWorkspaceFiles,
-	selectDirectory,
 	sendExtensionCustomInput,
 	setModel,
 	setPermissionMode,
@@ -97,6 +95,7 @@ import {
 	toggleWindowMaximize,
 	setToolPreset as updateToolPreset,
 } from "./desktop-store.ts";
+import { DirectoryPicker } from "./directory-picker.tsx";
 import { ExtensionCustomPanel, ExtensionWidgetStack } from "./extension-custom-panel.tsx";
 import { ExtensionDialog } from "./extension-dialog.tsx";
 import { type I18n, type TranslationKey, useI18n } from "./i18n.ts";
@@ -3106,6 +3105,9 @@ export function App() {
 	);
 	const [projectSections, setProjectSections] = useState<ProjectSections>(() => readStoredProjectSections());
 	const [editingProjectRoot, setEditingProjectRoot] = useState<string>();
+	const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+	const folderPickerMode = useRef<"workspace" | "folder">("folder");
+	const folderPickerResolve = useRef<((path: string | undefined) => void) | undefined>(undefined);
 	const [openProjectSection, setOpenProjectSection] = useState<string>();
 	const [pendingSectionRoot, setPendingSectionRoot] = useState<string>();
 	const [sectionNameDraft, setSectionNameDraft] = useState("");
@@ -4002,17 +4004,11 @@ export function App() {
 		scroll.scrollTo({ top: scroll.scrollHeight, behavior: "smooth" });
 	}
 
-	async function handleChooseWorkspace(): Promise<void> {
+	function handleChooseWorkspace(): void {
 		if (!canChooseWorkspace) return;
 		setActionError(undefined);
-		setOpeningWorkspace(true);
-		try {
-			await chooseWorkspace();
-		} catch (error) {
-			setActionError(error instanceof Error ? error.message : String(error));
-		} finally {
-			setOpeningWorkspace(false);
-		}
+		folderPickerMode.current = "workspace";
+		setFolderPickerOpen(true);
 	}
 
 	async function handleNewSession(): Promise<void> {
@@ -4885,7 +4881,34 @@ export function App() {
 
 	/** "Add folder" reuses the native directory picker; cancelling returns undefined. */
 	function handleRequestProjectFolder(): Promise<string | undefined> {
-		return selectDirectory();
+		folderPickerMode.current = "folder";
+		setFolderPickerOpen(true);
+		return new Promise((resolve) => {
+			folderPickerResolve.current = resolve;
+		});
+	}
+
+	async function handleFolderPicked(path: string): Promise<void> {
+		setFolderPickerOpen(false);
+		if (folderPickerMode.current === "folder") {
+			folderPickerResolve.current?.(path);
+			folderPickerResolve.current = undefined;
+			return;
+		}
+		setOpeningWorkspace(true);
+		try {
+			await openWorkspacePath(path);
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setOpeningWorkspace(false);
+		}
+	}
+
+	function closeFolderPicker(): void {
+		setFolderPickerOpen(false);
+		folderPickerResolve.current?.(undefined);
+		folderPickerResolve.current = undefined;
 	}
 
 	function handleSaveProject(root: string, draft: { name: string; folders: string[] }): void {
@@ -5129,11 +5152,11 @@ export function App() {
 									return (
 										<section className="min-w-0" key={root}>
 											<div
-												className={`flex h-[var(--ds-control-size)] min-h-[var(--ds-control-size)] items-center gap-0.5 rounded-[var(--radius-sm)] pr-2.5 hover:bg-[var(--hover-strong)] ${active ? "bg-[var(--hover-strong)]" : ""}`}
+												className={`flex h-[var(--ds-control-size)] min-h-[var(--ds-control-size)] items-center gap-0.5 rounded-[var(--radius-sm)] pr-2.5 pl-3 hover:bg-[var(--hover-strong)] ${active ? "bg-[var(--hover-strong)]" : ""}`}
 											>
 												<Button
 													variant="bare"
-													className="flex min-w-0 flex-1 items-center gap-[7px] rounded-[var(--radius-sm)] border-0 bg-transparent py-1 pr-1.5 pl-2.5 text-left text-[length:var(--text-sm)] font-medium text-[color:var(--text)] [&>svg:first-child]:shrink-0 [&>svg:first-child]:text-[color:var(--ds-text-secondary)]"
+													className="flex min-w-0 flex-1 items-center gap-[7px] rounded-[var(--radius-sm)] border-0 bg-transparent py-1 pr-1.5 text-left text-[length:var(--text-sm)] font-medium text-[color:var(--text)] [&>svg:first-child]:shrink-0 [&>svg:first-child]:text-[color:var(--ds-text-secondary)]"
 													onClick={() =>
 														setCollapsedProjects((current) => {
 															const next = new Set(current);
@@ -5318,7 +5341,7 @@ export function App() {
 														const isRenaming = renamingSession?.path === item.path;
 														return (
 															<div
-																className={`session-row-wrap group relative flex h-[var(--ds-control-size)] min-h-[var(--ds-control-size)] items-center rounded-[var(--radius-xs)] ${isCurrent ? "bg-[var(--hover-strong)]" : ""} ${depth ? "rounded-l-none border-l border-[var(--border-subtle)]" : ""}`}
+																className={`session-row-wrap group relative flex h-[var(--ds-control-size)] min-h-[var(--ds-control-size)] items-center rounded-[var(--radius-xs)] pl-3 ${isCurrent ? "bg-[var(--hover-strong)]" : ""} ${depth ? "rounded-l-none border-l border-[var(--border-subtle)]" : ""}`}
 																key={item.path}
 																style={{ "--session-depth": Math.min(depth, 5) } as CSSProperties}
 															>
@@ -7302,6 +7325,9 @@ export function App() {
 				/>
 			) : null}
 			{configModal === "usage" ? <TokenActivityModal onClose={() => setConfigModal(undefined)} /> : null}
+			{folderPickerOpen ? (
+				<DirectoryPicker onClose={closeFolderPicker} onSelect={(path) => void handleFolderPicked(path)} />
+			) : null}
 			{editingProjectRoot ? (
 				<ProjectEditorDialog
 					projectRoot={editingProjectRoot}

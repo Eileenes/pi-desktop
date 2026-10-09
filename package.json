@@ -111,12 +111,20 @@
 			]
 		},
 		"linux": {
+			"icon": "build/icon.png",
+			"executableName": "pi-desktop",
 			"artifactName": "Pi-Agent-${version}-${arch}.${ext}",
+			"category": "Development",
+			"synopsis": "Desktop client for Pi",
+			"maintainer": "Earendil Works <Eileenes@users.noreply.github.com>",
 			"target": [
 				"AppImage",
 				"deb"
 			],
-			"category": "Development"
+			"files": [
+				"!node_modules/node-pty/prebuilds/darwin-*",
+				"!node_modules/node-pty/prebuilds/win32-*"
+			]
 		}
 	}
 }

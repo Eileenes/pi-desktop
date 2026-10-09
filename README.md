@@ -20,7 +20,7 @@ This app consumes the published `@earendil-works/pi-coding-agent` package. It do
 
 Pi Desktop 把官方 Pi 编程代理接到桌面窗口里。会话、工具、Skills、Plugins 的行为尽量跟 CLI Pi 一致；桌面端负责的是工作区、审批、终端、Git，以及一条收紧的安全边界。
 
-当前版本 **0.1.21**。基于 Electron、React、Vite 和 TypeScript，主要发布 macOS 与 Windows 安装包。
+当前版本 **0.1.21**。基于 Electron、React、Vite 和 TypeScript，发布 macOS、Windows 与 Linux 安装包。
 
 ```text
 Renderer（沙箱，无 Node）
@@ -83,8 +83,9 @@ Main process（特权）
 | --- | --- |
 | macOS | `.dmg` / `.zip` |
 | Windows | NSIS `.exe` / `.zip` |
+| Linux | `.AppImage` / `.deb` |
 
-安装后应用会检查 Releases 中的新版本。下载完成后重启即可完成更新。
+安装后应用会检查 Releases 中的新版本。下载完成后重启即可完成更新。Linux 的自动更新走 AppImage。
 
 未签名的测试构建可能触发 Gatekeeper 或 SmartScreen。面向公开用户的发布应使用平台代码签名和公证。
 
@@ -106,9 +107,10 @@ npm test
 ```sh
 npm run package:mac
 npm run package:win
+npm run package:linux
 ```
 
-产物在 `release/`。推送 `v*` 标签后，GitHub Actions 会分别构建 macOS 与 Windows 包并发布到 Releases。
+产物在 `release/`。推送 `v*` 标签后，GitHub Actions 会分别构建 macOS、Windows 与 Linux 包并发布到 Releases。
 
 ### 项目结构
 
@@ -137,7 +139,7 @@ website/        GitHub Pages 站点
 
 Pi Desktop is a graphical shell for the official Pi coding agent. Sessions, tools, skills, and plugins stay as close to CLI Pi as possible. The desktop layer owns the workspace, approvals, the embedded terminal, Git, and a tight security boundary.
 
-Current release **0.1.21**. Built with Electron, React, Vite, and TypeScript. Primary packages are macOS and Windows.
+Current release **0.1.21**. Built with Electron, React, Vite, and TypeScript. Packages are published for macOS, Windows, and Linux.
 
 ```text
 Renderer (sandboxed, no Node)
@@ -200,8 +202,9 @@ Get the latest build from [GitHub Releases](https://github.com/Eileenes/pi-deskt
 | --- | --- |
 | macOS | `.dmg` / `.zip` |
 | Windows | NSIS `.exe` / `.zip` |
+| Linux | `.AppImage` / `.deb` |
 
-After install, the app checks Releases for newer versions. Restart once a download finishes to apply it.
+After install, the app checks Releases for newer versions. Restart once a download finishes to apply it. Linux auto-update uses the AppImage.
 
 Unsigned test builds may trigger Gatekeeper or SmartScreen. Production releases should be signed and notarized.
 
@@ -223,9 +226,10 @@ Do not map a local Pi source tree into this repository. The desktop app uses onl
 ```sh
 npm run package:mac
 npm run package:win
+npm run package:linux
 ```
 
-Installers land in `release/`. Pushing a `v*` tag builds macOS and Windows packages on GitHub Actions and publishes them to Releases.
+Installers land in `release/`. Pushing a `v*` tag builds macOS, Windows, and Linux packages on GitHub Actions and publishes them to Releases.
 
 ### Layout
 

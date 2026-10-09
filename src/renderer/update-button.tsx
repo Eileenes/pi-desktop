@@ -29,11 +29,12 @@ function DownloadedIcon() {
 			viewBox="0 0 24 24"
 			fill="none"
 			stroke="currentColor"
-			strokeWidth="2"
+			strokeWidth="1.75"
+			strokeLinecap="round"
+			strokeLinejoin="round"
 			aria-hidden="true"
 		>
-			<circle cx="12" cy="12" r="9" />
-			<path d="m8 12.5 2.5 2.5 5.5-6" strokeLinecap="round" strokeLinejoin="round" />
+			<path d="M5 12.5 10 17.5 19 7" />
 		</svg>
 	);
 }
@@ -94,8 +95,8 @@ export const UpdateButton = memo(function UpdateButton(_props: { variant: "foote
 	if (update.phase === "ready") {
 		return (
 			<Button
-				size="icon"
-				className={iconButtonClass}
+				variant="bare"
+				className="inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-xs)] border-0 bg-transparent p-0 text-[color:var(--muted)] hover:bg-[var(--hover)] hover:text-[color:var(--text)]"
 				title={t("updateInstallHint")}
 				aria-label={t("update")}
 				onClick={() => update.install()}

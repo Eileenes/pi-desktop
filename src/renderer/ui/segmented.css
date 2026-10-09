@@ -62,6 +62,16 @@
 	background: var(--accent);
 }
 
+.ui-segmented-tiles .ui-segment.ui-segment-static:hover:not(:disabled) {
+	background: var(--ds-tile-hover);
+	color: var(--text-primary);
+}
+
+.ui-segmented-tiles .ui-segment.ui-segment-static.is-active:hover:not(:disabled) {
+	background: var(--accent);
+	color: var(--on-accent);
+}
+
 .ui-segmented .ui-segment:disabled {
 	opacity: 0.45;
 }

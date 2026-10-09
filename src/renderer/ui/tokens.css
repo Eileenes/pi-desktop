@@ -78,6 +78,7 @@
 	--ds-tile-deep: color-mix(in oklab, var(--gray-0) 8%, transparent);
 	--ds-raised: var(--gray-750);
 	--ds-raised-shadow: 0 1px 2px rgb(0 0 0 / 35%);
+	--ds-raised-border: color-mix(in oklab, var(--gray-0) 28%, transparent);
 	--ds-accent: var(--gray-0);
 	--ds-accent-hover: var(--gray-100);
 	--ds-accent-soft: var(--gray-300);
@@ -361,6 +362,7 @@
 	--ds-tile-deep: color-mix(in oklab, #1a1c1f 8%, transparent);
 	--ds-raised: #fff;
 	--ds-raised-shadow: 0 1px 2px rgb(0 0 0 / 10%), 0 0 0 0.5px rgb(0 0 0 / 4%);
+	--ds-raised-border: color-mix(in oklab, #1a1c1f 16%, transparent);
 	--ds-accent: #1a1c1f;
 	--ds-accent-hover: var(--gray-700);
 	--ds-accent-soft: var(--gray-500);
@@ -558,12 +560,6 @@ button{
 	select:focus-visible,
 	textarea:focus-visible{
 	outline: none;
-}
-
-	input:focus,
-	select:focus,
-	textarea:focus{
-	box-shadow: 0 0 0 2px color-mix(in oklab, var(--ds-accent) 22%, transparent);
 }
 
 html{

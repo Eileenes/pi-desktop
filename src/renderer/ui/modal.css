@@ -69,6 +69,13 @@
 	min-width: 0;
 }
 
+.modal-header-actions {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 8px;
+}
+
 .modal-title {
 	margin: 0;
 	color: var(--text-primary);

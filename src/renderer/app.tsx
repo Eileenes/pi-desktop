@@ -324,6 +324,7 @@ type IconName =
 	| "external"
 	| "files"
 	| "folder"
+	| "folderOpen"
 	| "gear"
 	| "history"
 	| "image"
@@ -399,6 +400,7 @@ const SIDEBAR_SESSION_MORE_MENU =
 	"absolute top-[calc(100%+2px)] right-1 z-[45] grid min-w-[150px] max-w-[240px] rounded-[var(--radius-xs)] border border-[var(--border-subtle)] bg-[var(--surface-1)] p-1 shadow-[var(--shadow-float)] [&_button]:overflow-hidden [&_button]:rounded-[var(--radius-2xs)] [&_button]:border-0 [&_button]:bg-transparent [&_button]:px-2.5 [&_button]:py-[7px] [&_button]:text-left [&_button]:text-[length:var(--text-sm)] [&_button]:text-ellipsis [&_button]:whitespace-nowrap [&_button]:text-[color:var(--text)] [&_button:hover:not(:disabled)]:bg-[var(--ds-bg-hover)] [&_button:disabled]:opacity-50 [&_button.is-danger]:text-[color:var(--ds-error)]";
 const SIDEBAR_PROJECT_ACTION =
 	"inline-flex size-6 items-center justify-center rounded-[var(--radius-sm)] border-0 bg-transparent p-0 text-[color:var(--muted)] hover:bg-[var(--hover)] hover:text-[color:var(--text)] [&>svg]:block";
+const PROJECT_PREVIEW_LIMIT = 5;
 
 function subscribeCompactComposer(onStoreChange: () => void): () => void {
 	const media = window.matchMedia(COMPACT_COMPOSER_MEDIA_QUERY);
@@ -635,6 +637,13 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 		return (
 			<svg {...shared} aria-hidden="true">
 				<path d="M3.5 6.5A1.5 1.5 0 0 1 5 5h5l1.8 2h7.7A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-11Z" />
+			</svg>
+		);
+	if (name === "folderOpen")
+		return (
+			<svg {...shared} aria-hidden="true">
+				<path d="M3.5 19.5V7.2A1.5 1.5 0 0 1 5 5.7h4.1l1.7 1.8h6.7A1.5 1.5 0 0 1 19 9v1.1" />
+				<path d="M4.2 19.5h14.1a1.4 1.4 0 0 0 1.36-1.06L21.4 12H8.3a1.4 1.4 0 0 0-1.35 1.04L4.2 19.5Z" />
 			</svg>
 		);
 	if (name === "gear")
@@ -3076,6 +3085,7 @@ export function App() {
 	const [namingState, setNamingState] = useState<"idle" | "loading" | "success" | "error">("idle");
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
+	const [allProjectsVisible, setAllProjectsVisible] = useState(false);
 	const [projectsInitialized, setProjectsInitialized] = useState(false);
 	const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
 	const [archivedProjectRoots, setArchivedProjectRoots] = useState<Set<string>>(() => {
@@ -5059,6 +5069,17 @@ export function App() {
 				}),
 			},
 		].filter((group) => group.entries.length > 0);
+		const previewRoots = new Set(
+			(allProjectsVisible ? activeProjects : activeProjects.slice(0, PROJECT_PREVIEW_LIMIT)).map(([root]) => root),
+		);
+		const currentProjectRoot = activeProjects.find(([, items]) => items.some((item) => item.id === session?.id))?.[0];
+		if (currentProjectRoot) previewRoots.add(currentProjectRoot);
+		const visibleProjectGroups = projectGroups
+			.map((group) => ({
+				...group,
+				entries: group.entries.filter(([root]) => previewRoots.has(root)),
+			}))
+			.filter((group) => group.entries.length > 0);
 		return (
 			<section className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto px-2 pb-2" aria-label={t("sessions")}>
 				<div className="project-menu-root relative mt-1 flex min-h-[34px] items-center justify-between pr-0.5 text-[length:var(--text-md)] font-[650] tracking-[0.12em] text-[color:var(--text-dim)]">
@@ -5088,7 +5109,7 @@ export function App() {
 					{projectMenuOpen ? renderProjectMenu() : null}
 				</div>
 				{activeProjects.length
-					? projectGroups.map((group, groupIndex) => (
+					? visibleProjectGroups.map((group, groupIndex) => (
 							<div
 								className="grid gap-1.5 not-first:mt-1.5"
 								key={group.section ? `section-${group.section}` : `ungrouped-${groupIndex}`}
@@ -5143,7 +5164,7 @@ export function App() {
 													}}
 													onMouseLeave={scheduleHoverClose}
 												>
-													<Icon name={collapsed ? "briefcase" : "briefcaseOpen"} size={15} />
+													<Icon name={collapsed ? "folder" : "folderOpen"} size={15} />
 													<span className="grid min-w-0 flex-1 gap-px [&>small]:truncate [&>small]:text-[length:var(--text-xs)] [&>small]:font-normal [&>small]:text-[color:var(--muted)]">
 														{/*
 														 * The whole project name, wrapped over at most two lines:
@@ -5151,7 +5172,7 @@ export function App() {
 														 * "pi-de…" even when the sidebar had room for it.
 														 */}
 														<span
-															className="min-w-0 truncate text-[length:var(--text-base)] font-[var(--font-weight-medium)]"
+															className="min-w-0 truncate text-[length:var(--text-sm)] font-medium"
 															title={projectLabel(root)}
 														>
 															{projectLabel(root)}
@@ -5460,19 +5481,21 @@ export function App() {
 													})}
 													{!expanded && flattenedItems.length > 5 ? (
 														<Button
-															size="sm"
-															className="border-0 bg-transparent py-[5px] px-0 text-left text-[length:var(--text-xs)] text-[color:var(--text-dim)] hover:text-[color:var(--text)]"
+															variant="bare"
+															className="bg-transparent py-[5px] px-2.5 text-left hover:bg-transparent"
 															onClick={() =>
 																setExpandedProjects((current) => new Set(current).add(root))
 															}
 														>
-															{t("showMore", { count: flattenedItems.length - 5 })}
+															<span className="text-[length:var(--text-sm)] font-medium text-[color:var(--text)]">
+																{t("showMore", { count: flattenedItems.length - 5 })}
+															</span>
 														</Button>
 													) : null}
 													{expanded && flattenedItems.length > 5 ? (
 														<Button
-															size="sm"
-															className="border-0 bg-transparent py-[5px] px-0 text-left text-[length:var(--text-xs)] text-[color:var(--text-dim)] hover:text-[color:var(--text)]"
+															variant="bare"
+															className="bg-transparent py-[5px] px-2.5 text-left hover:bg-transparent"
 															onClick={() =>
 																setExpandedProjects((current) => {
 																	const next = new Set(current);
@@ -5481,7 +5504,9 @@ export function App() {
 																})
 															}
 														>
-															{t("showLess")}
+															<span className="text-[length:var(--text-sm)] font-medium text-[color:var(--text)]">
+																{t("showLess")}
+															</span>
 														</Button>
 													) : null}
 												</div>
@@ -5492,6 +5517,17 @@ export function App() {
 							</div>
 						))
 					: null}
+				{activeProjects.length > PROJECT_PREVIEW_LIMIT ? (
+					<Button
+						variant="bare"
+						className="bg-transparent px-2.5 py-1 text-left shadow-none hover:bg-transparent"
+						onClick={() => setAllProjectsVisible((current) => !current)}
+					>
+						<span className="text-[length:var(--text-sm)] font-medium text-[color:var(--text)]">
+							{allProjectsVisible ? t("viewFewerProjects") : t("viewMoreProjects")}
+						</span>
+					</Button>
+				) : null}
 			</section>
 		);
 	}
@@ -5679,8 +5715,8 @@ export function App() {
 				aria-label={t("projectNavAria")}
 				aria-hidden={!sidebarOpen}
 			>
-				<header className={`grid gap-1.5 px-2 pb-1.5 pl-4 ${macOSClassName ? "pt-[30px]" : "pt-1.5"}`}>
-					<div className="flex h-[var(--ds-control-size)] items-center justify-between gap-1 pl-2.5">
+				<header className={`grid gap-[26px] px-2 pb-[26px] pl-4 ${macOSClassName ? "pt-[30px]" : "pt-1.5"}`}>
+					<div className="flex h-[var(--ds-control-size)] items-center justify-between gap-1">
 						<span className="inline-flex min-w-0 items-center gap-1">
 							<BrandMark
 								className="block size-[18px] shrink-0 rounded-[var(--radius-3xs)] object-contain"
@@ -5740,7 +5776,8 @@ export function App() {
 						</div>
 					</div>
 					<Button
-						className="flex h-[38px] w-full min-w-0 items-center justify-center gap-[7px] rounded-[var(--radius-md)] border-0 bg-[var(--ds-raised)] px-2.5 text-left text-[length:var(--text-base)] font-medium tracking-[var(--tracking-normal)] whitespace-nowrap text-[color:var(--text-primary)] shadow-[0_0_0_0.5px_var(--ds-border-subtle)] transition-[background] duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-out)] hover:enabled:bg-[var(--ds-bg-hover)] disabled:bg-[var(--ds-tile)] [&>svg]:shrink-0 [&>svg]:text-[color:var(--text-primary)] supports-[corner-shape:superellipse(1.5)]:[corner-shape:superellipse(1.5)]"
+						variant="bare"
+						className="flex h-[35px] w-full min-w-0 items-center justify-center gap-[7px] rounded-[var(--radius-md)] border-0 bg-transparent px-2.5 text-[length:var(--text-base)] font-medium tracking-[var(--tracking-normal)] text-[color:var(--text-primary)] shadow-[0_0_0_1px_var(--ds-raised-border)] transition-[background] duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-out)] hover:enabled:bg-[var(--ds-bg-hover)] disabled:opacity-45 [&>svg]:shrink-0"
 						disabled={session?.phase === "running"}
 						onClick={() => void handleNewSession()}
 					>
@@ -7263,7 +7300,9 @@ export function App() {
 				<AppSettingsModal
 					accent={accent}
 					theme={theme}
+					themeFollowsSystem={themeFollowsSystem}
 					notifyOnComplete={notifyOnComplete}
+					onFollowSystem={() => setThemeFollowsSystem(true)}
 					onChangeTheme={(nextTheme) => {
 						setThemeFollowsSystem(false);
 						setTheme(nextTheme);

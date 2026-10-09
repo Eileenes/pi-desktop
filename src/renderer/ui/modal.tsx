@@ -23,6 +23,8 @@ interface ModalProps {
 	closeDisabled?: boolean;
 	/** Skip the title row; `title` still names the dialog for assistive tech. */
 	hideHeader?: boolean;
+	/** Sits to the left of the close control in the title row. */
+	headerTrailing?: ReactNode;
 	/** Command palettes sit near the top; settings dialogs stay centered. */
 	align?: "center" | "start";
 	children: ReactNode;
@@ -39,6 +41,7 @@ export const Modal = memo(function Modal({
 	onSubmit,
 	closeDisabled = false,
 	hideHeader = false,
+	headerTrailing,
 	align = "center",
 	children,
 }: ModalProps) {
@@ -128,9 +131,18 @@ export const Modal = memo(function Modal({
 							<h2 className="modal-title">{title}</h2>
 							{subtitle ? <code className="modal-subtitle">{subtitle}</code> : null}
 						</div>
-						<Button size="icon" type="button" aria-label={t("close")} disabled={closeDisabled} onClick={onClose}>
-							×
-						</Button>
+						<div className="modal-header-actions">
+							{headerTrailing}
+							<Button
+								size="icon"
+								type="button"
+								aria-label={t("close")}
+								disabled={closeDisabled}
+								onClick={onClose}
+							>
+								×
+							</Button>
+						</div>
 					</header>
 				)}
 				{onSubmit ? (
